@@ -23,7 +23,7 @@
     "next-auth": "^4.24.5",
     "bcryptjs": "^2.4.3",
     "@prisma/client": "^5.7.0",
-    "three": "^r128",
+    "three": "^0.160.0",
     "@react-three/fiber": "^8.15.0",
     "@react-three/drei": "^9.88.0",
     "zustand": "^4.4.6",
