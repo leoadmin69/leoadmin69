@@ -1,18 +1,5 @@
 'use client';
 
-import dynamic from 'next/dynamic';
-import { Suspense } from 'react';
-
-const Canvas = dynamic(
-  () => import('@react-three/fiber').then((mod) => mod.Canvas),
-  { ssr: false }
-);
-
-const TennisRacket3D = dynamic(
-  () => import('./3D/TennisRacket3D'),
-  { ssr: false }
-);
-
 export default function Hero() {
   return (
     <section className="relative w-full h-screen pt-20 flex items-center justify-center overflow-hidden">
@@ -86,15 +73,40 @@ export default function Hero() {
           </div>
         </div>
 
-        {/* 3D Racket */}
-        <div className="hidden lg:block h-96 relative">
-          <Suspense fallback={<div className="w-full h-full flex items-center justify-center text-ocean-300">Chargement...</div>}>
-            <Canvas camera={{ position: [0, 0, 8], fov: 50 }}>
-              <ambientLight intensity={0.8} />
-              <pointLight position={[10, 10, 10]} intensity={1.2} />
-              <TennisRacket3D />
-            </Canvas>
-          </Suspense>
+        {/* 3D Racket - Interactive Animation */}
+        <div className="hidden lg:flex h-96 relative items-center justify-center">
+          <div className="relative w-full h-full flex items-center justify-center">
+            {/* Animated Racket Illustration */}
+            <div className="animate-spin-slow">
+              <svg className="w-64 h-64" viewBox="0 0 200 300" xmlns="http://www.w3.org/2000/svg">
+                {/* Handle */}
+                <rect x="85" y="180" width="30" height="80" fill="#8B4513" rx="15" />
+
+                {/* Frame */}
+                <circle cx="100" cy="90" r="70" fill="none" stroke="#FFD700" strokeWidth="8" />
+
+                {/* Strings */}
+                {[0, 45, 90, 135, 180, 225, 270, 315].map((angle) => {
+                  const rad = (angle * Math.PI) / 180;
+                  const x1 = 100 + 60 * Math.cos(rad);
+                  const y1 = 90 + 60 * Math.sin(rad);
+                  const x2 = 100;
+                  const y2 = 90;
+                  return (
+                    <line key={angle} x1={x1} y1={y1} x2={x2} y2={y2} stroke="white" strokeWidth="1" opacity="0.7" />
+                  );
+                })}
+
+                {/* Glow Effect */}
+                <circle cx="100" cy="90" r="75" fill="none" stroke="#0ea5e9" strokeWidth="2" opacity="0.3" />
+              </svg>
+            </div>
+
+            {/* Decorative Glow */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="w-80 h-80 rounded-full bg-ocean-500/20 blur-3xl animate-pulse-slow" />
+            </div>
+          </div>
         </div>
       </div>
 
