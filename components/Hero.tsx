@@ -18,7 +18,7 @@ export default function Hero() {
               ✨ Premier événement en Tunisie
             </div>
             <h1 className="text-5xl lg:text-6xl xl:text-7xl font-bold gradient-text leading-tight">
-              Bizerte Beach Tennis
+              Bizerte Beach Tennis ED. 2026
             </h1>
             <p className="text-lg text-ocean-100 leading-relaxed max-w-md">
               Découvrez l'expérience unique où le Beach Tennis rencontre la musique sur les plages dorées de la Méditerranée.
