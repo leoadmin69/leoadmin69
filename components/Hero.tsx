@@ -1,8 +1,17 @@
 'use client';
 
-import { Canvas } from '@react-three/fiber';
+import dynamic from 'next/dynamic';
 import { Suspense } from 'react';
-import TennisRacket3D from './3D/TennisRacket3D';
+
+const Canvas = dynamic(
+  () => import('@react-three/fiber').then((mod) => mod.Canvas),
+  { ssr: false }
+);
+
+const TennisRacket3D = dynamic(
+  () => import('./3D/TennisRacket3D'),
+  { ssr: false }
+);
 
 export default function Hero() {
   return (
