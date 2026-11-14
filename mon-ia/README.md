@@ -257,6 +257,20 @@ Agents fournis : **Développeur web**, **Chercheur**, **Organisateur**.
 ### Render.com
 New → **Web Service** → ton dépôt GitHub → *Root directory* `mon-ia` → Runtime **Docker** → mêmes variables. (Le plan gratuit s'endort après 15 min.)
 
+### Sauvegarde automatique de la mémoire
+
+Sur les hébergeurs gratuits, le disque s'efface à chaque redémarrage ou mise en veille. Pour que ton IA ne perde rien :
+1. Crée sur GitHub un dépôt **privé** vide (ex. `nova-memoire`).
+2. Crée un jeton : GitHub → Settings → Developer settings → *Fine-grained tokens* → seulement ce dépôt → permission *Contents : Read and write*.
+3. Ajoute chez ton hébergeur les variables `BACKUP_GITHUB_REPO` (`ton-pseudo/nova-memoire`) et `BACKUP_GITHUB_TOKEN`.
+
+Ensuite tout est automatique : la mémoire est enregistrée dès qu'elle change (au plus toutes les 10 minutes, et juste avant l'arrêt du serveur),
+puis rechargée au démarrage quand le disque est vide. Le fichier est compressé et **chiffré avec ton mot de passe admin** : sans lui, il est illisible.
+- Sont sauvegardés : personnalité, connaissances, leçons, conversations, agents, modèles et clés, missions, appareils, réglages, journal.
+- Ne sont pas sauvegardés : les pièces jointes envoyées dans le chat et les fichiers des projets (pousse-les sur leur dépôt Git).
+- Si tu changes `ADMIN_PASSWORD`, les anciennes sauvegardes ne peuvent plus être relues. Si la restauration échoue, les sauvegardes sont
+  suspendues pour ne pas écraser la bonne (état visible dans Admin → Données).
+
 ### Sécurité, important
 - Avec un projet ouvert, l'IA peut **exécuter des commandes** sur le serveur. C'est réservé à l'**admin** : les visiteurs (`PUBLIC_CHAT=true`) n'ont jamais accès aux projets, aux commandes ni à la mémoire.
 - Choisis un `ADMIN_PASSWORD` long et unique. Utilise des jetons GitHub **limités à un seul dépôt**.

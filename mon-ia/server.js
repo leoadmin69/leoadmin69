@@ -21,6 +21,10 @@ const missions = await import('./lib/missions.js');
 const { notify } = await import('./lib/notify.js');
 const files = await import('./lib/files.js');
 const learning = await import('./lib/learning.js');
+const backup = await import('./lib/backup.js');
+// Disque vide (hébergeur qui efface tout) : on recharge la dernière sauvegarde avant de démarrer.
+if (await backup.restoreIfEmpty()) console.log(`♻️  Mémoire restaurée depuis la sauvegarde du ${backup.backupStatus().lastBackupAt}`);
+backup.startAutoBackup();
 
 const PORT = Number(process.env.PORT || 3000);
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
@@ -298,6 +302,12 @@ async function adminApi(req, res, p, m) {
       if (!data.title || !data.instructions) return json(res, 400, { error: 'Titre et instructions requis' });
       try { return json(res, 200, missions.saveMission(data, m === 'PUT' ? id : undefined)); } catch (e) { return json(res, 400, { error: e.message }); }
     }
+  }
+  if (resource === 'autobackup') {
+    if (m === 'POST') {
+      try { return json(res, 200, await backup.backupNow({ force: !!data.force })); } catch (e) { return json(res, 200, { ...backup.backupStatus(), error: e.message }); }
+    }
+    return json(res, 200, backup.backupStatus());
   }
   if (resource === 'journal') return json(res, 200, load('journal').slice(0, 60));
   if (resource === 'proposals') {

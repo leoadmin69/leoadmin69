@@ -322,6 +322,15 @@
   <section class="panel" id="data">
     <div class="grid">
       <div class="item"><div><b>Dataset d'entraînement (JSONL)</b><p class="help">Toutes les réponses notées 👍 ou corrigées, au format standard pour fine-tuner un modèle open-source (Unsloth / Colab gratuit).</p></div><button class="btn" id="exp">Exporter</button></div>
+      <div class="item" style="flex-direction:column;align-items:stretch"><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div><b>♻️ Sauvegarde automatique</b> <span class="tag" id="abTag"></span><p class="help" id="abInfo"></p></div>
+        <div><button class="btn" id="abRun">Sauvegarder maintenant</button></div></div>
+        <details class="steps" id="abHelp"><summary>Comment l'activer</summary><div style="font-family:inherit;color:var(--text);line-height:1.7">
+          1. Sur GitHub, crée un dépôt <b>privé</b> vide, par exemple <code>nova-memoire</code>.<br>
+          2. Crée un jeton : GitHub → Settings → Developer settings → Fine-grained tokens → « Only select repositories » : ce dépôt → permission « Contents : Read and write ».<br>
+          3. Chez ton hébergeur, ajoute deux variables d'environnement : <code>BACKUP_GITHUB_REPO</code> = <code>ton-pseudo/nova-memoire</code> et <code>BACKUP_GITHUB_TOKEN</code> = le jeton.<br>
+          4. Redémarre. La mémoire est alors enregistrée toute seule (chiffrée avec ton mot de passe admin) et rechargée à chaque redémarrage.<br>
+          ⚠️ Si tu changes <code>ADMIN_PASSWORD</code>, les anciennes sauvegardes ne pourront plus être relues.</div></details></div>
       <div class="item"><div><b>Sauvegarde complète</b><p class="help">Les hébergeurs gratuits effacent parfois le disque : télécharge régulièrement une sauvegarde.</p></div><button class="btn" id="bak">Télécharger</button></div>
       <div class="item"><div><b>Restaurer</b><p class="help">Recharge une sauvegarde .json (remplace les données actuelles).</p></div><input type="file" id="rest" accept=".json" style="max-width:240px"></div>
     </div>
@@ -481,6 +490,23 @@ async function load(tab) {
     const o = location.origin;
     $('snipWidget').textContent = `<script src="${o}/widget.js" data-key="nova_…" data-title="Assistant" defer><\/script>`;
     $('snipApi').textContent = `# Discuter\ncurl ${o}/api/v1/chat -H "Authorization: Bearer nova_…" -H "Content-Type: application/json" \\\n  -d '{"message":"Bonjour !","lang":"fr"}'\n\n# Lancer une mission (avec des données) — l'id est dans l'onglet Missions\ncurl -X POST "${o}/api/v1/missions/ID_MISSION/run" -H "Authorization: Bearer nova_…" \\\n  -d '{"commande": 1234, "client": "Sami"}'`;
+  }
+  if (tab === 'data') {
+    const b = await api('autobackup');
+    $('abTag').textContent = !b.configured ? 'non configurée' : b.restoreFailed ? '⚠️ suspendue' : b.lastError ? '⚠️ erreur' : '✅ active';
+    $('abInfo').textContent = !b.configured ? "Ta mémoire n'est pas protégée contre un redémarrage de l'hébergeur."
+      : `Dépôt ${b.repo} · au plus toutes les ${b.minutes} min, et à l'arrêt du serveur. ` +
+        (b.lastBackupAt ? `Dernière sauvegarde : ${date(b.lastBackupAt)}. ` : 'Aucune sauvegarde pour le moment. ') +
+        (b.lastRestoreAt ? `Mémoire restaurée au démarrage (${date(b.lastRestoreAt)}). ` : '') + (b.lastError ? `Erreur : ${b.lastError}` : '');
+    $('abRun').disabled = !b.configured; $('abHelp').open = !b.configured;
+    $('abRun').onclick = async () => {
+      $('abRun').textContent = '…';
+      const force = b.restoreFailed && confirm("La restauration a échoué au démarrage. Forcer la sauvegarde remplacera l'ancienne par la mémoire actuelle. Continuer ?");
+      const r = await api('autobackup', 'POST', { force });
+      $('abRun').textContent = 'Sauvegarder maintenant';
+      if (r.error) alert(r.error);
+      load('data');
+    };
   }
   if (tab === 'tasks') {
     const list = await api('tasks');

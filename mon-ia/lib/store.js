@@ -75,8 +75,13 @@ export function load(name) {
   return cache[name];
 }
 
+const listeners = [];
+/** Prévenir quand une donnée change (utilisé par la sauvegarde automatique). */
+export const onSave = (fn) => listeners.push(fn);
+
 export function save(name, value) {
   if (value !== undefined) cache[name] = value;
+  for (const fn of listeners) fn(name);
   const tmp = file(name) + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(cache[name], null, 2));
   fs.renameSync(tmp, file(name));
