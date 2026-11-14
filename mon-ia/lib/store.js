@@ -23,6 +23,8 @@ const DEFAULTS = {
   lessons: [],   // { id, text, source, createdAt }  -> règles toujours appliquées
   tasks: [],     // { id, title, due, priority, done, createdAt }
   conversations: [], // { id, title, messages:[{role,content,feedback?,steps?}], updatedAt }
+  // Fournisseurs de modèles ajoutés par l'admin et rôles : fast (⚡), smart (🧠), fallbacks (secours).
+  models: { providers: [], roles: { fast: '', smart: '', fallbacks: [] } },
   workspaces: [], // projets (sites) auxquels l'IA a accès : voir lib/workspace.js
   // Agents spécialisés. tools = [] signifie « tous les outils ».
   agents: [

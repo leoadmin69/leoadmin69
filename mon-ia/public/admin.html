@@ -15,6 +15,7 @@
 
   <nav class="tabs" id="tabs">
     <button data-tab="dash" class="on">Tableau de bord</button>
+    <button data-tab="models">Modèles</button>
     <button data-tab="persona">Personnalité</button>
     <button data-tab="knowledge">Connaissances</button>
     <button data-tab="lessons">Leçons</button>
@@ -35,6 +36,49 @@
       <li><b>Corrections</b> : dans le chat, clique 👎 ou ✎ sous une réponse et écris la bonne. Elle devient une leçon.</li>
       <li><b>Entraînement profond</b> : onglet Données → exporte le dataset de tes bonnes réponses pour un vrai fine-tuning (voir README).</li>
     </ol>
+  </section>
+
+  <section class="panel" id="models">
+    <p class="help">L'intelligence de ton IA vient surtout du modèle. Ajoute plusieurs fournisseurs gratuits, teste-les, puis choisis
+      lequel sert de cerveau <b>🧠 Puissant</b> (code, analyse, sites), lequel sert de <b>⚡ Rapide</b> (discussions simples), et l'ordre de <b>secours</b>
+      si l'un sature. Les listes de modèles gratuits changent souvent : vérifie-les sur le site du fournisseur.</p>
+    <div class="grid card" style="max-width:none">
+      <b>Rôles</b>
+      <div class="row">
+        <label>🧠 Puissant<select id="rSmart"></select></label>
+        <label>⚡ Rapide<select id="rFast"></select></label>
+      </div>
+      <div><span class="help">Secours (essayés dans l'ordre si le principal échoue) :</span><div class="checks" id="rFallbacks"></div></div>
+      <div><button class="btn" id="saveRoles">Enregistrer les rôles</button> <span class="help" id="rMsg"></span></div>
+    </div>
+    <form class="grid card" style="max-width:none;margin-top:14px" id="mForm">
+      <input type="hidden" id="mId">
+      <b id="mTitle">Ajouter un fournisseur</b>
+      <div class="row">
+        <label>Fournisseur<select id="mPreset">
+          <option value="">— choisir —</option>
+          <option value="https://generativelanguage.googleapis.com/v1beta/openai|Google Gemini|aistudio.google.com/apikey">Google Gemini (gratuit, grand contexte)</option>
+          <option value="https://openrouter.ai/api/v1|OpenRouter|openrouter.ai/models?q=free">OpenRouter (nombreux modèles « :free »)</option>
+          <option value="https://api.groq.com/openai/v1|Groq|console.groq.com/keys">Groq (gratuit, très rapide)</option>
+          <option value="https://api.mistral.ai/v1|Mistral|console.mistral.ai">Mistral (offre d'essai gratuite)</option>
+          <option value="http://localhost:11434/v1|Ollama (local)|ollama.com/library">Ollama sur ton PC (100 % privé)</option>
+        </select></label>
+        <label>Nom<input id="mName" placeholder="ex : Gemini Flash"></label>
+      </div>
+      <label>URL de l'API (compatible OpenAI)<input id="mBase" required placeholder="https://…/v1"></label>
+      <div class="row">
+        <label>Clé API<input id="mKey" type="password" autocomplete="off" placeholder="colle ta clé"></label>
+        <label>Modèle<input id="mModel" required placeholder="nom exact du modèle"></label>
+      </div>
+      <span class="help" id="mHelp"></span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn" id="mSave">Ajouter</button>
+        <button type="button" class="btn ghost" id="mTest">Tester la connexion</button>
+        <button type="button" class="btn ghost" id="mCancel" hidden>Annuler</button>
+        <span class="help" id="mMsg"></span>
+      </div>
+    </form>
+    <div class="grid" id="mList" style="margin-top:14px"></div>
   </section>
 
   <section class="panel" id="persona">
@@ -169,7 +213,19 @@ async function load(tab) {
     const st = await (await fetch('/api/status', { headers: H() })).json();
     $('stats').innerHTML = [['Fiches de connaissances', k.length], ['Leçons', l.length], ['Tâches ouvertes', t.filter((x) => !x.done).length], ['Conversations', c.length], ['Retours reçus', c.reduce((s, x) => s + x.feedback, 0)]]
       .map(([n, v]) => `<div class="stat"><b>${v}</b><span class="help">${n}</span></div>`).join('') +
-      `<div class="stat"><b style="font-size:15px">${esc(st.llm.model)}</b><span class="help">${st.llm.configured ? 'Modèle connecté' : '⚠️ LLM_API_KEY manquante'}</span></div>`;
+      `<div class="stat"><b style="font-size:15px">🧠 ${esc(st.llm.smart || '—')}<br>⚡ ${esc(st.llm.fast || '—')}</b><span class="help">${st.llm.configured ? 'Modèles connectés' : '⚠️ Aucun modèle : onglet Modèles'}</span></div>`;
+  }
+  if (tab === 'models') {
+    models = await api('models');
+    const opts = (sel) => '<option value="">(automatique)</option>' + models.providers.map((p) => `<option value="${p.id}" ${sel === p.id ? 'selected' : ''}>${esc(p.name)} — ${esc(p.model)}</option>`).join('');
+    $('rSmart').innerHTML = opts(models.roles.smart); $('rFast').innerHTML = opts(models.roles.fast);
+    $('rFallbacks').innerHTML = models.providers.map((p) => `<label><input type="checkbox" value="${p.id}" ${(models.roles.fallbacks || []).includes(p.id) ? 'checked' : ''}> ${esc(p.name)}</label>`).join('') || '<span class="help">—</span>';
+    $('mList').innerHTML = models.providers.map((p) => `<div class="item"><div><b>${esc(p.name)}</b> <span class="tag">${esc(p.model)}</span>
+        ${models.roles.smart === p.id ? '<span class="tag">🧠 puissant</span>' : ''}${models.roles.fast === p.id ? ' <span class="tag">⚡ rapide</span>' : ''}
+        <div class="meta">${esc(p.baseUrl)} · clé ${p.apiKey ? 'enregistrée' : 'absente'}${p.fromEnv ? ' · depuis .env' : ''}</div><div class="meta" id="t-${p.id}"></div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button class="btn ghost small" onclick="testModel('${p.id}')">Tester</button>
+        ${p.fromEnv ? '' : `<button class="btn ghost small" onclick="editModel('${p.id}')">Modifier</button><button class="btn ghost small" onclick="delModel('${p.id}')">Supprimer</button>`}</div></div>`).join('')
+      || '<p class="help">Aucun fournisseur. Commence par Google Gemini ou OpenRouter : clé gratuite en 1 minute.</p>';
   }
   if (tab === 'persona') {
     const p = await api('persona');
@@ -229,6 +285,47 @@ async function load(tab) {
   }
 }
 window.del = async (res, id) => { if (confirm('Supprimer ?')) { await api(`${res}/${id}`, 'DELETE'); load({ conversations: 'convs', workspaces: 'projects' }[res] || res); } };
+
+// ----- Modèles -----
+let models = { providers: [], roles: {} };
+$('mPreset').onchange = () => {
+  const [base, name, help] = $('mPreset').value.split('|');
+  if (!base) return;
+  $('mBase').value = base; if (!$('mName').value) $('mName').value = name;
+  if (base.includes('11434')) $('mKey').value = 'ollama';
+  $('mHelp').innerHTML = `Clé et liste des modèles : <a href="https://${help}" target="_blank">${help}</a>`;
+};
+function resetModel() { $('mForm').reset(); $('mId').value = ''; $('mTitle').textContent = 'Ajouter un fournisseur'; $('mSave').textContent = 'Ajouter'; $('mCancel').hidden = true; $('mHelp').textContent = ''; }
+$('mCancel').onclick = resetModel;
+const mData = () => ({ id: $('mId').value || undefined, name: $('mName').value, baseUrl: $('mBase').value, apiKey: $('mKey').value, model: $('mModel').value });
+$('mForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const r = await api('models' + ($('mId').value ? '/' + $('mId').value : ''), $('mId').value ? 'PUT' : 'POST', mData());
+  if (r.error) return ($('mMsg').textContent = '⚠️ ' + r.error);
+  $('mMsg').textContent = '✓ Enregistré'; resetModel(); load('models');
+};
+$('mTest').onclick = async () => {
+  $('mMsg').textContent = 'Test en cours…';
+  const r = await api('models/test', 'POST', mData());
+  $('mMsg').textContent = r.ok ? `✅ Fonctionne (${r.ms} ms) : « ${r.reply} »` : '❌ ' + r.error;
+};
+window.testModel = async (id) => {
+  $('t-' + id).textContent = 'Test en cours…';
+  const r = await api('models/test', 'POST', { id });
+  $('t-' + id).textContent = r.ok ? `✅ Fonctionne (${r.ms} ms)` : '❌ ' + r.error;
+};
+window.editModel = (id) => {
+  const p = models.providers.find((x) => x.id === id);
+  $('mId').value = id; $('mName').value = p.name; $('mBase').value = p.baseUrl; $('mKey').value = p.apiKey; $('mModel').value = p.model;
+  $('mTitle').textContent = 'Modifier ' + p.name; $('mSave').textContent = 'Enregistrer'; $('mCancel').hidden = false;
+  $('mForm').scrollIntoView({ behavior: 'smooth' });
+};
+window.delModel = async (id) => { if (confirm('Supprimer ce fournisseur ?')) { await api('models/' + id, 'DELETE'); load('models'); } };
+$('saveRoles').onclick = async () => {
+  const fallbacks = [...$('rFallbacks').querySelectorAll('input:checked')].map((c) => c.value);
+  await api('models/roles', 'PUT', { smart: $('rSmart').value, fast: $('rFast').value, fallbacks });
+  $('rMsg').textContent = '✓ Enregistré'; setTimeout(() => ($('rMsg').textContent = ''), 2000); load('models');
+};
 
 // ----- Projets -----
 let projects = [], agents = [], toolList = [];

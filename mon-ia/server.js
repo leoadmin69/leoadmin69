@@ -14,7 +14,7 @@ try {
 
 const { load, save, newId, now } = await import('./lib/store.js');
 const { chunk } = await import('./lib/retrieval.js');
-const { llmInfo } = await import('./lib/llm.js');
+const { llmInfo, getProviders, testProvider } = await import('./lib/llm.js');
 const { runAgent, findAgent, ALL_TOOLS } = await import('./lib/agent.js');
 const ws = await import('./lib/workspace.js');
 
@@ -59,7 +59,7 @@ const pending = new Map(); // id -> { resolve, perm }
 async function handleChat(req, res) {
   const admin = isAdmin(req);
   if (!PUBLIC_CHAT && !admin) return json(res, 401, { error: 'Connexion requise' });
-  const { conversationId, message, agentId, workspaceId, mode } = await body(req);
+  const { conversationId, message, agentId, workspaceId, mode, tier } = await body(req);
   if (!message?.trim()) return json(res, 400, { error: 'Message vide' });
 
   const convs = load('conversations');
@@ -99,13 +99,13 @@ async function handleChat(req, res) {
   }));
   let result = { content: '', steps: [] };
   try {
-    result = await runAgent({ agent, history, ctx: { admin, workspace, perm, emit, approve, signal: abort.signal, depth: 0 } });
+    result = await runAgent({ agent, history, ctx: { admin, workspace, perm, emit, approve, tier: ['fast', 'smart'].includes(tier) ? tier : 'auto', signal: abort.signal, depth: 0 } });
   } catch (e) {
     if (!abort.signal.aborted) emit({ type: 'error', message: e.message });
   }
   clearInterval(ping);
   const stopped = abort.signal.aborted ? '\n\n_(interrompu)_' : '';
-  conv.messages.push({ role: 'assistant', content: (result.content || '') + stopped, steps: result.steps });
+  conv.messages.push({ role: 'assistant', content: (result.content || '') + stopped, steps: result.steps, model: result.model });
   conv.updatedAt = now();
   save('conversations');
   emit({ type: 'done', conversationId: conv.id, index: conv.messages.length - 1 });
@@ -154,6 +154,46 @@ async function adminApi(req, res, p, m) {
   }
   if (resource === 'lessons' && m === 'POST') return json(res, 200, crud('lessons', 'POST', null, { text: data.text, source: 'admin' }));
   if (resource === 'tasks' && m === 'POST') return json(res, 200, crud('tasks', 'POST', null, { title: data.title, due: data.due || null, priority: data.priority || 'normale', done: false }));
+  if (resource === 'models') {
+    // Fournisseurs de modèles : les clés ne sont jamais renvoyées au navigateur.
+    const cfg = load('models');
+    const view = () => ({
+      providers: getProviders().map((x) => ({ ...x, apiKey: x.apiKey ? MASK : '' })),
+      roles: cfg.roles, info: llmInfo(),
+    });
+    if (m === 'GET') return json(res, 200, view());
+    if (id === 'test' && m === 'POST') {
+      const prov = data.id ? getProviders().find((x) => x.id === data.id) : null;
+      const target = { ...(prov || {}), ...data, apiKey: data.apiKey && data.apiKey !== MASK ? data.apiKey : prov?.apiKey || '' };
+      return json(res, 200, await testProvider(target));
+    }
+    if (id === 'roles' && m === 'PUT') {
+      cfg.roles = { fast: data.fast || '', smart: data.smart || '', fallbacks: Array.isArray(data.fallbacks) ? data.fallbacks : [] };
+      save('models');
+      return json(res, 200, view());
+    }
+    if (m === 'POST' || m === 'PUT') {
+      if (id === 'env') return json(res, 400, { error: 'Ce fournisseur vient du fichier .env : modifie-le là-bas.' });
+      if (!data.baseUrl || !data.model) return json(res, 400, { error: 'URL et modèle requis' });
+      const fields = { name: data.name || data.model, baseUrl: data.baseUrl.trim(), model: data.model.trim() };
+      if (m === 'POST') cfg.providers.push({ id: newId(), ...fields, apiKey: data.apiKey || '' });
+      else {
+        const prov = cfg.providers.find((x) => x.id === id);
+        if (!prov) return json(res, 404, { error: 'Introuvable' });
+        Object.assign(prov, fields);
+        if (data.apiKey && data.apiKey !== MASK) prov.apiKey = data.apiKey;
+      }
+      save('models');
+      return json(res, 200, view());
+    }
+    if (m === 'DELETE') {
+      cfg.providers = cfg.providers.filter((x) => x.id !== id);
+      for (const k of ['fast', 'smart']) if (cfg.roles[k] === id) cfg.roles[k] = '';
+      cfg.roles.fallbacks = (cfg.roles.fallbacks || []).filter((x) => x !== id);
+      save('models');
+      return json(res, 200, view());
+    }
+  }
   if (resource === 'tools') return json(res, 200, ALL_TOOLS.map((t) => ({ name: t.name, kind: t.kind, group: t.group, description: t.def.function.description })));
 
   if (resource === 'agents') {

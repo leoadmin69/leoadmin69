@@ -42,7 +42,31 @@ Construire de zéro un modèle du niveau de Claude coûte des centaines de milli
 `LLM_BASE_URL=http://localhost:11434/v1`, `LLM_API_KEY=ollama`, `LLM_MODEL=qwen2.5-coder:14b`.
 En local, tu peux aussi donner accès à un **dossier de ton PC** (type « Dossier »).
 
-## 3. Lui donner accès à un site
+## 3. La rendre la plus intelligente possible
+
+**L'intelligence vient d'abord du modèle.** Aucun modèle gratuit n'égale aujourd'hui les meilleurs modèles payants (comme Claude Fable ou Opus)
+sur les tâches les plus difficiles. Les meilleurs modèles gratuits ou ouverts s'en approchent pourtant sur beaucoup de tâches courantes.
+Le moteur de Mon IA est conçu pour en tirer le maximum :
+
+| Technique | Ce que ça apporte |
+|---|---|
+| **Deux cerveaux** (Admin → **Modèles**) | 🧠 *Puissant* pour le code, l'analyse et les sites ; ⚡ *Rapide* pour les questions simples. En mode **Auto**, le choix est automatique. |
+| **Modèles de secours** | Si un fournisseur gratuit sature ou tombe en panne, le suivant prend le relais sans que tu le voies. |
+| **Outil de réflexion** (`think`) | Avant d'agir, le modèle décompose le problème. Ça améliore nettement les tâches en plusieurs étapes. |
+| **Principes intégrés** | Exactitude, honnêteté sur les échecs, lire avant de modifier, respecter le style existant, ne pas en faire trop. |
+| **Vérification forcée** | Si elle modifie du code sans vérifier, le moteur l'oblige à relire et tester avant de conclure. |
+| **Lectures en parallèle** | Plusieurs lectures et recherches indépendantes s'exécutent en même temps : c'est plus rapide. |
+| **Agents spécialisés + mémoire + leçons** | Le savoir-faire s'accumule au fil de tes corrections. |
+
+**Configuration conseillée (gratuite)** : ajoute 2 ou 3 fournisseurs dans Admin → **Modèles**, clique sur **Tester** pour chacun, puis :
+- 🧠 Puissant : le meilleur modèle de code gratuit du moment, sur OpenRouter (filtre « free ») ou Google Gemini (modèles Flash) ;
+- ⚡ Rapide : un modèle léger et rapide (Groq, Gemini Flash-Lite…) ;
+- Secours : les autres.
+
+Les listes de modèles gratuits changent tous les mois. Consulte la page du fournisseur et un classement à jour avant de choisir.
+**Ton IA ne dépend d'aucun d'eux** : tu changes de cerveau en deux clics, et sa mémoire, ses agents et ses projets restent les mêmes.
+
+## 4. Lui donner accès à un site
 
 Admin → **Projets** → ajoute un projet :
 
@@ -79,7 +103,7 @@ L'outil `deploy` choisit automatiquement :
 
 Si ton dépôt GitHub est déjà relié à Vercel, Netlify ou GitHub Pages, un simple `git_commit_push` suffit : le site se met à jour tout seul.
 
-## 4. Les agents
+## 5. Les agents
 
 Admin → **Agents** (ou demande-le dans le chat : *« Crée un agent Rédacteur SEO qui optimise les textes et les balises meta »*).
 Un agent, c'est : un nom, des instructions, une liste d'outils autorisés, et éventuellement un modèle différent (ex. un modèle spécialisé code pour le Développeur).
@@ -89,7 +113,7 @@ Un agent, c'est : un nom, des instructions, une liste d'outils autorisés, et é
 
 Agents fournis : **Développeur web**, **Chercheur**, **Organisateur**.
 
-## 5. Mettre ton IA en ligne gratuitement
+## 6. Mettre ton IA en ligne gratuitement
 
 ### Hugging Face Spaces (recommandé)
 1. [huggingface.co](https://huggingface.co) → **New Space** → SDK **Docker** → Blank.
@@ -115,7 +139,7 @@ New → **Web Service** → ton dépôt GitHub → *Root directory* `mon-ia` →
 - L'IA ne peut pas sortir du dossier du projet ni toucher au dossier `.git` directement.
 - Garde le mode **Demander** tant que tu ne connais pas bien le comportement du modèle.
 
-## 6. L'entraîner
+## 7. L'entraîner
 
 | Tu veux… | Fais ça |
 |---|---|
@@ -127,14 +151,14 @@ New → **Web Service** → ton dépôt GitHub → *Root directory* `mon-ia` →
 
 **Fine-tuning (gratuit)** : après environ 200 réponses validées ou corrigées, Admin → **Données → Exporter** (`dataset.jsonl`), puis entraîne un modèle avec un notebook **Unsloth** sur Google Colab (GPU gratuit). Exporte-le en GGUF, charge-le dans Ollama, et mets `LLM_MODEL=ton-modele`. Ton IA tourne alors sur ton propre modèle.
 
-## 7. Structure du code
+## 8. Structure du code
 
 ```
 server.js            Serveur HTTP : chat en streaming, validations, API admin, aperçus et sites publiés
-lib/agent.js         Moteur d'agent : boucle d'outils, permissions, plan, délégation, création d'agents
+lib/agent.js         Moteur d'agent : choix du modèle, principes, réflexion, outils en parallèle, vérification, permissions, délégation
 lib/workspace.js     Projets et outils de code : fichiers, recherche, commandes, Git, déploiement
 lib/tools.js         Outils de base : web, lecture de pages, mémoire, tâches
-lib/llm.js           Connexion au modèle (API compatible OpenAI, streaming, outils, réessais)
+lib/llm.js           Fournisseurs de modèles, rôles ⚡/🧠, secours, streaming, réessais
 lib/retrieval.js     Recherche dans la mémoire (BM25)
 lib/store.js         Stockage JSON dans data/ (+ agents par défaut)
 public/index.html    Interface de chat

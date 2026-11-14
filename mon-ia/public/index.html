@@ -28,6 +28,11 @@
       </form>
       <div class="toolbar" id="toolbar">
         <label title="Qui répond">🤖 <select id="agentSel"></select></label>
+        <label title="Niveau d'intelligence">🧠 <select id="tierSel">
+          <option value="auto">Auto</option>
+          <option value="smart">Puissant</option>
+          <option value="fast">Rapide</option>
+        </select></label>
         <label title="Projet auquel l'IA a accès" class="admin-only">📁 <select id="wsSel"></select></label>
         <label title="Permissions" class="admin-only">🔐 <select id="modeSel">
           <option value="ask">Demander avant de modifier</option>
@@ -84,10 +89,11 @@ async function init() {
   document.title = status.name;
   $('who').textContent = status.admin ? '👑 Admin' : 'Invité';
   document.querySelectorAll('.admin-only').forEach((e) => (e.style.display = status.admin ? '' : 'none'));
-  $('hint').textContent = `${status.name} peut se tromper. Modèle : ${status.llm.model}` + (status.llm.configured ? '' : ' — ⚠️ clé API manquante');
+  const l = status.llm;
+  $('hint').textContent = `${status.name} peut se tromper. ` + (l.configured ? `🧠 ${l.smart}` + (l.fast && l.fast !== l.smart ? ` · ⚡ ${l.fast}` : '') : '⚠️ Aucun modèle configuré (Admin → Modèles)');
   $('agentSel').innerHTML = `<option value="">${esc(status.name)} (générale)</option>` + status.agents.map((a) => `<option value="${a.id}" title="${esc(a.description)}">${esc(a.name)}</option>`).join('');
   $('wsSel').innerHTML = '<option value="">Aucun projet</option>' + status.workspaces.map((w) => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
-  $('agentSel').value = pref('agent') || ''; $('wsSel').value = pref('ws') || ''; $('modeSel').value = pref('mode') || 'ask';
+  $('agentSel').value = pref('agent') || ''; $('tierSel').value = pref('tier') || 'auto'; $('wsSel').value = pref('ws') || ''; $('modeSel').value = pref('mode') || 'ask';
   if ($('agentSel').selectedIndex < 0) $('agentSel').value = '';
   if ($('wsSel').selectedIndex < 0) $('wsSel').value = '';
   updatePreview();
@@ -100,6 +106,7 @@ function updatePreview() {
   if (w) { $('previewLink').href = w.previewUrl; $('previewLink').textContent = w.publicUrl ? 'Aperçu ↗ · en ligne' : 'Aperçu du site ↗'; }
 }
 $('agentSel').onchange = () => pref('agent', $('agentSel').value);
+$('tierSel').onchange = () => pref('tier', $('tierSel').value);
 $('wsSel').onchange = () => { pref('ws', $('wsSel').value); updatePreview(); };
 $('modeSel').onchange = () => pref('mode', $('modeSel').value);
 
@@ -140,6 +147,7 @@ async function openConv(id) {
       a.flow.appendChild(d);
     }
     a.text(m.content);
+    if (m.model) a.model({ name: m.model });
     addActions(a.el, i, m.feedback, m.content);
   });
   scroll();
@@ -161,7 +169,7 @@ function addAssistant() {
   flow.className = 'bubble flow';
   el.appendChild(flow);
   $('inner').appendChild(el);
-  let seg = null, segText = '', planEl = null;
+  let seg = null, segText = '', planEl = null, modelEl = null;
   const tools = {};
   return {
     el, flow,
@@ -177,6 +185,11 @@ function addAssistant() {
       d.className = 'action running';
       d.innerHTML = `<summary><span class="dot"></span><b>${esc(e.agent ? `[${e.agent}] ` : '')}${esc(label(e.name))}</b> <code>${esc(argSummary(e.name, e.args))}</code></summary><pre class="out">${esc(argDetail(e.name, e.args))}</pre>`;
       flow.appendChild(d); tools[e.id] = d;
+    },
+    model(e) {
+      if (e.agent) return;
+      if (!modelEl) { modelEl = document.createElement('div'); modelEl.className = 'model-tag'; el.prepend(modelEl); }
+      modelEl.textContent = (e.tier === 'fast' ? '⚡ ' : e.tier === 'smart' ? '🧠 ' : '') + e.name;
     },
     toolResult(e) {
       const d = tools[e.id]; if (!d) return;
@@ -210,11 +223,11 @@ function addAssistant() {
 const LABELS = { web_search: '🔎 Recherche web', read_page: '📄 Lecture de page', search_knowledge: '🧠 Mémoire', add_task: '✅ Ajout de tâche', list_tasks: '📋 Tâches',
   complete_task: '✔️ Tâche terminée', remember: '💾 Mémorisation', list_files: '📂 Fichiers', read_file: '👁 Lecture', search_code: '🔍 Recherche dans le code',
   write_file: '📝 Écriture', edit_file: '✏️ Modification', delete_file: '🗑 Suppression', run_command: '⌨️ Commande', git_status: '🌿 Git status', git_diff: '🌿 Git diff',
-  git_commit_push: '🚀 Commit + push', deploy: '🌍 Mise en ligne', update_plan: '🗒 Plan', call_agent: '🤖 Délégation', create_agent: '✨ Création d\'agent' };
+  git_commit_push: '🚀 Commit + push', deploy: '🌍 Mise en ligne', update_plan: '🗒 Plan', think: '💭 Réflexion', call_agent: '🤖 Délégation', create_agent: '✨ Création d\'agent' };
 const label = (n) => LABELS[n] || n;
 function argSummary(name, a) {
   if (name === 'call_agent') return `${a.agent} : ${String(a.task || '').slice(0, 60)}`;
-  if (name === 'update_plan') return '';
+  if (name === 'update_plan' || name === 'think') return '';
   return String(a.path || a.query || a.command || a.title || a.name || a.url || a.message || a.pattern || a.build_command || '').slice(0, 90);
 }
 function argDetail(name, a, full) {
@@ -223,6 +236,7 @@ function argDetail(name, a, full) {
   if (name === 'run_command') return '$ ' + a.command;
   if (name === 'create_agent') return `${a.name} — ${a.description || ''}\nOutils : ${(a.tools || []).join(', ') || 'tous'}\n\n${a.instructions}`;
   if (name === 'call_agent') return a.task;
+  if (name === 'think') return a.thought;
   if (name === 'update_plan') return '';
   return full ? JSON.stringify(a, null, 2) : '';
 }
@@ -275,7 +289,7 @@ async function send() {
   try {
     const res = await fetch('/api/chat', {
       method: 'POST', headers: headers(), signal: controller.signal,
-      body: JSON.stringify({ conversationId: convId, message: text, agentId: $('agentSel').value, workspaceId: $('wsSel').value, mode: $('modeSel').value }),
+      body: JSON.stringify({ conversationId: convId, message: text, agentId: $('agentSel').value, workspaceId: $('wsSel').value, mode: $('modeSel').value, tier: $('tierSel').value }),
     });
     if (!res.ok) throw new Error((await res.json()).error);
     const reader = res.body.getReader();
@@ -299,6 +313,7 @@ async function send() {
         if (e.type === 'tool') a.tool(e);
         if (e.type === 'tool_result') a.toolResult(e);
         if (e.type === 'plan') a.plan(e.steps);
+        if (e.type === 'model') a.model(e);
         if (e.type === 'approval') a.approval(e);
         if (e.type === 'error') a.text(`> ⚠️ Erreur : ${e.message}`);
         if (e.type === 'done') done = e;
