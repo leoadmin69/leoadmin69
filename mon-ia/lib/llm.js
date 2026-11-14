@@ -174,6 +174,6 @@ export async function testProvider(p) {
     try { reply = JSON.parse(txt).choices?.[0]?.message?.content || ''; } catch { /* réponse inattendue */ }
     return { ok: true, ms: Date.now() - t, reply: reply.slice(0, 50) };
   } catch (e) {
-    return { ok: false, error: e.message };
+    return { ok: false, error: `${e.cause?.code || e.message} (adresse : « ${clean(p.baseUrl) || 'vide'} », modèle : « ${p.model || 'vide'} »)` };
   }
 }

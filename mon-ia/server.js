@@ -242,7 +242,10 @@ async function adminApi(req, res, p, m) {
     if (m === 'GET') return json(res, 200, view());
     if (id === 'test' && m === 'POST') {
       const prov = data.id ? getProviders().find((x) => x.id === data.id) : null;
-      const target = { ...(prov || {}), ...data, apiKey: (data.apiKey && data.apiKey !== MASK ? data.apiKey : prov?.apiKey || '').trim() };
+      // Un champ vide du formulaire ne doit pas effacer l'adresse ou le modèle déjà enregistrés.
+      const filled = Object.fromEntries(Object.entries(data).filter(([k, v]) => v !== undefined && v !== '' && k !== 'apiKey'));
+      const target = { ...(prov || {}), ...filled, apiKey: (data.apiKey && data.apiKey !== MASK ? data.apiKey : prov?.apiKey || '').trim() };
+      if (!target.baseUrl || !target.model) return json(res, 200, { ok: false, error: `Adresse ou modèle manquant (adresse : « ${target.baseUrl || ''} », modèle : « ${target.model || ''} »). Vérifie le fournisseur dans Admin → Modèles.` });
       return json(res, 200, await testProvider(target));
     }
     if (id === 'roles' && m === 'PUT') {
