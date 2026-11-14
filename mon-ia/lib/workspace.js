@@ -145,6 +145,9 @@ export function describeWorkspace(ws) {
     return [
       "## Ton propre code (projet « Nova (elle-même) »)",
       "Tu peux modifier ton interface et ton programme dans ce dépôt. Ta copie de travail n'est PAS celle qui tourne : pour qu'un changement soit en ligne, il faut commiter (git_commit_push), puis l'hébergeur redéploie.",
+      "Carte de ton code (chemins relatifs à la racine du dépôt) : interface = mon-ia/public/index.html (pages, textes, boutons) ; styles = mon-ia/public/style.css ; page admin = mon-ia/public/admin.html ; serveur = mon-ia/server.js ; logique = mon-ia/lib/*.js.",
+      "Pour trouver un texte ou un élément, utilise search_code (par exemple « Que puis-je faire »). Ne demande JAMAIS à l'admin où se trouve un fichier : cherche-le. Ne demande qu'une confirmation de l'action, pas une information que tu peux trouver.",
+      "Commits : message court en français, préfixé « Mon IA : » (ex. « Mon IA : change le texte d'accueil »), un seul commit par demande, sauf si l'admin demande autre chose.",
       "Règles : lis avant de modifier ; change peu à la fois ; vérifie la syntaxe (node --check) ; après un changement risqué, dis-le à l'admin et propose la solution de retour (git_diff / git revert).",
       "Jamais de secret (clé, jeton, mot de passe) dans le code ni dans les commits. Les modifications demandent toujours l'accord de l'admin, sauf s'il l'a autorisé pour toujours.",
       `Racine du dépôt : ${top(root)}`,
