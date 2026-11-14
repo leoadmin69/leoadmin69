@@ -12,6 +12,8 @@ import { FILE_TOOLS } from './files.js';
 import { LEARNING_TOOLS } from './learning.js';
 import { QUANTUM_TOOLS } from './quantum.js';
 import { ADMIN_TOOLS } from './selfadmin.js';
+import { openHypotheses, updateWeights, simulateOutcomes, recordHypotheses, settleHypothesis, calibration } from './superposition.js';
+const HYPO_STORE = { get: (id) => load('hypothesisLog').find((e) => e.id === id) };
 
 const MAX_ROUNDS = 40;
 const MAX_DEPTH = 2;
@@ -69,12 +71,7 @@ export const AGENT_TOOLS = [
   }, ['name', 'instructions'], createAgent, { kind: 'write', group: 'agents', adminOnly: true }),
 ];
 
-export const ALL_TOOLS = [...BASIC_TOOLS, ...CODE_TOOLS, ...AGENT_TOOLS, ...NOTIFY_TOOLS, ...MISSION_TOOLS, ...DEVICE_TOOLS, ...FILE_TOOLS, ...LEARNING_TOOLS, ...QUANTUM_TOOLS, ...ADMIN_TOOLS,
-  // Certains groupes d'outils ne sont envoyés au modèle que quand le sujet s'y prête (pour économiser le quota des modèles gratuits).
-  // Cet outil permet à l'IA de les activer elle-même si elle en a besoin.
-  defineTool('load_tools', "Activer un groupe d'outils supplémentaires pour la suite : admin (tes réglages, modèles, clés, appareils, diagnostic), learning (apprentissage, journal, propositions), quantum (calcul quantique).",
-    { group: { type: 'string', enum: ['admin', 'learning', 'quantum', 'tasks', 'missions', 'team'], description: 'tasks = liste de tâches ; missions = missions programmées et notifications ; team = plan de travail et agents spécialisés' } }, ['group'], ({ group }, ctx) => { ctx.activeGroups?.add(group); return `Outils « ${group} » activés : tu peux les utiliser maintenant.`; }, { adminOnly: true, group: 'agents' }),
-];
+
 
 // Groupes activés selon le sujet du message (sinon via load_tools).
 const GROUP_HINTS = {
@@ -82,6 +79,44 @@ const GROUP_HINTS = {
   learning: /appren|journal|[ée]tudi|learn|progress|le[çc]on|am[ée]lior|session|d[ée]velopp/i,
   quantum: /quant|qubit|intrication|circuit|grover|superposition|ibm/i,
 };
+// Outils de raisonnement en superposition (mode interne, toujours disponibles pour l'admin).
+const SUPERPOSITION_TOOLS = [
+  defineTool('weigh_hypotheses', "Pour un problème difficile ou une décision incertaine : ouvrir 3 hypothèses distinctes avec un poids chacune, et dire quelle preuve les départagerait.",
+    { question: S }, ['question'], async ({ question }, ctx) => {
+      const hs = await openHypotheses(question);
+      if (!hs.length) return 'Impossible de formuler des hypothèses (modèle indisponible ?).';
+      const id = recordHypotheses(question, hs, null);
+      ctx.hypothesisId = id;
+      return `Hypothèses ouvertes (id ${id}) :\n` + hs.map((h) => `• ${Math.round(h.weight * 100)} % — ${h.text}\n   preuve qui départage : ${h.test}`).join('\n') +
+        '\nCollecte la preuve la plus discriminante (outils), puis appelle update_hypotheses avec ce que tu observes.';
+    }, { kind: 'read', adminOnly: true, group: 'agents' }),
+  defineTool('simulate_action', "Avant une action risquée (modifier un fichier, publier, changer un réglage, toucher un appareil) : simuler les issues possibles et savoir si agir, agir avec précaution, ou demander l'accord.",
+    { action: S, context: S }, ['action'], async ({ action, context }) => {
+      const r = await simulateOutcomes(action, context);
+      if (!r) return 'Simulation impossible (modèle indisponible).';
+      return `Recommandation : ${r.recommendation}. ${r.reason || ''}\n` + (r.outcomes || []).map((o) => `• ${Math.round((o.p || 0) * 100)} % ${o.name} — dommage : ${o.damage} — précaution : ${o.safeguard}`).join('\n');
+    }, { kind: 'read', adminOnly: true, group: 'agents' }),
+  defineTool('update_hypotheses', "Mettre à jour les poids d'un raisonnement en superposition avec une preuve observée (outils, lecture, résultat de test). Renvoie le nouveau classement.",
+    { id: S, evidence: S }, ['id', 'evidence'], async ({ id, evidence }) => {
+      const e = HYPO_STORE.get(id);
+      if (!e) return 'Raisonnement introuvable.';
+      const updated = await updateWeights(e.hypotheses.map((h, i) => ({ id: String(i), text: h.text, weight: h.weight, test: '' })), evidence);
+      e.hypotheses = updated.map(({ text, weight }) => ({ text, weight }));
+      save('hypothesisLog', load('hypothesisLog'));
+      return 'Poids mis à jour :\n' + [...updated].sort((a, b) => b.weight - a.weight).map((h) => `• ${Math.round(h.weight * 100)} % — ${h.text}`).join('\n') +
+        '\nSi une hypothèse dépasse 80 %, tu peux t\'y tenir ; sinon, cherche une autre preuve.';
+    }, { kind: 'safe', adminOnly: true, group: 'agents' }),
+  defineTool('settle_hypothesis', "Clore un raisonnement en superposition : noter l'issue réelle, pour que Nova apprenne quelles hypothèses tenaient.",
+    { id: S, outcome: S }, ['id', 'outcome'], ({ id, outcome }) => (settleHypothesis(id, outcome) ? 'Issue notée : je recalibrerai mes poids sur ce cas.' : 'Raisonnement introuvable.'), { kind: 'safe', adminOnly: true, group: 'agents' }),
+];
+
+export const ALL_TOOLS = [...BASIC_TOOLS, ...CODE_TOOLS, ...AGENT_TOOLS, ...NOTIFY_TOOLS, ...MISSION_TOOLS, ...DEVICE_TOOLS, ...FILE_TOOLS, ...LEARNING_TOOLS, ...QUANTUM_TOOLS, ...ADMIN_TOOLS, ...SUPERPOSITION_TOOLS,
+  // Certains groupes d'outils ne sont envoyés au modèle que quand le sujet s'y prête (pour économiser le quota des modèles gratuits).
+  // Cet outil permet à l'IA de les activer elle-même si elle en a besoin.
+  defineTool('load_tools', "Activer un groupe d'outils supplémentaires pour la suite : admin (tes réglages, modèles, clés, appareils, diagnostic), learning (apprentissage, journal, propositions), quantum (calcul quantique).",
+    { group: { type: 'string', enum: ['admin', 'learning', 'quantum', 'tasks', 'missions', 'team'], description: 'tasks = liste de tâches ; missions = missions programmées et notifications ; team = plan de travail et agents spécialisés' } }, ['group'], ({ group }, ctx) => { ctx.activeGroups?.add(group); return `Outils « ${group} » activés : tu peux les utiliser maintenant.`; }, { adminOnly: true, group: 'agents' }),
+];
+
 // Groupes supplémentaires mis de côté seulement en mode « léger » (modèle à petite limite de tokens).
 const LEAN_HINTS = {
   tasks: /t[âa]che|todo|à faire|rappel|liste/i,
@@ -340,6 +375,17 @@ export async function runAgent({ agent, history, ctx }) {
     const note = await explorePaths(query, tier === 'vision' ? 'smart' : tier, ctx);
     if (note) { messages.push({ role: 'user', content: note }); steps.push('explore_paths(3 pistes)'); }
   }
+  // Mode réflexion : pour une question difficile, Nova ouvre elle-même des hypothèses pondérées.
+  const hard = !sub && ctx.admin && query.length > 200;
+  if (hard && ctx.deep) {
+    const hs = await openHypotheses(query);
+    if (hs.length) {
+      ctx.hypothesisId = recordHypotheses(query, hs, null);
+      messages[0].content += `\n\n## Hypothèses en superposition pour cette question (poids initiaux)\n` +
+        hs.map((h) => `• ${Math.round(h.weight * 100)} % ${h.text} — preuve : ${h.test}`).join('\n') +
+        "\nGarde-les ouvertes, cherche la preuve qui les départage, mets les poids à jour, et ne conclus qu'une fois la preuve obtenue. Annonce l'hypothèse retenue et sa confiance.";
+    }
+  }
   let usedModel = '';
   let lastWrite = -1;
   let lastCheck = -1;
@@ -356,6 +402,11 @@ export async function runAgent({ agent, history, ctx }) {
     try {
       if (!tool) throw new Error(`Outil non disponible : ${call.function.name}`);
       // (le matériel gère sa propre autorisation, appareil par appareil : voir devices.js)
+      // Avant une action risquée, Nova anticipe les issues et le fait savoir à l'admin dans la carte d'autorisation.
+      if (['write', 'exec'].includes(tool.kind) && ctx.admin && !ctx.mission && !sub) {
+        const sim = await simulateOutcomes(`${tool.name} ${JSON.stringify(args).slice(0, 400)}`, query.slice(0, 500)).catch(() => null);
+        if (sim) ctx.emit({ type: 'tool_result', id, ok: true, output: `🔮 Issues anticipées : ${sim.recommendation}. ${sim.reason || ''}\n` + (sim.outcomes || []).map((o) => `• ${Math.round((o.p || 0) * 100)} % ${o.name} (dommage : ${o.damage})`).join('\n') });
+      }
       const always = load('settings').permissions?.always || [];
       if (ctx.perm.mode !== 'auto' && ['write', 'exec'].includes(tool.kind) && !always.includes(tool.name)) {
         const allowed = await ctx.approve({ name: tool.name, args, agent: ctx.agentName });

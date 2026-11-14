@@ -170,6 +170,19 @@ et fais régulièrement un **fine-tuning** sur ses meilleures réponses (Admin �
   l'annuler en un clic. Ses propres règles restent toujours en dessous des tiennes, les agents qu'elle se crée seule n'ont que des outils sans effet
   extérieur (recherche, lecture, réflexion, simulation), et tout ce qui **exécute** (code, publication, matériel, nouvelles missions) reste soumis à tes autorisations.
 
+### Raisonnement en superposition (inspiré du quantique, pas du calcul quantique)
+
+Nova ne tourne pas sur un ordinateur quantique, et son raisonnement reste classique. Mais elle utilise une méthode qui s'inspire de l'idée :
+garder plusieurs hypothèses ouvertes à la fois, leur donner un poids, et ne trancher qu'à la preuve.
+- **Raisonnement** : pour une question difficile (mode Profond, ou message long), elle ouvre 3 hypothèses avec un poids chacune, cherche la preuve qui les départage,
+  met les poids à jour, puis conclut en annonçant sa confiance.
+- **Exécution** : avant une action risquée (modifier, publier, changer un réglage), elle simule les issues possibles et te dit si elle agit, agit avec précaution,
+  ou demande ton accord. Cette estimation s'affiche dans la carte d'autorisation.
+- **Apprentissage** : chaque raisonnement est journalisé (`hypothesisLog`). Quand tu notes l'issue réelle (outil `settle_hypothesis`),
+  elle sait quelles hypothèses tenaient, et elle peut recalibrer ses choix.
+
+Ce sont des estimations du modèle, pas des probabilités mesurées : leur qualité dépend du modèle choisi.
+
 ### Calcul quantique
 
 - **Simulateur intégré** (`quantum_simulate`) : elle écrit des circuits quantiques (OpenQASM 2) et les simule exactement, jusqu'à 20 qubits.

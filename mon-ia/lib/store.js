@@ -27,6 +27,7 @@ const DEFAULTS = {
   models: { providers: [], roles: { fast: '', smart: '', fallbacks: [] } },
   settings: { notify: {}, voice: {}, learning: { enabled: false, time: '03:00', interests: '' } },
   journal: [],   // journal d'auto-apprentissage
+  hypothesisLog: [], // raisonnements en superposition : hypothèses, choix et issues réelles
   proposals: [], // améliorations proposées par l'IA, en attente de validation par l'admin
   devices: [],   // matériel contrôlable : voir lib/devices.js
   missions: [],  // tâches autonomes : voir lib/missions.js
