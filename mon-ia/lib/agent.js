@@ -442,6 +442,7 @@ export async function runAgent({ agent, history, ctx }) {
         onToken: sub ? null : (t) => ctx.emit({ type: 'token', text: t }),
         onModel: (m) => { if (m !== usedModel) { usedModel = m; ctx.emit({ type: 'model', name: m, tier, agent: ctx.agentName }); } },
         onWait: (s) => ctx.emit({ type: 'notice', text: `Quota du modèle atteint pour cette minute : je reprends dans ${s} s…` }),
+        onSwitch: ({ from, to }) => ctx.emit({ type: 'notice', text: `Quota atteint sur ${from} : je continue avec ${to}, sans rien perdre.` }),
       });
     } catch (e) {
       // Requête trop grosse pour ce modèle : on retient sa limite, on passe en mode léger et on réessaie.

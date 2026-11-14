@@ -60,14 +60,24 @@ export function learnLimit(model, message) {
 }
 const isTooLarge = (status, txt) => status === 413 || /request too large|reduce your message|context length|maximum context|too many tokens|context_length/i.test(txt);
 
-async function request(p, body, signal, onWait) {
+// Modèles saturés (quota atteint) : on les évite un moment, le temps que le quota se recharge.
+const cooldown = new Map(); // id du fournisseur -> date jusqu'à laquelle il est écarté
+const coolingDown = (p) => (cooldown.get(p.id) || 0) > Date.now();
+function coolOff(p, seconds) { cooldown.set(p.id, Date.now() + Math.max(15, seconds) * 1000); }
+
+async function request(p, body, signal, onWait, { failFast = false } = {}) {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(`${clean(p.baseUrl)}/chat/completions`, {
       method: 'POST', signal,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${p.apiKey}` },
       body: JSON.stringify(body),
     });
-    // Les offres gratuites limitent le débit : on attend un peu et on réessaie.
+    // Quota atteint, et un autre modèle est disponible : on ne attend pas, on bascule tout de suite.
+    if (res.status === 429 && failFast) {
+      coolOff(p, Number(res.headers.get('retry-after')) || 60);
+      return res;
+    }
+    // Les offres gratuites limitent le débit : on attend un peu et on réessaie (dernier modèle disponible).
     if (![429, 502, 503].includes(res.status) || attempt >= 3) return res;
     const txt = await res.text();
     if (isTooLarge(res.status, txt)) return new Response(txt, { status: 413 }); // inutile d'attendre : il faut réduire la requête
@@ -114,18 +124,25 @@ async function readStream(res, onToken) {
  * tier : 'fast' | 'smart'. model : force un nom de modèle (agents) sur le fournisseur principal.
  * onModel(name) est appelé avec le modèle qui répond réellement.
  */
-export async function streamChat({ messages, tools, temperature = 0.6, onToken, onModel, onWait, model, tier = 'smart', signal }) {
-  const chain = chainFor(tier);
-  if (!chain.length) throw new Error('Aucun modèle configuré. Ajoute une clé API dans Admin → Modèles (ou dans le fichier .env).');
+export async function streamChat({ messages, tools, temperature = 0.6, onToken, onModel, onWait, onSwitch, model, tier = 'smart', signal }) {
+  const all = chainFor(tier);
+  if (!all.length) throw new Error('Aucun modèle configuré. Ajoute une clé API dans Admin → Modèles (ou dans le fichier .env).');
+  // Les modèles saturés passent en dernier ; s'ils sont tous saturés, on les réessaie quand même.
+  const free = all.filter((p) => !coolingDown(p));
+  const chain = free.length ? [...free, ...all.filter((p) => coolingDown(p))] : all;
   let lastError;
+  let previous = null;
   for (let i = 0; i < chain.length; i++) {
     const p = chain[i];
     const useModel = i === 0 && model ? model : p.model;
     const body = { model: useModel, messages, temperature, stream: true };
     if (tools?.length) { body.tools = tools; body.tool_choice = 'auto'; }
     let produced = false;
+    // Un autre modèle attend derrière celui-ci : on bascule sans attendre sur un quota atteint.
+    const failFast = i < chain.length - 1;
+    if (previous && previous.quotaHit) onSwitch?.({ from: previous.model, to: useModel });
     try {
-      let res = await request(p, body, signal, onWait);
+      let res = await request(p, body, signal, onWait, { failFast });
       if (!res.ok && tools?.length && res.status === 400) {
         const txt = await res.text();
         // Modèle sans appels d'outils : on réessaie sans.
@@ -136,6 +153,7 @@ export async function streamChat({ messages, tools, temperature = 0.6, onToken, 
       if (!res.ok) {
         const txt = await res.text();
         const tooLarge = isTooLarge(res.status, txt);
+        previous = { model: useModel, quotaHit: res.status === 429 };
         // Requête trop grosse : on ne bascule pas sur un autre modèle, c'est à l'appelant de la réduire.
         throw Object.assign(new Error(`${p.name} (${useModel}) : API ${res.status} : ${txt.slice(0, 300)}`), { fatal: tooLarge, tooLarge, model: useModel, status: res.status });
       }
@@ -144,6 +162,7 @@ export async function streamChat({ messages, tools, temperature = 0.6, onToken, 
     } catch (e) {
       if (signal?.aborted || e.fatal || produced) throw e; // pas de bascule au milieu d'une réponse
       lastError = e;
+      previous ||= { model: useModel, quotaHit: false };
     }
   }
   throw lastError;
