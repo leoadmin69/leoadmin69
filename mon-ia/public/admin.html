@@ -21,6 +21,9 @@
     <button data-tab="lessons">Leçons</button>
     <button data-tab="projects">Projets</button>
     <button data-tab="agents">Agents</button>
+    <button data-tab="missions">Missions</button>
+    <button data-tab="devices">Appareils</button>
+    <button data-tab="integrations">Intégrations</button>
     <button data-tab="tasks">Tâches</button>
     <button data-tab="convs">Conversations</button>
     <button data-tab="data">Données</button>
@@ -158,6 +161,104 @@
     <div class="grid" id="aList" style="margin-top:14px"></div>
   </section>
 
+  <section class="panel" id="missions">
+    <p class="help">Des tâches que ton IA exécute <b>seule pendant ton absence</b> (veille, rapports, surveillance d'un site, rappels…).
+      Le compte rendu t'arrive en notification (configure-les dans Intégrations). Tu peux aussi dire dans le chat : « chaque matin à 8h, fais… ».</p>
+    <form class="grid card" style="max-width:none" id="msForm">
+      <input type="hidden" id="msId">
+      <label>Titre<input id="msTitle" required placeholder="Rapport du matin"></label>
+      <label>Instructions (complètes : l'IA ne se souvient pas de vos conversations)<textarea id="msInstr" rows="5" required
+        placeholder="Cherche les dernières actualités sur le beach tennis en Tunisie, résume les 5 plus importantes avec les liens."></textarea></label>
+      <div class="row">
+        <label>Quand<select id="msType">
+          <option value="daily">Chaque jour</option><option value="weekly">Chaque semaine</option><option value="interval">Toutes les N minutes</option>
+          <option value="once">Une seule fois</option><option value="manual">Manuellement / déclenchée par un autre système</option>
+        </select></label>
+        <label class="sch-daily sch-weekly">Heure<input id="msTime" type="time" value="08:00"></label>
+        <label class="sch-weekly">Jour<select id="msDay"><option value="1">Lundi</option><option value="2">Mardi</option><option value="3">Mercredi</option>
+          <option value="4">Jeudi</option><option value="5">Vendredi</option><option value="6">Samedi</option><option value="0">Dimanche</option></select></label>
+        <label class="sch-interval">Minutes<input id="msMinutes" type="number" min="5" value="60"></label>
+        <label class="sch-once">Date et heure<input id="msAt" type="datetime-local"></label>
+      </div>
+      <div class="row">
+        <label>Agent<select id="msAgent"></select></label>
+        <label>Projet<select id="msWs"></select></label>
+        <label>Permissions<select id="msMode"><option value="auto">Peut agir (modifier, publier…)</option><option value="read">Lecture seule</option></select></label>
+        <label>Me notifier<select id="msNotify"><option value="always">Toujours</option><option value="errors">Seulement en cas d'erreur</option><option value="never">Jamais</option></select></label>
+      </div>
+      <div style="display:flex;gap:8px"><button class="btn" id="msSave">Créer la mission</button><button type="button" class="btn ghost" id="msCancel" hidden>Annuler</button></div>
+    </form>
+    <div class="grid" id="msList" style="margin-top:14px"></div>
+  </section>
+
+  <section class="panel" id="devices">
+    <p class="help">Donne à ton IA le contrôle de matériel : lumières, prises, relais, capteurs, Raspberry Pi… Elle ne peut utiliser
+      <b>que</b> les actions que tu déclares ici, avec la permission que tu choisis pour chaque appareil.
+      ⚠️ Pour joindre des appareils de ta maison, l'IA doit tourner chez toi (PC, Raspberry Pi) ou passer par une adresse Home Assistant accessible depuis internet.</p>
+    <form class="grid card" style="max-width:none" id="dvForm">
+      <input type="hidden" id="dvId">
+      <div class="row">
+        <label>Nom<input id="dvName" required placeholder="Salon"></label>
+        <label>Type<select id="dvType">
+          <option value="homeassistant">Home Assistant (recommandé)</option><option value="http">Appareil web (ESP32, Shelly, Tasmota…)</option>
+          <option value="command">Commande locale (Raspberry Pi, GPIO…)</option></select></label>
+        <label>Permission<select id="dvPerm">
+          <option value="ask">🔐 Me demander à chaque fois</option><option value="auto">✅ Libre</option><option value="off">⛔ Désactivé</option></select></label>
+      </div>
+      <label>Description (aide l'IA à comprendre)<input id="dvDesc" placeholder="Lumières et chauffage du salon"></label>
+      <div class="dvt-homeassistant grid">
+        <div class="row"><label>Adresse de Home Assistant<input id="dvHaUrl" placeholder="http://homeassistant.local:8123"></label>
+          <label>Jeton longue durée (Profil → Sécurité)<input id="dvHaToken" type="password" autocomplete="off"></label></div>
+        <label>Entités autorisées (séparées par des virgules)<input id="dvEntities" placeholder="light.salon, switch.prise_tv, sensor.temperature_salon, climate.salon"></label>
+      </div>
+      <div class="dvt-http dvt-command">
+        <b style="font-size:14px">Actions</b> <span class="help">· dans l'URL, le corps ou la commande, la valeur demandée s'écrit <code>{{value}}</code> (commande : variable <code>$VALUE</code>)</span>
+        <div id="dvActions" class="grid" style="margin-top:8px"></div>
+        <button type="button" class="btn ghost small" id="dvAddAction" style="margin-top:8px">+ Ajouter une action</button>
+      </div>
+      <div style="display:flex;gap:8px"><button class="btn" id="dvSave">Ajouter l'appareil</button><button type="button" class="btn ghost" id="dvCancel" hidden>Annuler</button></div>
+    </form>
+    <div class="grid" id="dvList" style="margin-top:14px"></div>
+  </section>
+
+  <section class="panel" id="integrations">
+    <div class="grid">
+      <div class="card grid" style="max-width:none">
+        <b>🔔 Notifications (missions, alertes, demandes d'autorisation)</b>
+        <span class="help">Le plus simple : installe l'appli gratuite <a href="https://ntfy.sh" target="_blank">ntfy</a> sur ton téléphone et abonne-toi
+          à un sujet au nom long et secret (ex : <code>mon-ia-3k9x7q2</code>). Ou utilise un bot Telegram (crée-le avec @BotFather).</span>
+        <div class="row"><label>Sujet ntfy<input id="nTopic" placeholder="mon-ia-3k9x7q2"></label><label>Serveur ntfy<input id="nServer" placeholder="https://ntfy.sh"></label></div>
+        <div class="row"><label>Jeton du bot Telegram<input id="nTgToken" type="password" autocomplete="off"></label><label>ID de ta conversation Telegram<input id="nTgChat"></label></div>
+        <label>Webhook (autre système, reçoit un JSON)<input id="nWebhook" placeholder="https://…"></label>
+        <div style="display:flex;gap:8px;align-items:center"><button type="button" class="btn" id="nSave">Enregistrer</button>
+          <button type="button" class="btn ghost" id="nTest">Envoyer un test</button><span class="help" id="nMsg"></span></div>
+      </div>
+      <div class="card grid" style="max-width:none">
+        <b>🎙 Voix</b>
+        <span class="help">La voix fonctionne dans le navigateur (Chrome, Edge). Pour les navigateurs sans reconnaissance vocale, ou une meilleure transcription
+          (notamment en tunisien), active la transcription serveur avec un modèle Whisper, par exemple chez Groq (offre gratuite).</span>
+        <div class="row"><label>Fournisseur de transcription<select id="vProv"></select></label><label>Modèle<input id="vModel" placeholder="whisper-large-v3"></label></div>
+        <div style="display:flex;gap:8px;align-items:center"><button type="button" class="btn" id="vSave">Enregistrer</button><span class="help" id="vMsg"></span></div>
+      </div>
+      <div class="card grid" style="max-width:none">
+        <b>🔑 Clés d'intégration</b>
+        <span class="help">Pour que d'autres systèmes (site, appli, Zapier, Make, n8n, Home Assistant, un autre serveur…) parlent à ton IA ou lancent ses missions.</span>
+        <div class="row" style="align-items:flex-end"><label>Nom<input id="kName" placeholder="Site Beach Tennis"></label>
+          <div class="checks" style="flex:1"><label><input type="checkbox" id="kChat" checked> discuter (chat)</label><label><input type="checkbox" id="kMissions"> lancer des missions</label></div>
+          <div style="flex:0"><button type="button" class="btn" id="kCreate">Créer</button></div></div>
+        <div id="kNew"></div>
+        <div class="grid" id="kList"></div>
+      </div>
+      <div class="card grid" style="max-width:none">
+        <b>🧩 Intégrer ton IA</b>
+        <span class="help">Bulle de discussion sur n'importe quel site : colle ce code avant <code>&lt;/body&gt;</code> (avec une clé « discuter »).</span>
+        <pre class="out" id="snipWidget"></pre>
+        <span class="help">Depuis un autre programme :</span>
+        <pre class="out" id="snipApi"></pre>
+      </div>
+    </div>
+  </section>
+
   <section class="panel" id="tasks">
     <div class="grid">
       <div class="row"><input id="tTitle" placeholder="Nouvelle tâche"><input id="tDue" type="date" style="flex:0 0 170px">
@@ -266,6 +367,48 @@ async function load(tab) {
       <div style="display:flex;gap:6px"><button class="btn ghost small" onclick="editAgent('${a.id}')">Modifier</button>
       <button class="btn ghost small" onclick="del('agents','${a.id}')">Supprimer</button></div></div>`).join('');
   }
+  if (tab === 'missions') {
+    const [list, ags, wss] = await Promise.all([api('missions'), api('agents'), api('workspaces')]);
+    missionsList = list;
+    $('msAgent').innerHTML = '<option value="">Nova (générale)</option>' + ags.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
+    $('msWs').innerHTML = '<option value="">Aucun projet</option>' + wss.map((w) => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
+    $('msList').innerHTML = list.map((m) => {
+      const last = m.runs?.[0];
+      return `<div class="item" style="flex-direction:column;align-items:stretch"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <div><b>${esc(m.title)}</b> <span class="tag">${esc(m.scheduleText)}</span> ${m.enabled ? '' : '<span class="tag">⏸ en pause</span>'} ${m.running ? '<span class="tag">⏳ en cours</span>' : ''}
+          <div class="meta">${m.nextRun ? 'Prochaine : ' + date(m.nextRun) + ' · ' : ''}${m.mode === 'read' ? 'lecture seule' : 'peut agir'} · id ${m.id}</div></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ghost small" onclick="runMission('${m.id}')">▶ Lancer</button>
+          <button class="btn ghost small" onclick="toggleMission('${m.id}', ${!m.enabled})">${m.enabled ? 'Pause' : 'Activer'}</button>
+          <button class="btn ghost small" onclick="editMission('${m.id}')">Modifier</button><button class="btn ghost small" onclick="del('missions','${m.id}')">Supprimer</button></div></div>
+        ${(m.runs || []).slice(0, 5).map((r) => `<details class="steps" style="margin-top:8px"><summary>${r.status === 'ok' ? '✅' : r.status === 'running' ? '⏳' : '⚠️'} ${date(r.startedAt)} · ${esc(r.trigger)}${r.model ? ' · ' + esc(r.model) : ''}</summary>
+          <div style="white-space:pre-wrap;font-family:inherit;color:var(--text)">${esc(r.output)}${r.steps?.length ? `<div class="meta" style="margin-top:6px">Actions : ${r.steps.map(esc).join(', ')}</div>` : ''}</div></details>`).join('')}
+      </div>`;
+    }).join('') || '<p class="help">Aucune mission.</p>';
+    if (list.some((m) => m.running)) setTimeout(() => $('missions').classList.contains('on') && load('missions'), 4000);
+  }
+  if (tab === 'devices') {
+    devicesList = await api('devices');
+    const perm = { ask: '🔐 demande', auto: '✅ libre', off: '⛔ désactivé' };
+    $('dvList').innerHTML = devicesList.map((d) => `<div class="item"><div><b>${esc(d.name)}</b> <span class="tag">${{ homeassistant: 'Home Assistant', http: 'Web', command: 'Commande' }[d.type]}</span> <span class="tag">${perm[d.permission]}</span>
+        <div class="meta">${esc(d.description)}</div>
+        <div class="meta">${d.type === 'homeassistant' ? esc(d.entities) : (d.actions || []).map((a) => esc(a.name) + (a.read ? ' (lecture)' : '')).join(', ')}</div>
+        <div class="meta" id="dt-${d.id}"></div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button class="btn ghost small" onclick="testDevice('${d.id}')">Lire l'état</button>
+        <button class="btn ghost small" onclick="editDevice('${d.id}')">Modifier</button><button class="btn ghost small" onclick="del('devices','${d.id}')">Supprimer</button></div></div>`).join('') || '<p class="help">Aucun appareil.</p>';
+  }
+  if (tab === 'integrations') {
+    const [st, keys, mods] = await Promise.all([api('settings'), api('apikeys'), api('models')]);
+    const n = st.notify || {};
+    $('nTopic').value = n.ntfyTopic || ''; $('nServer').value = n.ntfyServer || ''; $('nTgToken').value = n.telegramToken || ''; $('nTgChat').value = n.telegramChatId || ''; $('nWebhook').value = n.webhookUrl || '';
+    $('vProv').innerHTML = '<option value="">Désactivée (navigateur uniquement)</option>' + mods.providers.map((x) => `<option value="${x.id}" ${st.voice?.sttProvider === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+    $('vModel').value = st.voice?.sttModel || '';
+    $('kList').innerHTML = keys.map((k) => `<div class="item"><div><b>${esc(k.name)}</b> <code>${esc(k.prefix)}…</code> <span class="tag">${k.scopes.join(' + ')}</span>
+      <div class="meta">créée ${date(k.createdAt)}${k.lastUsed ? ' · utilisée ' + date(k.lastUsed) : ''}</div></div>
+      <button class="btn ghost small" onclick="del('apikeys','${k.id}')">Révoquer</button></div>`).join('');
+    const o = location.origin;
+    $('snipWidget').textContent = `<script src="${o}/widget.js" data-key="nova_…" data-title="Assistant" data-color="#c4623a" defer><\/script>`;
+    $('snipApi').textContent = `# Discuter\ncurl ${o}/api/v1/chat -H "Authorization: Bearer nova_…" -H "Content-Type: application/json" \\\n  -d '{"message":"Bonjour !","lang":"fr"}'\n\n# Lancer une mission (avec des données) — l'id est dans l'onglet Missions\ncurl -X POST "${o}/api/v1/missions/ID_MISSION/run" -H "Authorization: Bearer nova_…" \\\n  -d '{"commande": 1234, "client": "Sami"}'`;
+  }
   if (tab === 'tasks') {
     const list = await api('tasks');
     const order = { haute: 0, normale: 1, basse: 2 };
@@ -284,7 +427,7 @@ async function load(tab) {
        <button class="btn ghost small" onclick="del('conversations','${x.id}')">Supprimer</button></div></div>`).join('') || '<p class="help">Aucune conversation.</p>';
   }
 }
-window.del = async (res, id) => { if (confirm('Supprimer ?')) { await api(`${res}/${id}`, 'DELETE'); load({ conversations: 'convs', workspaces: 'projects' }[res] || res); } };
+window.del = async (res, id) => { if (confirm('Supprimer ?')) { await api(`${res}/${id}`, 'DELETE'); load({ conversations: 'convs', workspaces: 'projects', apikeys: 'integrations' }[res] || res); } };
 
 // ----- Modèles -----
 let models = { providers: [], roles: {} };
@@ -325,6 +468,84 @@ $('saveRoles').onclick = async () => {
   const fallbacks = [...$('rFallbacks').querySelectorAll('input:checked')].map((c) => c.value);
   await api('models/roles', 'PUT', { smart: $('rSmart').value, fast: $('rFast').value, fallbacks });
   $('rMsg').textContent = '✓ Enregistré'; setTimeout(() => ($('rMsg').textContent = ''), 2000); load('models');
+};
+
+// ----- Missions -----
+let missionsList = [], devicesList = [];
+function msTypeUi() { const t = $('msType').value; document.querySelectorAll('[class*="sch-"]').forEach((e) => (e.style.display = e.classList.contains('sch-' + t) ? '' : 'none')); }
+$('msType').onchange = msTypeUi; msTypeUi();
+function resetMission() { $('msForm').reset(); $('msId').value = ''; $('msSave').textContent = 'Créer la mission'; $('msCancel').hidden = true; msTypeUi(); }
+$('msCancel').onclick = resetMission;
+$('msForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const type = $('msType').value;
+  const schedule = { type, time: $('msTime').value, day: Number($('msDay').value), minutes: Number($('msMinutes').value), at: $('msAt').value };
+  const data = { title: $('msTitle').value, instructions: $('msInstr').value, schedule, agentId: $('msAgent').value, workspaceId: $('msWs').value, mode: $('msMode').value, notifyOn: $('msNotify').value };
+  const r = await api('missions' + ($('msId').value ? '/' + $('msId').value : ''), $('msId').value ? 'PUT' : 'POST', data);
+  if (r.error) return alert(r.error);
+  resetMission(); load('missions');
+};
+window.editMission = (id) => {
+  const m = missionsList.find((x) => x.id === id);
+  $('msId').value = id; $('msTitle').value = m.title; $('msInstr').value = m.instructions; $('msType').value = m.schedule?.type || 'manual';
+  $('msTime').value = m.schedule?.time || '08:00'; $('msDay').value = m.schedule?.day ?? 1; $('msMinutes').value = m.schedule?.minutes || 60; $('msAt').value = m.schedule?.at || '';
+  $('msAgent').value = m.agentId || ''; $('msWs').value = m.workspaceId || ''; $('msMode').value = m.mode; $('msNotify').value = m.notifyOn;
+  $('msSave').textContent = 'Enregistrer'; $('msCancel').hidden = false; msTypeUi(); $('msForm').scrollIntoView({ behavior: 'smooth' });
+};
+window.runMission = async (id) => { await api(`missions/${id}/run`, 'POST'); setTimeout(() => load('missions'), 800); };
+window.toggleMission = async (id, enabled) => { await api('missions/' + id, 'PUT', { ...missionsList.find((x) => x.id === id), enabled }); load('missions'); };
+
+// ----- Appareils -----
+function dvTypeUi() { const t = $('dvType').value; document.querySelectorAll('[class*="dvt-"]').forEach((e) => (e.style.display = e.classList.contains('dvt-' + t) ? '' : 'none')); renderActionRows(); }
+$('dvType').onchange = dvTypeUi;
+let actionRows = [];
+function renderActionRows() {
+  const cmd = $('dvType').value === 'command';
+  $('dvActions').innerHTML = actionRows.map((a, i) => `<div class="row" style="align-items:center;border:1px solid var(--border);border-radius:10px;padding:8px">
+    <input placeholder="nom (ex : allumer)" value="${esc(a.name)}" oninput="actionRows[${i}].name=this.value" style="flex:1">
+    ${cmd ? `<input placeholder="commande (ex : gpio write 17 1)" value="${esc(a.command)}" oninput="actionRows[${i}].command=this.value" style="flex:3">`
+      : `<select onchange="actionRows[${i}].method=this.value" style="flex:0 0 90px">${['GET', 'POST', 'PUT'].map((mt) => `<option ${a.method === mt ? 'selected' : ''}>${mt}</option>`).join('')}</select>
+      <input placeholder="http://192.168.1.50/relay/0?turn=on" value="${esc(a.url)}" oninput="actionRows[${i}].url=this.value" style="flex:3">
+      <input placeholder='corps JSON (optionnel)' value="${esc(a.body)}" oninput="actionRows[${i}].body=this.value" style="flex:2">`}
+    <input placeholder="description" value="${esc(a.description)}" oninput="actionRows[${i}].description=this.value" style="flex:2">
+    <label style="flex:0;display:flex;gap:4px;align-items:center;white-space:nowrap"><input type="checkbox" style="width:auto" ${a.read ? 'checked' : ''} onchange="actionRows[${i}].read=this.checked"> lecture</label>
+    <button type="button" class="btn ghost small" style="flex:0" onclick="actionRows.splice(${i},1);renderActionRows()">✕</button></div>`).join('');
+}
+$('dvAddAction').onclick = () => { actionRows.push({ name: '', method: 'GET', url: '', body: '', command: '', description: '', read: false }); renderActionRows(); };
+function resetDevice() { $('dvForm').reset(); $('dvId').value = ''; actionRows = []; $('dvSave').textContent = "Ajouter l'appareil"; $('dvCancel').hidden = true; dvTypeUi(); }
+$('dvCancel').onclick = resetDevice; dvTypeUi();
+$('dvForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const data = { name: $('dvName').value, description: $('dvDesc').value, type: $('dvType').value, permission: $('dvPerm').value,
+    haUrl: $('dvHaUrl').value, haToken: $('dvHaToken').value, entities: $('dvEntities').value, actions: actionRows };
+  const r = await api('devices' + ($('dvId').value ? '/' + $('dvId').value : ''), $('dvId').value ? 'PUT' : 'POST', data);
+  if (r.error) return alert(r.error);
+  resetDevice(); load('devices');
+};
+window.editDevice = (id) => {
+  const d = devicesList.find((x) => x.id === id);
+  $('dvId').value = id; $('dvName').value = d.name; $('dvDesc').value = d.description; $('dvType').value = d.type; $('dvPerm').value = d.permission;
+  $('dvHaUrl').value = d.haUrl || ''; $('dvHaToken').value = d.haToken || ''; $('dvEntities').value = d.entities || '';
+  actionRows = (d.actions || []).map((a) => ({ ...a })); dvTypeUi();
+  $('dvSave').textContent = 'Enregistrer'; $('dvCancel').hidden = false; $('dvForm').scrollIntoView({ behavior: 'smooth' });
+};
+window.testDevice = async (id) => { $('dt-' + id).textContent = 'Lecture…'; const r = await api(`devices/${id}/test`, 'POST'); $('dt-' + id).textContent = (r.ok ? '✅ ' : '❌ ') + r.output; };
+
+// ----- Intégrations -----
+const notifyData = () => ({ notify: { ntfyTopic: $('nTopic').value.trim(), ntfyServer: $('nServer').value.trim(), telegramToken: $('nTgToken').value.trim(), telegramChatId: $('nTgChat').value.trim(), webhookUrl: $('nWebhook').value.trim() } });
+$('nSave').onclick = async () => { await api('settings', 'PUT', notifyData()); $('nMsg').textContent = '✓ Enregistré'; };
+$('nTest').onclick = async () => {
+  await api('settings', 'PUT', notifyData());
+  const r = await api('settings/test-notify', 'POST');
+  $('nMsg').textContent = r.sent.length ? `✅ Envoyé via ${r.sent.join(', ')}` : '❌ ' + (r.errors.join(', ') || 'aucun canal configuré');
+};
+$('vSave').onclick = async () => { await api('settings', 'PUT', { voice: { sttProvider: $('vProv').value, sttModel: $('vModel').value.trim() } }); $('vMsg').textContent = '✓ Enregistré'; };
+$('kCreate').onclick = async () => {
+  const scopes = [$('kChat').checked && 'chat', $('kMissions').checked && 'missions'].filter(Boolean);
+  if (!scopes.length) return alert('Choisis au moins une permission');
+  const r = await api('apikeys', 'POST', { name: $('kName').value || 'Intégration', scopes });
+  $('kNew').innerHTML = `<div class="approval"><b>Copie cette clé maintenant, elle ne sera plus jamais affichée :</b><pre class="out">${esc(r.key)}</pre></div>`;
+  $('kName').value = ''; load('integrations');
 };
 
 // ----- Projets -----

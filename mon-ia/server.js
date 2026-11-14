@@ -17,6 +17,8 @@ const { chunk } = await import('./lib/retrieval.js');
 const { llmInfo, getProviders, testProvider } = await import('./lib/llm.js');
 const { runAgent, findAgent, ALL_TOOLS } = await import('./lib/agent.js');
 const ws = await import('./lib/workspace.js');
+const missions = await import('./lib/missions.js');
+const { notify } = await import('./lib/notify.js');
 
 const PORT = Number(process.env.PORT || 3000);
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
@@ -29,6 +31,12 @@ const isAdmin = (req) => !!ADMIN_PASSWORD && (req.headers['x-admin-token'] === a
 
 // --- Utilitaires HTTP ---
 const json = (res, code, data, headers = {}) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', ...headers }); res.end(JSON.stringify(data)); };
+async function rawBody(req, max = 25e6) {
+  const chunks = [];
+  let size = 0;
+  for await (const c of req) { size += c.length; if (size > max) throw new Error('Fichier trop volumineux'); chunks.push(c); }
+  return Buffer.concat(chunks);
+}
 async function body(req) {
   let raw = '';
   for await (const c of req) { raw += c; if (raw.length > 10e6) throw new Error('Trop volumineux'); }
@@ -50,6 +58,30 @@ function serveStatic(res, file) {
 
 // Les tokens et secrets des projets ne sont jamais renvoyés au navigateur.
 const MASK = '••••••';
+
+// --- Clés d'intégration (autres systèmes, widget) ---
+const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
+function apiKey(req) {
+  const url = new URL(req.url, 'http://x');
+  const raw = (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || req.headers['x-api-key'] || url.searchParams.get('key') || '';
+  if (!raw.startsWith('nova_')) return null;
+  const k = load('apikeys').find((x) => x.hash === sha(raw));
+  if (k) { k.lastUsed = now(); save('apikeys'); }
+  return k || null;
+}
+const canChat = (req) => PUBLIC_CHAT || isAdmin(req) || !!apiKey(req)?.scopes?.includes('chat');
+const maskDevice = (d) => ({ ...d, haToken: d.haToken ? MASK : '' });
+const keepMasked = (oldObj, data, fields) => { for (const f of fields) if (data[f] === MASK) data[f] = oldObj?.[f] || ''; return data; };
+
+// Les missions utilisent le même moteur d'agent que le chat, en mode autonome.
+missions.setMissionRunner(({ mission, prompt, signal }) => runAgent({
+  agent: findAgent(mission.agentId),
+  history: [{ role: 'user', content: prompt }],
+  ctx: {
+    admin: true, workspace: mission.workspaceId ? ws.getWorkspace(mission.workspaceId) : null, perm: { mode: mission.mode },
+    emit: () => {}, approve: async () => false, tier: 'auto', signal, depth: 0, mission,
+  },
+}));
 const maskWs = (w) => ({ ...w, token: w.token ? MASK : '', secrets: (w.secrets || '').replace(/=(.+)/g, '=' + MASK), previewUrl: ws.previewUrl(w), publicUrl: w.published ? ws.publicUrl(w) : null });
 
 // --- Validations en attente (mode « Demander ») ---
@@ -58,8 +90,8 @@ const pending = new Map(); // id -> { resolve, perm }
 // --- Chat en streaming (Server-Sent Events) ---
 async function handleChat(req, res) {
   const admin = isAdmin(req);
-  if (!PUBLIC_CHAT && !admin) return json(res, 401, { error: 'Connexion requise' });
-  const { conversationId, message, agentId, workspaceId, mode, tier } = await body(req);
+  if (!canChat(req)) return json(res, 401, { error: 'Connexion requise' });
+  const { conversationId, message, agentId, workspaceId, mode, tier, lang, voice } = await body(req);
   if (!message?.trim()) return json(res, 400, { error: 'Message vide' });
 
   const convs = load('conversations');
@@ -99,7 +131,7 @@ async function handleChat(req, res) {
   }));
   let result = { content: '', steps: [] };
   try {
-    result = await runAgent({ agent, history, ctx: { admin, workspace, perm, emit, approve, tier: ['fast', 'smart'].includes(tier) ? tier : 'auto', signal: abort.signal, depth: 0 } });
+    result = await runAgent({ agent, history, ctx: { admin, workspace, perm, emit, approve, tier: ['fast', 'smart'].includes(tier) ? tier : 'auto', lang, voice: !!voice, signal: abort.signal, depth: 0 } });
   } catch (e) {
     if (!abort.signal.aborted) emit({ type: 'error', message: e.message });
   }
@@ -194,6 +226,62 @@ async function adminApi(req, res, p, m) {
       return json(res, 200, view());
     }
   }
+  if (resource === 'settings') {
+    const st = load('settings');
+    st.notify ||= {}; st.voice ||= {};
+    if (m === 'PUT') {
+      if (data.notify) st.notify = keepMasked(st.notify, { ...data.notify }, ['telegramToken']);
+      if (data.voice) st.voice = { ...data.voice };
+      save('settings');
+    }
+    if (id === 'test-notify' && m === 'POST') return json(res, 200, await notify('🔔 Test', `Les notifications de ${load('persona').name} fonctionnent !`));
+    return json(res, 200, { notify: { ...st.notify, telegramToken: st.notify.telegramToken ? MASK : '' }, voice: st.voice });
+  }
+  if (resource === 'apikeys') {
+    const keys = load('apikeys');
+    if (m === 'POST') {
+      const raw = 'nova_' + crypto.randomBytes(24).toString('base64url');
+      const scopes = (data.scopes || ['chat']).filter((x) => ['chat', 'missions'].includes(x));
+      keys.push({ id: newId(), name: data.name || 'Intégration', hash: sha(raw), prefix: raw.slice(0, 10), scopes, createdAt: now(), lastUsed: null });
+      save('apikeys');
+      return json(res, 200, { key: raw }); // affichée une seule fois
+    }
+    if (m === 'DELETE') { save('apikeys', keys.filter((k) => k.id !== id)); return json(res, 200, { ok: true }); }
+    return json(res, 200, keys.map(({ hash, ...k }) => k));
+  }
+  if (resource === 'devices') {
+    const list = load('devices');
+    if (m === 'GET') return json(res, 200, list.map(maskDevice));
+    if (m === 'DELETE') { save('devices', list.filter((d) => d.id !== id)); return json(res, 200, { ok: true }); }
+    if (m === 'POST' && action === 'test') {
+      const { DEVICE_TOOLS } = await import('./lib/devices.js');
+      const d = list.find((x) => x.id === id);
+      try {
+        const out = await DEVICE_TOOLS.find((t) => t.name === 'read_device').run({ device: d.id }, {});
+        return json(res, 200, { ok: true, output: typeof out === 'string' ? out : JSON.stringify(out, null, 1) });
+      } catch (e) { return json(res, 200, { ok: false, output: e.message }); }
+    }
+    if (m === 'POST' || m === 'PUT') {
+      if (!data.name) return json(res, 400, { error: 'Nom requis' });
+      const old = list.find((x) => x.id === id);
+      const clean = keepMasked(old, {
+        name: data.name, description: data.description || '', type: ['homeassistant', 'http', 'command'].includes(data.type) ? data.type : 'http',
+        permission: ['off', 'ask', 'auto'].includes(data.permission) ? data.permission : 'ask',
+        haUrl: data.haUrl || '', haToken: data.haToken || '', entities: data.entities || '',
+        actions: Array.isArray(data.actions) ? data.actions.filter((a) => a.name) : [],
+      }, ['haToken']);
+      return json(res, 200, maskDevice(crud('devices', m, id, clean)));
+    }
+  }
+  if (resource === 'missions') {
+    if (m === 'GET') return json(res, 200, load('missions').map((x) => ({ ...x, scheduleText: missions.describeSchedule(x.schedule) })));
+    if (m === 'POST' && action === 'run') { missions.runMission(id, { trigger: 'manuel' }).catch(() => {}); return json(res, 200, { ok: true }); }
+    if (m === 'DELETE') { save('missions', load('missions').filter((x) => x.id !== id)); return json(res, 200, { ok: true }); }
+    if (m === 'POST' || m === 'PUT') {
+      if (!data.title || !data.instructions) return json(res, 400, { error: 'Titre et instructions requis' });
+      try { return json(res, 200, missions.saveMission(data, m === 'PUT' ? id : undefined)); } catch (e) { return json(res, 400, { error: e.message }); }
+    }
+  }
   if (resource === 'tools') return json(res, 200, ALL_TOOLS.map((t) => ({ name: t.name, kind: t.kind, group: t.group, description: t.def.function.description })));
 
   if (resource === 'agents') {
@@ -235,7 +323,7 @@ async function adminApi(req, res, p, m) {
     res.writeHead(200, { 'Content-Type': 'application/jsonl', 'Content-Disposition': 'attachment; filename="dataset.jsonl"' });
     return res.end(exportDataset());
   }
-  const NAMES = ['persona', 'knowledge', 'lessons', 'tasks', 'conversations', 'agents'];
+  const NAMES = ['persona', 'knowledge', 'lessons', 'tasks', 'conversations', 'agents', 'models', 'missions', 'devices', 'settings'];
   if (resource === 'backup') return json(res, 200, Object.fromEntries(NAMES.map((n) => [n, load(n)])));
   if (resource === 'restore' && m === 'POST') {
     for (const n of NAMES) if (data[n]) save(n, data[n]);
@@ -248,6 +336,13 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const p = url.pathname;
   const m = req.method;
+  // Les autres systèmes (sites, applis) peuvent appeler l'API d'intégration depuis un navigateur.
+  if (p.startsWith('/api/v1/')) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Api-Key');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    if (m === 'OPTIONS') { res.writeHead(204); return res.end(); }
+  }
   try {
     // Sites publiés (publics) et aperçus (admin) des projets
     const site = p.match(/^\/(s|preview)\/([\w-]+)(\/.*)?$/);
@@ -272,7 +367,8 @@ const server = http.createServer(async (req, res) => {
       // Le cookie permet d'ouvrir les aperçus de sites dans un nouvel onglet.
       const setCookie = admin && !cookie(req, 'ia_admin') ? { 'Set-Cookie': `ia_admin=${adminToken()}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000` } : {};
       return json(res, 200, {
-        name: load('persona').name, llm: llmInfo(), publicChat: PUBLIC_CHAT, admin,
+        name: load('persona').name, llm: llmInfo(), publicChat: canChat(req), admin,
+        serverStt: !!load('settings').voice?.sttProvider,
         agents: load('agents').map(({ id, name, description }) => ({ id, name, description })),
         workspaces: admin ? load('workspaces').map((w) => ({ id: w.id, name: w.name, previewUrl: ws.previewUrl(w), publicUrl: w.published ? ws.publicUrl(w) : null })) : [],
       }, setCookie);
@@ -286,6 +382,62 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/logout') return json(res, 200, { ok: true }, { 'Set-Cookie': 'ia_admin=; Path=/; Max-Age=0' });
     if (p === '/api/chat' && m === 'POST') return handleChat(req, res);
+
+    // Transcription vocale côté serveur (Whisper ou autre modèle /audio/transcriptions)
+    if (p === '/api/transcribe' && m === 'POST') {
+      if (!canChat(req)) return json(res, 401, { error: 'Connexion requise' });
+      const v = load('settings').voice || {};
+      const prov = getProviders().find((x) => x.id === v.sttProvider);
+      if (!prov) return json(res, 400, { error: 'Transcription serveur non configurée (Admin → Intégrations → Voix).' });
+      const audio = await rawBody(req);
+      const form = new FormData();
+      form.append('file', new Blob([audio], { type: req.headers['content-type'] || 'audio/webm' }), 'audio.webm');
+      form.append('model', v.sttModel || 'whisper-large-v3');
+      const lang = { fr: 'fr', en: 'en', tn: 'ar' }[url.searchParams.get('lang')];
+      if (lang) form.append('language', lang);
+      const r = await fetch(`${prov.baseUrl.replace(/\/$/, '')}/audio/transcriptions`, { method: 'POST', headers: { Authorization: `Bearer ${prov.apiKey}` }, body: form });
+      const txt = await r.text();
+      if (!r.ok) return json(res, 502, { error: `Transcription : HTTP ${r.status} ${txt.slice(0, 200)}` });
+      return json(res, 200, { text: JSON.parse(txt).text || '' });
+    }
+
+    // ---------- API d'intégration pour les autres systèmes ----------
+    if (p.startsWith('/api/v1/')) {
+      const k = apiKey(req);
+      const need = (scope) => { if (!k?.scopes.includes(scope)) { json(res, 401, { error: `Clé API avec la permission « ${scope} » requise` }); return false; } return true; };
+      if (p === '/api/v1/chat' && m === 'POST') {
+        if (!need('chat')) return;
+        const { message, conversationId, agent, lang } = await body(req);
+        if (!message) return json(res, 400, { error: 'message requis' });
+        const convs = load('conversations');
+        let conv = convs.find((c) => c.id === conversationId);
+        if (!conv) { conv = { id: newId(), title: `[${k.name}] ${message.slice(0, 50)}`, messages: [], updatedAt: now() }; convs.unshift(conv); }
+        conv.messages.push({ role: 'user', content: message });
+        const r = await runAgent({
+          agent: findAgent(agent), history: conv.messages.slice(-20).map(({ role, content }) => ({ role, content })),
+          ctx: { admin: false, workspace: null, perm: { mode: 'read' }, emit: () => {}, approve: async () => false, tier: 'auto', lang, depth: 0 },
+        });
+        conv.messages.push({ role: 'assistant', content: r.content, model: r.model });
+        conv.updatedAt = now(); save('conversations');
+        return json(res, 200, { answer: r.content, conversationId: conv.id, model: r.model });
+      }
+      const mm = p.match(/^\/api\/v1\/missions\/([\w-]+)(\/run)?$/);
+      if (mm) {
+        if (!need('missions')) return;
+        const mission = load('missions').find((x) => x.id === mm[1]);
+        if (!mission) return json(res, 404, { error: 'Mission introuvable' });
+        if (mm[2] && m === 'POST') {
+          // Les données envoyées (JSON ou texte) sont transmises à la mission.
+          const raw = (await rawBody(req, 1e6)).toString('utf8');
+          const run = missions.runMission(mission.id, { trigger: `api (${k.name})`, input: raw });
+          if (url.searchParams.get('wait') === '1') return json(res, 200, await run);
+          run.catch(() => {});
+          return json(res, 202, { ok: true, message: 'Mission lancée' });
+        }
+        return json(res, 200, { id: mission.id, title: mission.title, running: !!mission.running, lastRun: mission.runs?.[0] || null });
+      }
+      return json(res, 404, { error: 'Route inconnue' });
+    }
     if (p === '/api/approve' && m === 'POST') {
       if (!isAdmin(req)) return json(res, 401, { error: 'Admin uniquement' });
       const { id, allow, always } = await body(req);
@@ -299,7 +451,7 @@ const server = http.createServer(async (req, res) => {
 
     const convMatch = p.match(/^\/api\/conversations\/([\w-]+)$/);
     if (convMatch && m === 'GET') {
-      if (!PUBLIC_CHAT && !isAdmin(req)) return json(res, 401, { error: 'Connexion requise' });
+      if (!canChat(req)) return json(res, 401, { error: 'Connexion requise' });
       const c = load('conversations').find((x) => x.id === convMatch[1]);
       return c ? json(res, 200, c) : json(res, 404, { error: 'Introuvable' });
     }
@@ -331,6 +483,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+missions.startScheduler();
 server.listen(PORT, () => {
   const info = llmInfo();
   console.log(`🤖 ${load('persona').name} est en ligne sur http://localhost:${PORT}  (admin : /admin)`);

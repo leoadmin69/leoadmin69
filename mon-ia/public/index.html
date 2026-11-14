@@ -24,11 +24,18 @@
     <div class="composer">
       <form class="box" id="form">
         <textarea id="input" rows="1" placeholder="Écris ton message…"></textarea>
+        <button type="button" class="btn ghost mic" id="mic" title="Parler (micro)">🎙</button>
         <button class="btn" id="send" title="Envoyer">➤</button>
       </form>
       <div class="toolbar" id="toolbar">
-        <label title="Qui répond">🤖 <select id="agentSel"></select></label>
-        <label title="Niveau d'intelligence">🧠 <select id="tierSel">
+        <label title="Langue (texte et voix)">🌐 <select id="langSel">
+          <option value="auto">Auto</option><option value="fr">Français</option><option value="en">English</option><option value="tn">Tounsi</option>
+        </select></label>
+        <button type="button" class="chip-btn" id="ttsBtn" title="Lire les réponses à voix haute">🔈 Voix</button>
+        <button type="button" class="chip-btn" id="convBtn" title="Conversation vocale mains libres">🗣 Conversation</button>
+        <button type="button" class="chip-btn" id="voiceCfgBtn" title="Choisir les voix">⚙</button>
+        <label title="Qui répond" id="agentLbl">🤖 <select id="agentSel"></select></label>
+        <label title="Niveau d'intelligence" id="tierLbl">🧠 <select id="tierSel">
           <option value="auto">Auto</option>
           <option value="smart">Puissant</option>
           <option value="fast">Rapide</option>
@@ -46,6 +53,22 @@
   </main>
 </div>
 
+<div class="modal" id="voiceCfg">
+  <div class="card" style="max-width:460px">
+    <h3 style="margin:0">Voix</h3>
+    <span class="help">Choisis une voix pour chaque langue. Les voix disponibles dépendent de ton navigateur :
+      Microsoft Edge propose des voix naturelles, dont des voix arabes de Tunisie ; Chrome propose les voix Google.</span>
+    <label>Français<select id="vFr"></select></label>
+    <label>English<select id="vEn"></select></label>
+    <label>Tounsi<select id="vTn"></select></label>
+    <label>Vitesse <input type="range" id="vRate" min="0.7" max="1.4" step="0.05"></label>
+    <label>Reconnaissance vocale<select id="vStt">
+      <option value="auto">Automatique</option><option value="browser">Navigateur</option><option value="server">Serveur (Whisper)</option>
+    </select></label>
+    <div style="display:flex;gap:8px"><button type="button" class="btn" id="vTest">Tester</button><button type="button" class="btn ghost" id="vClose">Fermer</button></div>
+  </div>
+</div>
+
 <div class="modal" id="login">
   <form class="card" id="loginForm">
     <h3 style="margin:0">Connexion</h3>
@@ -60,13 +83,17 @@
 const $ = (id) => document.getElementById(id);
 const side = $('side');
 let token = localStorage.getItem('token') || '';
+const params = new URLSearchParams(location.search);
+const EMBED = params.get('embed') === '1';
+const KEY = params.get('key') || '';
+if (EMBED) document.body.classList.add('embed');
 let status = {};
 let convId = null;
 let busy = false;
 let controller = null;
 const pref = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch { return null; } };
 const myConvs = () => JSON.parse(pref('convs') || '[]');
-const headers = () => ({ 'Content-Type': 'application/json', 'x-admin-token': token });
+const headers = () => ({ 'Content-Type': 'application/json', 'x-admin-token': token, ...(KEY ? { 'x-api-key': KEY } : {}) });
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 marked.setOptions({ breaks: true });
@@ -97,7 +124,9 @@ async function init() {
   if ($('agentSel').selectedIndex < 0) $('agentSel').value = '';
   if ($('wsSel').selectedIndex < 0) $('wsSel').value = '';
   updatePreview();
-  if (!status.publicChat && !status.admin) $('login').classList.add('open');
+  if (!status.publicChat && !status.admin && !EMBED) $('login').classList.add('open');
+  $('langSel').value = pref('lang') || 'auto';
+  setTts(pref('tts') === '1');
   renderConvs(); empty();
 }
 function updatePreview() {
@@ -274,7 +303,7 @@ const rate = (index, rating, correction) => fetch('/api/feedback', { method: 'PO
 const nearBottom = () => $('thread').scrollHeight - $('thread').scrollTop - $('thread').clientHeight < 150;
 const scroll = () => ($('thread').scrollTop = $('thread').scrollHeight);
 
-async function send() {
+async function send(viaVoice = false) {
   const text = $('input').value.trim();
   if (!text || busy) return;
   if (!convId) $('inner').innerHTML = '';
@@ -289,7 +318,7 @@ async function send() {
   try {
     const res = await fetch('/api/chat', {
       method: 'POST', headers: headers(), signal: controller.signal,
-      body: JSON.stringify({ conversationId: convId, message: text, agentId: $('agentSel').value, workspaceId: $('wsSel').value, mode: $('modeSel').value, tier: $('tierSel').value }),
+      body: JSON.stringify({ conversationId: convId, message: text, agentId: $('agentSel').value, workspaceId: $('wsSel').value, mode: $('modeSel').value, tier: $('tierSel').value, lang: $('langSel').value, voice: viaVoice || convMode }),
     });
     if (!res.ok) throw new Error((await res.json()).error);
     const reader = res.body.getReader();
@@ -326,8 +355,165 @@ async function send() {
   a.el.classList.remove('cursor');
   a.flow.querySelectorAll('.action.running').forEach((d) => d.classList.remove('running'));
   if (done) addActions(a.el, done.index, null, full);
-  busy = false; setBusy(false); $('input').focus();
+  busy = false; setBusy(false);
+  if (!convMode) $('input').focus();
+  if ((ttsOn || convMode) && full.trim()) speak(full, () => { if (convMode) listen(); });
+  else if (convMode) listen();
 }
+
+// ===================== Voix =====================
+const LANG_CODES = { fr: 'fr-FR', en: 'en-US', tn: 'ar-TN' };
+let ttsOn = false, convMode = false, listening = null;
+const vpref = () => { try { return JSON.parse(pref('voices') || '{}'); } catch { return {}; } };
+
+function detectLang(text) {
+  const forced = $('langSel').value;
+  if (forced !== 'auto') return forced;
+  if (/[\u0600-\u06FF]/.test(text)) return 'tn';
+  const count = (re) => (text.match(re) || []).length;
+  const en = count(/\b(the|and|is|are|you|to|of|it|that|for|with|this|what|how)\b/gi);
+  const fr = count(/\b(le|la|les|et|est|vous|tu|de|des|un|une|pour|avec|que|qui|pas)\b/gi);
+  const tn = count(/\b(chnowa|chnoua|kifech|barcha|behi|tawa|famma|mta3|yezzi|brabi|3aslema|ena|enti|nheb|mouch|bech|zeda|chwaya)\b/gi);
+  if (tn && tn * 2 >= Math.max(en, fr)) return 'tn-latin';
+  return en > fr ? 'en' : 'fr';
+}
+function pickVoice(lang) {
+  const voices = speechSynthesis.getVoices();
+  const chosen = vpref()[lang === 'tn-latin' ? 'tn' : lang];
+  const byName = voices.find((v) => v.name === chosen);
+  if (byName) return byName;
+  if (lang === 'tn-latin') lang = 'fr'; // derja en lettres latines : lue avec une voix française
+  const code = LANG_CODES[lang] || 'fr-FR';
+  const good = (v) => /natural|online|google|neural/i.test(v.name);
+  const exact = voices.filter((v) => v.lang.replace('_', '-').toLowerCase() === code.toLowerCase());
+  const family = voices.filter((v) => v.lang.toLowerCase().startsWith(code.slice(0, 2).toLowerCase()));
+  return exact.find(good) || exact[0] || family.find(good) || family[0] || null;
+}
+function speakable(md) {
+  return md.replace(/```[\s\S]*?```/g, ' (code affiché à l\'écran) ').replace(/`([^`]+)`/g, '$1')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/https?:\/\/\S+/g, 'lien')
+    .replace(/^[#>\-*+|]+\s*/gm, '').replace(/[*_~#|]/g, '').replace(/\n{2,}/g, '. ').trim();
+}
+function speak(text, onEnd) {
+  if (!('speechSynthesis' in window)) return onEnd?.();
+  speechSynthesis.cancel();
+  const lang = detectLang(text);
+  const voice = pickVoice(lang);
+  // Les longs textes sont découpés en phrases (certains navigateurs coupent au-delà de ~200 caractères).
+  const parts = speakable(text).match(/[^.!?؟\n]+[.!?؟]*\s*/g) || [];
+  const chunks = [];
+  for (const part of parts) { if (chunks.length && (chunks.at(-1) + part).length < 220) chunks[chunks.length - 1] += part; else chunks.push(part); }
+  if (!chunks.length) return onEnd?.();
+  chunks.forEach((c, i) => {
+    const u = new SpeechSynthesisUtterance(c);
+    if (voice) { u.voice = voice; u.lang = voice.lang; } else u.lang = LANG_CODES[lang] || 'fr-FR';
+    u.rate = Number(vpref().rate) || 1;
+    if (i === chunks.length - 1) { u.onend = () => onEnd?.(); u.onerror = () => onEnd?.(); }
+    speechSynthesis.speak(u);
+  });
+}
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+function sttMode() {
+  const m = vpref().stt || 'auto';
+  if (m === 'server' && status.serverStt) return 'server';
+  if (m === 'browser' && SR) return 'browser';
+  return SR ? 'browser' : status.serverStt ? 'server' : null;
+}
+function setMic(on) { $('mic').classList.toggle('on', on); $('mic').textContent = on ? '⏺' : '🎙'; }
+function listen() {
+  if (listening || busy) return;
+  const mode = sttMode();
+  if (!mode) { alert('La reconnaissance vocale n\'est pas disponible dans ce navigateur. Utilise Chrome ou Edge, ou configure la transcription serveur (Admin → Intégrations).'); setConv(false); return; }
+  speechSynthesis?.cancel();
+  return mode === 'browser' ? listenBrowser() : listenServer();
+}
+function stopListening() { listening?.stop(); }
+
+function listenBrowser() {
+  const rec = new SR();
+  const l = $('langSel').value;
+  rec.lang = LANG_CODES[l] || (navigator.language?.startsWith('en') ? 'en-US' : 'fr-FR');
+  rec.interimResults = true;
+  let finalText = '';
+  rec.onresult = (e) => {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) finalText += e.results[i][0].transcript; else interim += e.results[i][0].transcript;
+    }
+    $('input').value = (finalText + interim).trim(); autosize();
+  };
+  rec.onend = () => {
+    listening = null; setMic(false);
+    if (finalText.trim()) { $('input').value = finalText.trim(); send(true); }
+    else if (convMode) setTimeout(listen, 300);
+  };
+  rec.onerror = (e) => { if (e.error === 'not-allowed') { alert('Autorise le micro pour parler à l\'IA.'); setConv(false); } };
+  listening = rec; setMic(true); rec.start();
+}
+
+async function listenServer() {
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { alert('Autorise le micro pour parler à l\'IA.'); setConv(false); return; }
+  const recorder = new MediaRecorder(stream);
+  const chunks = [];
+  recorder.ondataavailable = (e) => chunks.push(e.data);
+  // Arrêt automatique après ~1,5 s de silence (une fois que tu as commencé à parler).
+  const ctx = new AudioContext();
+  const analyser = ctx.createAnalyser();
+  ctx.createMediaStreamSource(stream).connect(analyser);
+  const data = new Uint8Array(analyser.fftSize);
+  let spoke = false, silentSince = Date.now();
+  const timer = setInterval(() => {
+    analyser.getByteTimeDomainData(data);
+    const rms = Math.sqrt(data.reduce((s, v) => s + (v - 128) ** 2, 0) / data.length);
+    if (rms > 6) { spoke = true; silentSince = Date.now(); }
+    if ((spoke && Date.now() - silentSince > 1500) || Date.now() - silentSince > 15000) recorder.stop();
+  }, 100);
+  recorder.onstop = async () => {
+    clearInterval(timer); stream.getTracks().forEach((t) => t.stop()); ctx.close();
+    listening = null; setMic(false);
+    if (!spoke) { if (convMode) setTimeout(listen, 300); return; }
+    $('input').placeholder = 'Transcription…';
+    const blob = new Blob(chunks, { type: recorder.mimeType });
+    const r = await fetch('/api/transcribe?lang=' + $('langSel').value, { method: 'POST', headers: { ...headers(), 'Content-Type': blob.type }, body: blob });
+    const j = await r.json();
+    $('input').placeholder = 'Écris ton message…';
+    if (j.text?.trim()) { $('input').value = j.text.trim(); send(true); }
+    else if (j.error) alert(j.error);
+    else if (convMode) listen();
+  };
+  listening = recorder; setMic(true); recorder.start();
+}
+
+function setTts(on) { ttsOn = on; pref('tts', on ? '1' : '0'); $('ttsBtn').classList.toggle('on', on); $('ttsBtn').textContent = on ? '🔊 Voix' : '🔈 Voix'; if (!on) speechSynthesis?.cancel(); }
+function setConv(on) {
+  convMode = on; $('convBtn').classList.toggle('on', on);
+  if (on) { listen(); } else { stopListening(); speechSynthesis?.cancel(); }
+}
+$('ttsBtn').onclick = () => setTts(!ttsOn);
+$('convBtn').onclick = () => setConv(!convMode);
+$('mic').onclick = () => (listening ? stopListening() : listen());
+$('langSel').onchange = () => pref('lang', $('langSel').value);
+
+function fillVoices() {
+  const voices = speechSynthesis.getVoices();
+  const p = vpref();
+  const opts = (prefix, val) => '<option value="">(automatique)</option>' + voices
+    .filter((v) => v.lang.toLowerCase().startsWith(prefix)).map((v) => `<option ${v.name === val ? 'selected' : ''}>${esc(v.name)}</option>`).join('');
+  $('vFr').innerHTML = opts('fr', p.fr); $('vEn').innerHTML = opts('en', p.en); $('vTn').innerHTML = opts('ar', p.tn);
+  $('vRate').value = p.rate || 1; $('vStt').value = p.stt || 'auto';
+}
+const saveVoices = () => pref('voices', JSON.stringify({ fr: $('vFr').value, en: $('vEn').value, tn: $('vTn').value, rate: $('vRate').value, stt: $('vStt').value }));
+['vFr', 'vEn', 'vTn', 'vRate', 'vStt'].forEach((id) => ($(id).onchange = saveVoices));
+$('voiceCfgBtn').onclick = () => { fillVoices(); $('voiceCfg').classList.add('open'); };
+$('vClose').onclick = () => $('voiceCfg').classList.remove('open');
+$('vTest').onclick = () => {
+  const samples = { fr: 'Bonjour ! Je suis ton assistante. Comment puis-je t\'aider ?', en: "Hi there! I'm your assistant. How can I help you today?", tn: 'عسلامة! أنا المساعدة متاعك. شنوة نجم نعاونك؟' };
+  const l = $('langSel').value === 'auto' ? 'fr' : $('langSel').value;
+  speak(samples[l]);
+};
+if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = () => { if ($('voiceCfg').classList.contains('open')) fillVoices(); };
 function setBusy(on) { $('send').textContent = on ? '■' : '➤'; $('send').title = on ? 'Arrêter' : 'Envoyer'; }
 
 function autosize() { const i = $('input'); i.style.height = 'auto'; i.style.height = Math.min(i.scrollHeight, 200) + 'px'; }

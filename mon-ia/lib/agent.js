@@ -5,6 +5,9 @@ import { search } from './retrieval.js';
 import { streamChat } from './llm.js';
 import { BASIC_TOOLS, defineTool } from './tools.js';
 import { CODE_TOOLS, describeWorkspace } from './workspace.js';
+import { DEVICE_TOOLS } from './devices.js';
+import { NOTIFY_TOOLS } from './notify.js';
+import { MISSION_TOOLS } from './missions.js';
 
 const MAX_ROUNDS = 40;
 const MAX_DEPTH = 2;
@@ -62,7 +65,7 @@ export const AGENT_TOOLS = [
   }, ['name', 'instructions'], createAgent, { kind: 'write', group: 'agents', adminOnly: true }),
 ];
 
-export const ALL_TOOLS = [...BASIC_TOOLS, ...CODE_TOOLS, ...AGENT_TOOLS];
+export const ALL_TOOLS = [...BASIC_TOOLS, ...CODE_TOOLS, ...AGENT_TOOLS, ...NOTIFY_TOOLS, ...MISSION_TOOLS, ...DEVICE_TOOLS];
 
 // ---------- Choix du modèle : ⚡ rapide ou 🧠 puissant ----------
 
@@ -82,7 +85,9 @@ export function availableTools({ agent, ctx }) {
   return ALL_TOOLS.filter((t) => {
     if (t.adminOnly && !ctx.admin) return false;
     if (t.group === 'code' && !ctx.workspace) return false;
-    if (ctx.perm.mode === 'read' && ['write', 'exec'].includes(t.kind)) return false;
+    if (ctx.perm.mode === 'read' && ['write', 'exec', 'device'].includes(t.kind)) return false;
+    if (t.group === 'devices' && !load('devices').some((d) => d.permission !== 'off')) return false;
+    if (t.name === 'schedule_mission' && ctx.mission) return false;
     if (t.name === 'call_agent' && (ctx.depth || 0) >= MAX_DEPTH) return false;
     if (t.name === 'remember' && ctx.depth) return false;
     if (agent?.tools?.length && !agent.tools.includes(t.name) && t.name !== 'think') return false;
@@ -99,6 +104,14 @@ const PRINCIPLES = `## Principes (toujours)
 - Sois honnête sur tes limites et tes échecs : si une commande échoue ou qu'un test rate, dis-le et explique, ne prétends jamais que ça marche.
 - Ne fais pas ce qu'on ne t'a pas demandé (pas de modifications « bonus » non sollicitées), mais signale ce qui te paraît important.`;
 
+const LANG_NAMES = { fr: 'français (de France)', en: 'anglais (américain)', tn: 'tunisien (derja)' };
+const LANGUAGES = `## Langues
+Tu parles et écris couramment trois langues : le français de France, l'anglais américain et le tunisien (derja, avec la couleur de Bizerte).
+- Réponds dans la langue ET l'écriture de ton interlocuteur. Tunisien en lettres latines avec chiffres (3, 7, 9, 5…) → réponds pareil ; en lettres arabes → réponds en lettres arabes.
+- En tunisien, parle la derja naturelle de tous les jours, pas l'arabe littéraire : 3aslema, chnowa, kifech, win, tawa, barcha, chwaya, behi, yezzi, famma / mafamech, mta3, brabi, 3la khater, yaatik essa7a… avec les mots français mélangés comme le font les Tunisiens.
+- Utilise en priorité les expressions de Bizerte que l'admin t'a apprises (leçons, connaissances). N'invente pas d'expressions régionales dont tu n'es pas sûr.
+- En français : registre de France (pas de tournures québécoises). En anglais : orthographe et expressions américaines.`;
+
 const CODE_PRINCIPLES = `## Travail sur le code
 - Avant de modifier : explore la structure (list_files), trouve le bon endroit (search_code), lis le fichier en entier ou la zone concernée (read_file). Ne modifie jamais un fichier que tu n'as pas lu.
 - Respecte le style, les conventions, les bibliothèques et l'architecture déjà présents. Ne rajoute pas de dépendance sans nécessité.
@@ -112,7 +125,10 @@ function systemPrompt({ agent, query, ctx, tools }) {
   const parts = [];
   if (agent) parts.push(`Tu es « ${agent.name} », un agent spécialisé de ${persona.name}.\n${agent.instructions}`);
   else parts.push(persona.instructions);
-  parts.push(PRINCIPLES);
+  parts.push(PRINCIPLES, LANGUAGES);
+  if (LANG_NAMES[ctx.lang]) parts.push(`Langue imposée pour cette conversation : réponds en ${LANG_NAMES[ctx.lang]}${ctx.lang === 'tn' && ctx.voice ? ', écrit en lettres arabes pour la lecture à voix haute' : ''}.`);
+  if (ctx.voice) parts.push("## Mode vocal\nTa réponse sera lue à voix haute : phrases courtes et naturelles comme à l'oral, pas de markdown, pas de listes, pas d'émojis, pas de code (sauf si on te le demande explicitement ; propose alors de l'afficher). Va droit au but.");
+  if (ctx.mission) parts.push("## Mission autonome\nL'admin est absent. Agis seul, sans poser de question. Pour une alerte ou une décision humaine indispensable, utilise notify_admin.");
   const names = new Set(tools.map((t) => t.name));
   if (names.has('edit_file') || names.has('read_file')) parts.push(CODE_PRINCIPLES);
   parts.push(`Date du jour : ${new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.`);
@@ -152,7 +168,7 @@ function compact(messages, budget = 90000) {
 }
 
 const brief = (args) => {
-  const v = args.path || args.query || args.command || args.title || args.agent || args.name || args.url || args.message || '';
+  const v = args.path || args.query || args.command || args.title || args.agent || args.device || args.name || args.url || args.message || '';
   return String(v).slice(0, 80);
 };
 const WRITES = new Set(['write_file', 'edit_file', 'delete_file']);
@@ -189,11 +205,12 @@ export async function runAgent({ agent, history, ctx }) {
     let ok = true;
     try {
       if (!tool) throw new Error(`Outil non disponible : ${call.function.name}`);
+      // (le matériel gère sa propre autorisation, appareil par appareil : voir devices.js)
       if (ctx.perm.mode !== 'auto' && ['write', 'exec'].includes(tool.kind)) {
         const allowed = await ctx.approve({ name: tool.name, args, agent: ctx.agentName });
         if (!allowed) throw new Error("L'admin a refusé cette action. Ne la refais pas ; demande-lui comment il veut procéder.");
       }
-      result = await tool.run(args, { ...ctx, tier, isAdmin: ctx.admin });
+      result = await tool.run(args, { ...ctx, tier, isAdmin: ctx.admin, mission: ctx.mission?.title || ctx.mission });
     } catch (e) {
       ok = false;
       result = `Erreur : ${e.message}`;

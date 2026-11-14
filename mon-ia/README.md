@@ -6,6 +6,7 @@ Une IA avec sa propre interface de chat et un **panneau d'admin**. Comme un agen
 - 🌍 **mettre en ligne** : hébergement intégré (`/s/ton-site/`), deploy hook (Render, Netlify, Vercel) ou commande personnalisée ;
 - 🤖 **créer des agents IA** : agents spécialisés avec leurs propres instructions, outils et modèle. L'IA principale peut leur **déléguer** du travail, et en créer elle-même quand tu le lui demandes ;
 - 🔎 **s'informer** sur le web, 🗒 **organiser** (plans, tâches), 🧠 **apprendre** de toi (connaissances, leçons, corrections) ;
+- 🎙 **parler et écouter** en français, anglais et tunisien ; ⏰ **faire des missions seule** pendant ton absence ; 🏠 **contrôler du matériel** avec ton autorisation ; 🧩 **s'intégrer** à tes sites et systèmes ;
 - 🔐 **demander ta permission** avant chaque modification (ou tout faire seule en mode Auto, ou rester en lecture seule).
 
 Zéro dépendance : juste Node.js ≥ 18 (+ `git` pour les projets Git).
@@ -103,7 +104,65 @@ L'outil `deploy` choisit automatiquement :
 
 Si ton dépôt GitHub est déjà relié à Vercel, Netlify ou GitHub Pages, un simple `git_commit_push` suffit : le site se met à jour tout seul.
 
-## 5. Les agents
+## 5. Voix et langues
+
+- 🎙 **Parler** : bouton micro, ou **🗣 Conversation** pour discuter mains libres (elle écoute, répond à voix haute, puis réécoute).
+- 🔊 **Voix** : elle lit ses réponses. Bouton ⚙ pour choisir une voix par langue et la vitesse.
+- 🌐 **Langues** : français (France), anglais (US) et tunisien (derja). En Auto, elle répond dans ta langue et ton écriture (lettres arabes, ou latines avec 3/7/9).
+
+**Ce qui est possible et ce qui ne l'est pas, honnêtement :**
+- Les voix viennent du navigateur. **Microsoft Edge** propose des voix naturelles de bonne qualité, dont des voix arabes **de Tunisie** ; Chrome propose les voix Google.
+  Le français de France et l'anglais américain sonnent très bien.
+- **Aucune voix gratuite n'a l'accent de Bizerte.** Les voix tunisiennes existantes ont un accent tunisien « général ». Pour un vrai accent de Bizerte,
+  il faudrait créer une voix sur mesure à partir d'enregistrements (projet à part, faisable plus tard).
+- Le niveau en derja dépend du modèle choisi. **Apprends-lui les expressions de Bizerte** dans Admin → Leçons ou Connaissances
+  (ex. : « À Bizerte on dit … pour … »). Elle les utilisera en priorité.
+- Pour mieux reconnaître le tunisien parlé, active la **transcription serveur** (Whisper, gratuit chez Groq) dans Admin → Intégrations.
+
+## 6. Missions pendant ton absence
+
+Admin → **Missions**, ou simplement dans le chat : *« Chaque matin à 8h, fais-moi un résumé des actus beach tennis »*,
+*« Toutes les heures, vérifie que mon site répond et préviens-moi sinon »*.
+- Planification : une fois, chaque jour, chaque semaine, toutes les N minutes, ou déclenchée par un autre système.
+- Elle travaille seule (sans poser de question) et t'envoie le **compte rendu sur ton téléphone** (Admin → Intégrations → Notifications : appli **ntfy** ou **Telegram**).
+- Permissions par mission : « peut agir » ou « lecture seule ». Une mission ne peut jamais toucher un appareil réglé sur « me demander » :
+  elle te notifie à la place.
+- Mets `TZ=Africa/Tunis` dans la configuration pour que les heures soient celles de la Tunisie.
+- ⚠️ L'IA doit rester allumée pour exécuter les missions : un PC ou un Raspberry Pi chez toi est idéal. Sur Hugging Face, le Space gratuit
+  peut s'endormir après une longue inactivité ; sur Render gratuit, il s'endort après 15 min.
+
+## 7. Contrôle de matériel
+
+Admin → **Appareils**. Trois façons de brancher du matériel :
+
+| Type | Pour quoi |
+|---|---|
+| **Home Assistant** (recommandé) | Presque tous les objets connectés (Zigbee, Wi-Fi, Shelly, ESPHome, Tuya…). Tu donnes l'adresse, un jeton et la liste des entités autorisées. |
+| **Appareil web** | ESP32, Tasmota, Shelly, relais réseau… : tu déclares chaque action (nom + URL). |
+| **Commande locale** | Quand l'IA tourne sur un Raspberry Pi : commandes GPIO, scripts. La valeur demandée arrive dans `$VALUE` (aucune injection possible). |
+
+Pour chaque appareil, tu choisis la permission : **🔐 me demander à chaque fois** (même en mode Auto), **✅ libre** ou **⛔ désactivé**.
+L'IA ne peut utiliser **que** les actions et entités que tu as déclarées. Exemple : *« Allume la lumière du salon à 60 % »*, *« Quelle température dans le salon ? »*.
+Pour joindre les appareils de ta maison, l'IA doit tourner chez toi, ou passer par une adresse Home Assistant accessible depuis internet.
+
+## 8. Intégrer ton IA à d'autres systèmes
+
+Admin → **Intégrations** :
+- **Clés d'intégration** avec permissions séparées (*discuter* / *lancer des missions*). Elles sont stockées chiffrées (hachées) et affichées une seule fois.
+- **Bulle de discussion sur n'importe quel site** : une ligne à coller, avec voix comprise :
+  ```html
+  <script src="https://TON-IA/widget.js" data-key="nova_…" data-title="Assistant" defer></script>
+  ```
+- **API** pour tes applis, Zapier, Make, n8n, Home Assistant :
+  ```bash
+  curl https://TON-IA/api/v1/chat -H "Authorization: Bearer nova_…" -H "Content-Type: application/json" -d '{"message":"Bonjour"}'
+  curl -X POST https://TON-IA/api/v1/missions/ID/run -H "Authorization: Bearer nova_…" -d '{"commande":1234}'   # les données sont transmises à la mission
+  ```
+- **Webhook sortant** : chaque notification peut aussi être envoyée en JSON à un autre système.
+
+Les visiteurs et les clés « discuter » n'ont accès qu'aux outils sans risque (web, mémoire) : jamais aux projets, aux commandes, aux missions ni au matériel.
+
+## 9. Les agents
 
 Admin → **Agents** (ou demande-le dans le chat : *« Crée un agent Rédacteur SEO qui optimise les textes et les balises meta »*).
 Un agent, c'est : un nom, des instructions, une liste d'outils autorisés, et éventuellement un modèle différent (ex. un modèle spécialisé code pour le Développeur).
@@ -113,7 +172,7 @@ Un agent, c'est : un nom, des instructions, une liste d'outils autorisés, et é
 
 Agents fournis : **Développeur web**, **Chercheur**, **Organisateur**.
 
-## 6. Mettre ton IA en ligne gratuitement
+## 10. Mettre ton IA en ligne gratuitement
 
 ### Hugging Face Spaces (recommandé)
 1. [huggingface.co](https://huggingface.co) → **New Space** → SDK **Docker** → Blank.
@@ -139,7 +198,7 @@ New → **Web Service** → ton dépôt GitHub → *Root directory* `mon-ia` →
 - L'IA ne peut pas sortir du dossier du projet ni toucher au dossier `.git` directement.
 - Garde le mode **Demander** tant que tu ne connais pas bien le comportement du modèle.
 
-## 7. L'entraîner
+## 11. L'entraîner
 
 | Tu veux… | Fais ça |
 |---|---|
@@ -151,13 +210,17 @@ New → **Web Service** → ton dépôt GitHub → *Root directory* `mon-ia` →
 
 **Fine-tuning (gratuit)** : après environ 200 réponses validées ou corrigées, Admin → **Données → Exporter** (`dataset.jsonl`), puis entraîne un modèle avec un notebook **Unsloth** sur Google Colab (GPU gratuit). Exporte-le en GGUF, charge-le dans Ollama, et mets `LLM_MODEL=ton-modele`. Ton IA tourne alors sur ton propre modèle.
 
-## 8. Structure du code
+## 12. Structure du code
 
 ```
 server.js            Serveur HTTP : chat en streaming, validations, API admin, aperçus et sites publiés
 lib/agent.js         Moteur d'agent : choix du modèle, principes, réflexion, outils en parallèle, vérification, permissions, délégation
 lib/workspace.js     Projets et outils de code : fichiers, recherche, commandes, Git, déploiement
 lib/tools.js         Outils de base : web, lecture de pages, mémoire, tâches
+lib/missions.js      Missions autonomes : planification, exécution, comptes rendus
+lib/devices.js       Contrôle de matériel (Home Assistant, appareils web, commandes) avec permissions
+lib/notify.js        Notifications : ntfy, Telegram, webhook
+public/widget.js     Bulle de discussion à intégrer sur n'importe quel site
 lib/llm.js           Fournisseurs de modèles, rôles ⚡/🧠, secours, streaming, réessais
 lib/retrieval.js     Recherche dans la mémoire (BM25)
 lib/store.js         Stockage JSON dans data/ (+ agents par défaut)

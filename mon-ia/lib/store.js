@@ -25,6 +25,10 @@ const DEFAULTS = {
   conversations: [], // { id, title, messages:[{role,content,feedback?,steps?}], updatedAt }
   // Fournisseurs de modèles ajoutés par l'admin et rôles : fast (⚡), smart (🧠), fallbacks (secours).
   models: { providers: [], roles: { fast: '', smart: '', fallbacks: [] } },
+  settings: { notify: {}, voice: {} }, // notifications (ntfy, Telegram, webhook) et voix
+  devices: [],   // matériel contrôlable : voir lib/devices.js
+  missions: [],  // tâches autonomes : voir lib/missions.js
+  apikeys: [],   // clés d'intégration pour les autres systèmes (stockées hachées)
   workspaces: [], // projets (sites) auxquels l'IA a accès : voir lib/workspace.js
   // Agents spécialisés. tools = [] signifie « tous les outils ».
   agents: [
