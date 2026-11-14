@@ -21,15 +21,16 @@ const missions = await import('./lib/missions.js');
 const { notify } = await import('./lib/notify.js');
 const files = await import('./lib/files.js');
 const learning = await import('./lib/learning.js');
-const { seedLearningSessions } = await import('./lib/seed.js');
-const { ensureSelfProject } = await import('./lib/selfproject.js');
-ensureSelfProject().then((w) => w && console.log(`🧬 Projet « ${w.name} » prêt : Nova peut modifier son propre code (commit + push).`)).catch((e) => console.error('Projet propre de Nova :', e.message));
-seedLearningSessions();
 const backup = await import('./lib/backup.js');
 const selfadmin = await import('./lib/selfadmin.js');
 selfadmin.captureLogs(); // garde les dernières lignes du journal pour que l'IA puisse se diagnostiquer
 // Disque vide (hébergeur qui efface tout) : on recharge la dernière sauvegarde avant de démarrer.
 if (await backup.restoreIfEmpty()) console.log(`♻️  Mémoire restaurée depuis la sauvegarde du ${backup.backupStatus().lastBackupAt}`);
+// Démarrage : la restauration passe AVANT toute écriture, sinon elle se croit inutile.
+const { seedLearningSessions } = await import('./lib/seed.js');
+const { ensureSelfProject } = await import('./lib/selfproject.js');
+ensureSelfProject().then((w) => w && console.log(`🧬 Projet « ${w.name} » prêt : Nova peut modifier son propre code (commit + push).`)).catch((e) => console.error('Projet propre de Nova :', e.message));
+seedLearningSessions();
 backup.startAutoBackup();
 
 const PORT = Number(process.env.PORT || 3000);
