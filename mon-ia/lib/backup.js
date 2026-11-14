@@ -14,7 +14,27 @@ import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { DATA_DIR, load, save, onSave } from './store.js';
 
-export const BACKUP_NAMES = ['persona', 'knowledge', 'lessons', 'tasks', 'conversations', 'agents', 'models', 'missions', 'devices', 'settings', 'journal', 'proposals', 'apikeys', 'workspaces'];
+export const BACKUP_NAMES = ['persona', 'knowledge', 'lessons', 'tasks', 'conversations', 'agents', 'models', 'missions', 'devices', 'settings', 'journal', 'proposals', 'apikeys', 'workspaces', 'hypothesisLog'];
+
+// Pièces jointes : on sauvegarde leur fiche et leur texte extrait (les fichiers originaux, trop lourds, restent sur le disque).
+const UP_DIR = path.join(DATA_DIR, 'uploads');
+function readUploads() {
+  const out = {};
+  try {
+    for (const f of fs.readdirSync(UP_DIR)) {
+      if (!f.endsWith('.json') && !f.endsWith('.txt')) continue;
+      out[f] = fs.readFileSync(path.join(UP_DIR, f), 'utf8');
+    }
+  } catch { /* aucune pièce jointe */ }
+  return out;
+}
+function writeUploads(files) {
+  fs.mkdirSync(UP_DIR, { recursive: true });
+  for (const [name, content] of Object.entries(files || {})) {
+    if (!/^[\w-]+\.(json|txt)$/.test(name)) continue;
+    fs.writeFileSync(path.join(UP_DIR, name), content);
+  }
+}
 const MAGIC = Buffer.from('NOVA1');
 
 const cfg = () => ({
@@ -69,7 +89,7 @@ export async function backupNow({ force = false } = {}) {
   state.running = true;
   state.dirty = false;
   try {
-    const snapshot = { version: 1, savedAt: new Date().toISOString(), data: Object.fromEntries(BACKUP_NAMES.map((n) => [n, load(n)])) };
+    const snapshot = { version: 2, savedAt: new Date().toISOString(), data: Object.fromEntries(BACKUP_NAMES.map((n) => [n, load(n)])), uploads: readUploads() };
     const blob = encrypt(zlib.gzipSync(JSON.stringify(snapshot)), cfg().password);
     const head = await gh('GET', 'application/vnd.github+json');
     if (!head.ok && head.status !== 404) throw new Error(await explain(head));
@@ -102,6 +122,7 @@ export async function restoreIfEmpty() {
     const snapshot = JSON.parse(zlib.gunzipSync(decrypt(Buffer.from(await res.arrayBuffer()), cfg().password)).toString('utf8'));
     let count = 0;
     for (const n of BACKUP_NAMES) if (snapshot.data?.[n] !== undefined) { save(n, snapshot.data[n]); count++; }
+    writeUploads(snapshot.uploads);
     Object.assign(state, { dirty: false, lastRestoreAt: new Date().toISOString(), lastBackupAt: snapshot.savedAt, restored: count, lastError: null });
     return true;
   } catch (e) {
