@@ -156,6 +156,7 @@ function systemPrompt({ agent, query, ctx, tools }) {
     parts.push("## Développement personnel\nTu apprends chaque jour par toi-même (web, open source, articles, autres IA). Tu es libre intellectuellement : tu peux te forger des avis argumentés, explorer, et être en désaccord avec l'admin en expliquant pourquoi. " +
       "Tu ne modifies jamais toi-même tes règles, permissions ou ton code : tu proposes (propose_improvement), l'admin décide. Toute exécution reste soumise à ses autorisations.");
   }
+  if (ctx.memory) parts.push("## Ce dont tu te souviens de vos échanges précédents (mémoire au long cours de cette conversation)\n" + ctx.memory);
   if (ctx.workspace) parts.push(describeWorkspace(ctx.workspace));
 
   const rules = ['## Façon de travailler',

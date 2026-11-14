@@ -16,14 +16,8 @@
 </head>
 <body>
 <div class="app">
-  <aside class="side" id="side">
-    <div class="brand"><div class="logo">✦</div><span class="ai-name">Mon IA</span></div>
-    <button class="btn" id="newChat">+ Nouvelle conversation</button>
-    <div class="convs" id="convs"></div>
-    <div class="side-foot"><span id="who">Invité</span><a href="/admin">Admin ⚙</a></div>
-  </aside>
   <main class="main">
-    <div class="topbar"><button class="btn ghost small" onclick="side.classList.toggle('open')">☰</button><b class="ai-name">Mon IA</b></div>
+    <div class="topbar"><div class="logo"></div><b class="ai-name">Mon IA</b><span class="who" id="who"></span><a href="/admin" class="admin-link" id="adminLink">Réglages ⚙</a></div>
     <div class="core-mini" id="coreMini"></div>
     <div class="thread" id="thread"><div class="inner" id="inner"></div></div>
     <div class="composer">
@@ -91,7 +85,6 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const side = $('side');
 let token = localStorage.getItem('token') || '';
 const params = new URLSearchParams(location.search);
 const EMBED = params.get('embed') === '1';
@@ -102,7 +95,8 @@ let convId = null;
 let busy = false;
 let controller = null;
 const pref = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch { return null; } };
-const myConvs = () => JSON.parse(pref('convs') || '[]');
+// Une seule conversation continue : celle de l'admin est gardée sur le serveur (la même sur tous ses appareils),
+// celle d'un visiteur est retrouvée grâce à son navigateur. « ?c=… » ouvre une conversation précise (depuis l'admin).
 const headers = () => ({ 'Content-Type': 'application/json', 'x-admin-token': token, ...(KEY ? { 'x-api-key': KEY } : {}) });
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -124,7 +118,7 @@ async function init() {
   status = await (await fetch('/api/status', { headers: headers() })).json();
   document.querySelectorAll('.ai-name').forEach((e) => (e.textContent = status.name));
   document.title = status.name;
-  $('who').textContent = status.admin ? '👑 Admin' : 'Invité';
+  $('who').textContent = status.admin ? '👑 Admin' : '';
   document.querySelectorAll('.admin-only').forEach((e) => (e.style.display = status.admin ? '' : 'none'));
   const l = status.llm;
   $('hint').textContent = `${status.name} peut se tromper. ` + (l.configured ? `🧠 ${l.smart}` + (l.fast && l.fast !== l.smart ? ` · ⚡ ${l.fast}` : '') : '⚠️ Aucun modèle configuré (Admin → Modèles)');
@@ -137,7 +131,9 @@ async function init() {
   if (!status.publicChat && !status.admin && !EMBED) $('login').classList.add('open');
   $('langSel').value = pref('lang') || 'auto';
   setTts(pref('tts') === '1');
-  renderConvs(); empty();
+  $('adminLink').style.display = EMBED ? 'none' : '';
+  convId = params.get('c') || (status.admin ? 'main' : pref('conv')) || null;
+  if (!convId || !(await openConv(convId))) { if (!status.admin) convId = null; empty(); }
 }
 function updatePreview() {
   const w = status.workspaces?.find((x) => x.id === $('wsSel').value);
@@ -149,19 +145,9 @@ $('tierSel').onchange = () => pref('tier', $('tierSel').value);
 $('wsSel').onchange = () => { pref('ws', $('wsSel').value); updatePreview(); };
 $('modeSel').onchange = () => pref('mode', $('modeSel').value);
 
-function renderConvs() {
-  $('convs').innerHTML = '';
-  for (const c of myConvs()) {
-    const a = document.createElement('div');
-    a.className = 'conv' + (c.id === convId ? ' active' : '');
-    a.textContent = c.title; a.title = c.title;
-    a.onclick = () => openConv(c.id);
-    $('convs').appendChild(a);
-  }
-}
-
+let showingEmpty = false;
 function empty() {
-  convId = null; renderConvs();
+  showingEmpty = true;
   const chips = status.admin
     ? ['Analyse mon projet et propose 5 améliorations', 'Crée une page « Contact » avec un formulaire moderne', "Crée un agent « Rédacteur SEO » qui optimise les textes d'un site", 'Mets le site en ligne']
     : ['Écris une fonction Python qui trie une liste de dictionnaires par date', "Quelles sont les dernières nouvelles sur l'intelligence artificielle ?", 'Organise ma semaine : 3 projets, 2 rendez-vous et du sport'];
@@ -181,13 +167,21 @@ function placeCore() {
 }
 const coreState = (s) => window.NovaCore?.setState(s);
 
-async function openConv(id) {
-  const r = await fetch('/api/conversations/' + id, { headers: headers() });
-  if (!r.ok) return;
+async function openConv(id, all = false) {
+  const r = await fetch('/api/conversations/' + id + (all ? '?all=1' : ''), { headers: headers() });
+  if (!r.ok) return false;
   const c = await r.json();
-  convId = id; renderConvs(); side.classList.remove('open');
+  if (!c.messages.length) return false;
+  convId = id; showingEmpty = false;
   $('inner').innerHTML = ''; placeCore();
-  c.messages.forEach((m, i) => {
+  if (c.offset > 0) {
+    const more = document.createElement('button');
+    more.type = 'button'; more.className = 'chip-btn older'; more.textContent = `↑ Afficher les ${c.offset} messages plus anciens`;
+    more.onclick = () => openConv(id, true);
+    $('inner').appendChild(more);
+  }
+  c.messages.forEach((m, k) => {
+    const i = k + c.offset; // position réelle du message dans la conversation
     if (m.role === 'user') return addUser(m.content, m.files || []);
     const a = addAssistant();
     if (m.steps?.length) {
@@ -200,6 +194,7 @@ async function openConv(id) {
     addActions(a.el, i, m.feedback, m.content);
   });
   scroll();
+  return true;
 }
 
 function addUser(content, files = []) {
@@ -338,7 +333,7 @@ async function send(viaVoice = false) {
   if (pending.some((f) => f.uploading)) return alert('Patiente, un fichier est encore en cours d\'envoi.');
   const sentFiles = pending.splice(0);
   renderPending();
-  if (!convId) $('inner').innerHTML = '';
+  if (showingEmpty) { $('inner').innerHTML = ''; showingEmpty = false; }
   placeCore(); coreState('thinking');
   busy = true; setBusy(true); $('input').value = ''; autosize();
   addUser(text, sentFiles);
@@ -366,10 +361,9 @@ async function send(viaVoice = false) {
         if (!ev.startsWith('data:')) continue;
         const e = JSON.parse(ev.slice(5));
         const stick = nearBottom();
-        if (e.type === 'start' && !convId) {
+        if (e.type === 'start') {
           convId = e.conversationId;
-          pref('convs', JSON.stringify([{ id: convId, title: (text || sentFiles.map((f) => f.name).join(', ')).slice(0, 60) }, ...myConvs()]));
-          renderConvs();
+          if (!status.admin) pref('conv', convId); // le visiteur retrouvera sa conversation à sa prochaine visite
         }
         if (e.type === 'token') { full += e.text; a.token(e.text); }
         if (e.type === 'tool') a.tool(e);
@@ -602,7 +596,6 @@ function autosize() { const i = $('input'); i.style.height = 'auto'; i.style.hei
 $('input').addEventListener('input', autosize);
 $('input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
 $('form').onsubmit = (e) => { e.preventDefault(); if (busy) controller?.abort(); else send(); };
-$('newChat').onclick = () => { empty(); side.classList.remove('open'); };
 $('loginForm').onsubmit = async (e) => {
   e.preventDefault();
   const r = await fetch('/api/login', { method: 'POST', headers: headers(), body: JSON.stringify({ password: $('pwd').value }) });

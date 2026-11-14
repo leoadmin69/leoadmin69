@@ -739,11 +739,7 @@ $('agForm').onsubmit = async (e) => {
   if (r.error) return alert(r.error);
   resetAgent(); load('agents');
 };
-window.openConv = (id) => {
-  const c = JSON.parse(localStorage.getItem('convs') || '[]');
-  if (!c.find((x) => x.id === id)) localStorage.setItem('convs', JSON.stringify([{ id, title: 'Conversation ' + id }, ...c]));
-  location.href = '/';
-};
+window.openConv = (id) => { location.href = id === 'main' ? '/' : '/?c=' + encodeURIComponent(id); };
 
 $('savePersona').onclick = async () => {
   await api('persona', 'PUT', { name: $('pName').value, instructions: $('pInstr').value, temperature: Number($('pTemp').value) });

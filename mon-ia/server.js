@@ -14,7 +14,7 @@ try {
 
 const { load, save, newId, now } = await import('./lib/store.js');
 const { chunk } = await import('./lib/retrieval.js');
-const { llmInfo, getProviders, testProvider } = await import('./lib/llm.js');
+const { llmInfo, getProviders, testProvider, chainFor, complete } = await import('./lib/llm.js');
 const { runAgent, findAgent, ALL_TOOLS } = await import('./lib/agent.js');
 const ws = await import('./lib/workspace.js');
 const missions = await import('./lib/missions.js');
@@ -94,6 +94,30 @@ const maskWs = (w) => ({ ...w, token: w.token ? MASK : '', secrets: (w.secrets |
 // --- Validations en attente (mode « Demander ») ---
 const pending = new Map(); // id -> { resolve, perm }
 
+// --- Conversation unique et mémoire au long cours ---
+const MAIN = 'main';
+const KEEP_RECENT = 24;      // messages récents envoyés tels quels au modèle
+const SUMMARIZE_EVERY = 30;  // au-delà, les plus anciens sont condensés dans un résumé
+
+/** Condense les anciens messages d'une longue conversation, pour que l'IA s'en souvienne sans tout relire. */
+async function updateMemory(conv) {
+  const done = conv.summarized || 0;
+  const upTo = conv.messages.length - KEEP_RECENT;
+  if (conv.summarizing || upTo - done < SUMMARIZE_EVERY) return;
+  const provider = chainFor('fast')[0];
+  if (!provider) return;
+  conv.summarizing = true;
+  try {
+    const lines = conv.messages.slice(done, upTo).map((m) => `${m.role === 'user' ? 'Admin' : load('persona').name} : ${String(m.content).slice(0, 700)}`).join('\n').slice(-28000);
+    const text = await complete(provider, [
+      { role: 'system', content: "Tu tiens la mémoire au long cours d'une conversation entre un assistant et son admin. Écris un résumé fidèle et dense (450 mots max), en français, sans rien inventer. Garde en priorité : qui est l'admin (prénom, ville, métier, goûts), ses projets et leur avancement, ses préférences et consignes, les décisions prises, les choses promises ou à faire, les sujets importants abordés. Laisse tomber les bavardages et les détails techniques passagers." },
+      { role: 'user', content: `${conv.summary ? `Résumé précédent :\n${conv.summary}\n\n` : ''}Suite de la conversation à intégrer :\n${lines}\n\nÉcris le nouveau résumé complet.` },
+    ], { maxTokens: 900 });
+    if (text.trim()) { conv.summary = text.trim(); conv.summarized = upTo; save('conversations'); }
+  } catch (e) { console.error('Mémoire de conversation :', e.message); }
+  conv.summarizing = false;
+}
+
 // --- Chat en streaming (Server-Sent Events) ---
 async function handleChat(req, res) {
   const admin = isAdmin(req);
@@ -103,9 +127,12 @@ async function handleChat(req, res) {
   if (!message?.trim() && !attached.length) return json(res, 400, { error: 'Message vide' });
 
   const convs = load('conversations');
-  let conv = convs.find((c) => c.id === conversationId);
+  // « main » est LA conversation continue de l'admin (la même sur tous ses appareils). Elle lui est réservée.
+  const wantMain = admin && conversationId === MAIN;
+  let conv = conversationId === MAIN && !admin ? null : convs.find((c) => c.id === conversationId);
   if (!conv) {
-    conv = { id: newId(), title: (message || attached.map((f) => f.name).join(', ')).slice(0, 60), messages: [], updatedAt: now() };
+    conv = wantMain ? { id: MAIN, title: "Conversation avec l'admin", messages: [], updatedAt: now() }
+      : { id: newId(), title: (message || attached.map((f) => f.name).join(', ')).slice(0, 60), messages: [], updatedAt: now() };
     convs.unshift(conv);
   }
   conv.messages.push({ role: 'user', content: message, ...(attached.length ? { files: attached.map(({ id, name, kind }) => ({ id, name, kind })) } : {}) });
@@ -135,7 +162,7 @@ async function handleChat(req, res) {
 
   // Historique : on rappelle au modèle les actions faites aux tours précédents.
   // Les pièces jointes sont intégrées au message (texte des documents, images en vision pour les messages récents).
-  const recent = conv.messages.slice(-24);
+  const recent = conv.messages.slice(-KEEP_RECENT);
   const history = recent.map(({ role, content, steps, files: f }, i) => ({
     role,
     content: f?.length ? files.toModelContent(content, f.map((x) => x.id), { withImages: i >= recent.length - 4 })
@@ -143,7 +170,7 @@ async function handleChat(req, res) {
   }));
   let result = { content: '', steps: [] };
   try {
-    result = await runAgent({ agent, history, ctx: { admin, workspace, perm, emit, approve, tier: ['fast', 'smart'].includes(tier) ? tier : tier === 'deep' ? 'smart' : 'auto', deep: admin && tier === 'deep', lang, voice: !!voice, signal: abort.signal, depth: 0 } });
+    result = await runAgent({ agent, history, ctx: { admin, workspace, perm, emit, approve, memory: conv.summary, tier: ['fast', 'smart'].includes(tier) ? tier : tier === 'deep' ? 'smart' : 'auto', deep: admin && tier === 'deep', lang, voice: !!voice, signal: abort.signal, depth: 0 } });
   } catch (e) {
     if (!abort.signal.aborted) emit({ type: 'error', message: e.message });
   }
@@ -154,6 +181,7 @@ async function handleChat(req, res) {
   save('conversations');
   emit({ type: 'done', conversationId: conv.id, index: conv.messages.length - 1 });
   res.end();
+  updateMemory(conv);
 }
 
 // --- Petites routes CRUD pour l'admin ---
@@ -541,12 +569,16 @@ const server = http.createServer(async (req, res) => {
     const convMatch = p.match(/^\/api\/conversations\/([\w-]+)$/);
     if (convMatch && m === 'GET') {
       if (!canChat(req)) return json(res, 401, { error: 'Connexion requise' });
-      const c = load('conversations').find((x) => x.id === convMatch[1]);
-      return c ? json(res, 200, c) : json(res, 404, { error: 'Introuvable' });
+      const c = convMatch[1] === MAIN && !isAdmin(req) ? null : load('conversations').find((x) => x.id === convMatch[1]);
+      if (!c) return json(res, 404, { error: 'Introuvable' });
+      // Seuls les derniers messages sont envoyés par défaut (« ?all=1 » pour tout l'historique). « offset » = position réelle du premier.
+      const from = url.searchParams.get('all') ? 0 : Math.max(0, c.messages.length - 60);
+      const { summarizing, ...pub } = c;
+      return json(res, 200, { ...pub, messages: c.messages.slice(from), offset: from, total: c.messages.length });
     }
     if (p === '/api/feedback' && m === 'POST') {
       const { conversationId, index, rating, correction } = await body(req);
-      const c = load('conversations').find((x) => x.id === conversationId);
+      const c = conversationId === MAIN && !isAdmin(req) ? null : load('conversations').find((x) => x.id === conversationId);
       const msg = c?.messages[index];
       if (!msg || msg.role !== 'assistant') return json(res, 404, { error: 'Message introuvable' });
       const admin = isAdmin(req);
