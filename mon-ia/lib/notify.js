@@ -11,30 +11,47 @@ export async function notify(title, message, { priority = 'default' } = {}) {
   const text = String(message || '').slice(0, 3500);
   const sent = [];
   const errors = [];
-  const tasks = [];
+  // Nettoie une adresse saisie à la main (espaces, « https:// » oublié).
+  const cleanUrl = (u) => { const t = String(u || '').trim().replace(/\/+$/, ''); return t && !/^https?:\/\//i.test(t) ? `https://${t}` : t; };
+  // Message d'erreur lisible : quel canal, quelle adresse, quelle cause.
+  const why = (e) => {
+    const code = e.cause?.code || e.cause?.message || e.name;
+    const hint = { ENOTFOUND: "adresse introuvable (vérifie l'orthographe)", ECONNREFUSED: 'connexion refusée', ERR_INVALID_URL: 'adresse invalide',
+      TimeoutError: 'pas de réponse (délai dépassé)', UND_ERR_CONNECT_TIMEOUT: 'pas de réponse (délai dépassé)' }[code];
+    return hint || `${e.message}${code && code !== e.name ? ` (${code})` : ''}`;
+  };
+  const channels = [];
   if (cfg.ntfyTopic) {
-    tasks.push(fetch(`${(cfg.ntfyServer || 'https://ntfy.sh').replace(/\/$/, '')}/${encodeURIComponent(cfg.ntfyTopic)}`, {
+    const server = cleanUrl(cfg.ntfyServer) || 'https://ntfy.sh';
+    channels.push(['ntfy', server, () => fetch(`${server}/${encodeURIComponent(String(cfg.ntfyTopic).trim())}`, {
       method: 'POST', body: text,
       // Les en-têtes HTTP n'acceptent que l'ASCII : le titre est encodé selon RFC 2047.
       headers: { Title: `=?UTF-8?B?${Buffer.from(title).toString('base64')}?=`, Priority: priority === 'high' ? 'high' : 'default' },
-      signal: AbortSignal.timeout(10000),
-    }).then((r) => (r.ok ? sent.push('ntfy') : errors.push(`ntfy HTTP ${r.status}`))));
+      signal: AbortSignal.timeout(15000),
+    })]);
   }
   if (cfg.telegramToken && cfg.telegramChatId) {
-    tasks.push(fetch(`https://api.telegram.org/bot${cfg.telegramToken}/sendMessage`, {
+    channels.push(['telegram', 'api.telegram.org', () => fetch(`https://api.telegram.org/bot${String(cfg.telegramToken).trim()}/sendMessage`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: cfg.telegramChatId, text: `${title}\n\n${text}` }),
-      signal: AbortSignal.timeout(10000),
-    }).then((r) => (r.ok ? sent.push('telegram') : errors.push(`Telegram HTTP ${r.status}`))));
+      body: JSON.stringify({ chat_id: String(cfg.telegramChatId).trim(), text: `${title}\n\n${text}` }),
+      signal: AbortSignal.timeout(15000),
+    })]);
   }
   if (cfg.webhookUrl) {
-    tasks.push(fetch(cfg.webhookUrl, {
+    const hook = cleanUrl(cfg.webhookUrl);
+    channels.push(['webhook', hook, () => fetch(hook, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title, message: text, priority, at: new Date().toISOString() }),
-      signal: AbortSignal.timeout(10000),
-    }).then((r) => (r.ok ? sent.push('webhook') : errors.push(`webhook HTTP ${r.status}`))));
+      signal: AbortSignal.timeout(15000),
+    })]);
   }
-  await Promise.all(tasks.map((t) => t.catch((e) => errors.push(e.message))));
+  await Promise.all(channels.map(async ([name, where, send]) => {
+    try {
+      const r = await send();
+      if (r.ok) sent.push(name);
+      else errors.push(`${name} (${where}) : HTTP ${r.status} ${(await r.text()).slice(0, 120)}`);
+    } catch (e) { errors.push(`${name} (${where}) : ${why(e)}`); }
+  }));
   return { sent, errors };
 }
 
