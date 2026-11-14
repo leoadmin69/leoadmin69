@@ -165,7 +165,7 @@ export async function testProvider(p) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${String(p.apiKey || '').trim()}` },
       body: JSON.stringify({ model: p.model, messages: [{ role: 'user', content: 'Réponds uniquement : OK' }], max_tokens: 10 }),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(60000),
     });
     const txt = await res.text();
     // Le message indique l'adresse et le modèle réellement envoyés : on voit tout de suite une faute de saisie.
