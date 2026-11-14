@@ -36,6 +36,9 @@ async function webSearch({ query }) {
 async function readPage({ url }) {
   try {
     const r = await fetch(url, { headers: UA, signal: AbortSignal.timeout(20000) });
+    if (r.status === 401 || r.status === 403) {
+      return { url, status: r.status, error: "Page privée : elle demande une connexion. Je n'essaie pas de la contourner. Solutions : l'admin exporte le contenu et le joint dans la conversation (📎), ou fournit un jeton d'accès que je pourrai utiliser pour ce site."};
+    }
     if (/pdf/i.test(r.headers.get('content-type') || '') || /\.pdf($|\?)/i.test(url)) {
       const { pdfText } = await import('./files.js');
       return { url, text: (await pdfText(Buffer.from(await r.arrayBuffer()))).slice(0, 30000) };
@@ -44,6 +47,9 @@ async function readPage({ url }) {
     const text = html
       .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<nav[\s\S]*?<\/nav>|<footer[\s\S]*?<\/footer>/gi, ' ')
       .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+    if (/enable javascript|requires javascript|sign in to continue|log in to continue|connexion requise/i.test(text) || text.length < 200) {
+      return { url, text: text.slice(0, 2000), hint: "Cette page ressemble à une page dynamique ou protégée (JavaScript ou connexion). Essaie une autre source sur le même sujet, ou demande à l'admin de joindre le contenu (📎) ou un export." };
+    }
     return { url, text: text.slice(0, 6000) };
   } catch (e) {
     return { error: 'Lecture impossible : ' + e.message };
