@@ -403,7 +403,8 @@ export async function runAgent({ agent, history, ctx }) {
       if (!tool) throw new Error(`Outil non disponible : ${call.function.name}`);
       // (le matériel gère sa propre autorisation, appareil par appareil : voir devices.js)
       // Avant une action risquée, Nova anticipe les issues et le fait savoir à l'admin dans la carte d'autorisation.
-      if (['write', 'exec'].includes(tool.kind) && ctx.admin && !ctx.mission && !sub) {
+      // Seulement en mode « Demander » (où l'estimation sert) et hors modèles à petit quota : chaque simulation est un appel de plus.
+      if (['write', 'exec'].includes(tool.kind) && ctx.admin && !ctx.mission && !sub && ctx.perm.mode === 'ask' && !ctx.lean) {
         const sim = await simulateOutcomes(`${tool.name} ${JSON.stringify(args).slice(0, 400)}`, query.slice(0, 500)).catch(() => null);
         if (sim) ctx.emit({ type: 'tool_result', id, ok: true, output: `🔮 Issues anticipées : ${sim.recommendation}. ${sim.reason || ''}\n` + (sim.outcomes || []).map((o) => `• ${Math.round((o.p || 0) * 100)} % ${o.name} (dommage : ${o.damage})`).join('\n') });
       }
