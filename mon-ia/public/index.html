@@ -259,12 +259,13 @@ function addAssistant() {
       box.innerHTML = `<div><b>🔐 ${esc(e.agent ? `[${e.agent}] ` : '')}Autoriser : ${esc(label(e.name))} ?</b></div>
         <pre class="out">${esc(argDetail(e.name, e.args, true))}</pre>
         <div class="row" style="flex-wrap:wrap"><button type="button" class="btn small" data-a="1">Autoriser</button>
+        ${e.name === 'control_device' ? '' : '<button type="button" class="btn ghost small" data-a="forever">Toujours autoriser cette action</button>'}
         <button type="button" class="btn ghost small" data-a="always">Tout autoriser pour cette réponse</button>
         <button type="button" class="btn ghost small" data-a="0">Refuser</button></div>`;
       box.querySelectorAll('button').forEach((b) => (b.onclick = async () => {
         const allow = b.dataset.a !== '0';
-        await fetch('/api/approve', { method: 'POST', headers: headers(), body: JSON.stringify({ id: e.id, allow, always: b.dataset.a === 'always' }) });
-        box.innerHTML = allow ? '✅ Autorisé' : '⛔ Refusé'; box.classList.add('done');
+        await fetch('/api/approve', { method: 'POST', headers: headers(), body: JSON.stringify({ id: e.id, allow, always: b.dataset.a === 'always', forever: b.dataset.a === 'forever' }) });
+        box.innerHTML = b.dataset.a === 'forever' ? '✅ Autorisé pour toujours (dis « retire cette autorisation » pour l\'annuler)' : allow ? '✅ Autorisé' : '⛔ Refusé'; box.classList.add('done');
       }));
       flow.appendChild(box); scroll();
     },
@@ -272,7 +273,9 @@ function addAssistant() {
 }
 
 const LABELS = { web_search: '🔎 Recherche web', read_page: '📄 Lecture de page', search_knowledge: '🧠 Mémoire', add_task: '✅ Ajout de tâche', list_tasks: '📋 Tâches',
-  complete_task: '✔️ Tâche terminée', explore_path: '🌌 Piste de réflexion', quantum_simulate: '⚛️ Simulation quantique', quantum_run_ibm: '⚛️ Ordinateur quantique IBM', quantum_ibm_result: '⚛️ Résultat IBM', read_document: '📕 Lecture du document', learn: '🧠 Apprentissage', ask_other_ai: '🤝 Avis d\'autres IA',
+  complete_task: '✔️ Tâche terminée', explore_path: '🌌 Piste de réflexion', get_settings: '⚙️ Lecture de mes réglages', self_check: '🩺 Auto-diagnostic', read_logs: '📜 Lecture du journal',
+  update_settings: '⚙️ Modification de mes réglages', manage_model: '🧠 Gestion des modèles', create_integration_key: '🔑 Création d\'une clé', manage_device: '🏠 Gestion d\'un appareil',
+  manage_mission: '⏰ Gestion d\'une mission', manage_project: '📁 Gestion d\'un projet', backup_now: '♻️ Sauvegarde', manage_permissions: '🔐 Autorisations', load_tools: '🧰 Activation d\'outils', quantum_simulate: '⚛️ Simulation quantique', quantum_run_ibm: '⚛️ Ordinateur quantique IBM', quantum_ibm_result: '⚛️ Résultat IBM', read_document: '📕 Lecture du document', learn: '🧠 Apprentissage', ask_other_ai: '🤝 Avis d\'autres IA',
   propose_improvement: '💡 Proposition', journal_entry: '📓 Journal', review_recent_activity: '🔁 Bilan', list_learned: '📚 Acquis',
   schedule_mission: '⏰ Mission programmée', list_missions: '⏰ Missions', notify_admin: '🔔 Notification', list_devices: '🏠 Appareils', read_device: '🌡 Lecture appareil', control_device: '🎛 Contrôle appareil', remember: '💾 Mémorisation', list_files: '📂 Fichiers', read_file: '👁 Lecture', search_code: '🔍 Recherche dans le code',
   write_file: '📝 Écriture', edit_file: '✏️ Modification', delete_file: '🗑 Suppression', run_command: '⌨️ Commande', git_status: '🌿 Git status', git_diff: '🌿 Git diff',
@@ -287,6 +290,10 @@ function argDetail(name, a, full) {
   if (name === 'edit_file') return `${a.path}\n${String(a.old_string).split('\n').map((l) => '- ' + l).join('\n')}\n${String(a.new_string).split('\n').map((l) => '+ ' + l).join('\n')}`;
   if (name === 'write_file') { const lines = String(a.content || '').split('\n'); return `${a.path} (${lines.length} lignes)\n` + (full ? lines.slice(0, 60).join('\n') + (lines.length > 60 ? '\n…' : '') : ''); }
   if (name === 'run_command') return '$ ' + a.command;
+  if (['update_settings', 'manage_model', 'manage_device', 'manage_project'].includes(name)) {
+    // Les secrets ne sont pas affichés en clair dans la carte d'autorisation.
+    return JSON.stringify(a, (k, v) => (/key|token|secret|password/i.test(k) && v ? '••••••' : v), 2);
+  }
   if (name === 'create_agent') return `${a.name} — ${a.description || ''}\nOutils : ${(a.tools || []).join(', ') || 'tous'}\n\n${a.instructions}`;
   if (name === 'call_agent') return a.task;
   if (name === 'think') return a.thought;

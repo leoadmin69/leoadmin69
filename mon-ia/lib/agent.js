@@ -11,6 +11,7 @@ import { MISSION_TOOLS } from './missions.js';
 import { FILE_TOOLS } from './files.js';
 import { LEARNING_TOOLS } from './learning.js';
 import { QUANTUM_TOOLS } from './quantum.js';
+import { ADMIN_TOOLS } from './selfadmin.js';
 
 const MAX_ROUNDS = 40;
 const MAX_DEPTH = 2;
@@ -68,7 +69,25 @@ export const AGENT_TOOLS = [
   }, ['name', 'instructions'], createAgent, { kind: 'write', group: 'agents', adminOnly: true }),
 ];
 
-export const ALL_TOOLS = [...BASIC_TOOLS, ...CODE_TOOLS, ...AGENT_TOOLS, ...NOTIFY_TOOLS, ...MISSION_TOOLS, ...DEVICE_TOOLS, ...FILE_TOOLS, ...LEARNING_TOOLS, ...QUANTUM_TOOLS];
+export const ALL_TOOLS = [...BASIC_TOOLS, ...CODE_TOOLS, ...AGENT_TOOLS, ...NOTIFY_TOOLS, ...MISSION_TOOLS, ...DEVICE_TOOLS, ...FILE_TOOLS, ...LEARNING_TOOLS, ...QUANTUM_TOOLS, ...ADMIN_TOOLS,
+  // Certains groupes d'outils ne sont envoyés au modèle que quand le sujet s'y prête (pour économiser le quota des modèles gratuits).
+  // Cet outil permet à l'IA de les activer elle-même si elle en a besoin.
+  defineTool('load_tools', "Activer un groupe d'outils supplémentaires pour la suite : admin (tes réglages, modèles, clés, appareils, diagnostic), learning (apprentissage, journal, propositions), quantum (calcul quantique).",
+    { group: { type: 'string', enum: ['admin', 'learning', 'quantum'] } }, ['group'], ({ group }, ctx) => { ctx.activeGroups?.add(group); return `Outils « ${group} » activés : tu peux les utiliser maintenant.`; }, { adminOnly: true, group: 'agents' }),
+];
+
+// Groupes activés selon le sujet du message (sinon via load_tools).
+const GROUP_HINTS = {
+  admin: /r[ée]gl|param|config|cl[ée]s?\b|jeton|token|mod[èe]le|notif|telegram|ntfy|sauvegard|bug|beug|erreur|probl[èe]me|r[ée]par|diagnos|admin|autoris|permission|appareil|mission|projet|personnalit|apprentissage|apprend|voix|install|connect|acc[èe]s|active|d[ée]sactive|settings|api|marche pas|fonctionne pas|panne|journal|log/i,
+  learning: /appren|journal|[ée]tudi|learn|progress|le[çc]on|am[ée]lior|session|d[ée]velopp/i,
+  quantum: /quant|qubit|intrication|circuit|grover|superposition|ibm/i,
+};
+const groupOf = (t) => (t.name.startsWith('quantum_') ? 'quantum' : t.group);
+function groupActive(group, ctx) {
+  if (!GROUP_HINTS[group]) return true;
+  if (ctx.mission || ctx.activeGroups?.has(group)) return true;
+  return GROUP_HINTS[group].test(ctx.query || '');
+}
 
 // ---------- Choix du modèle : ⚡ rapide ou 🧠 puissant ----------
 
@@ -88,6 +107,10 @@ export function availableTools({ agent, ctx }) {
   return ALL_TOOLS.filter((t) => {
     if (t.adminOnly && !ctx.admin) return false;
     if (t.group === 'code' && !ctx.workspace) return false;
+    // Auto-administration : jamais en mission autonome ni pour un sous-agent (seule la lecture du diagnostic reste possible en mission).
+    if (t.group === 'admin' && ((ctx.depth || 0) > 0 || (ctx.mission && t.kind !== 'read'))) return false;
+    if (t.name === 'load_tools' && (ctx.mission || ctx.depth)) return false;
+    if (!groupActive(groupOf(t), ctx) && !agent?.tools?.includes(t.name)) return false;
     if (ctx.perm.mode === 'read' && ['write', 'exec', 'device'].includes(t.kind)) return false;
     if (t.group === 'devices' && !load('devices').some((d) => d.permission !== 'off')) return false;
     if (t.name === 'schedule_mission' && ctx.mission) return false;
@@ -169,6 +192,12 @@ function systemPrompt({ agent, query, ctx, tools }) {
     if (others.length) rules.push('- Agents que tu peux appeler avec call_agent (donne-leur une consigne complète, ils ne voient pas cette conversation) :\n' + others.map((a) => `  • ${a.name} : ${a.description}`).join('\n'));
   }
   if (ctx.perm.mode === 'read') rules.push('- Mode LECTURE SEULE : tu ne peux rien modifier. Propose les changements sans les appliquer.');
+  if (names.has('get_settings') || names.has('load_tools')) {
+    rules.push("- Tu es aussi ta propre administratrice : tu peux consulter et modifier tes réglages (get_settings, update_settings, manage_model, manage_device, manage_mission, manage_project, create_integration_key) et te dépanner (self_check, read_logs). Si ces outils ne sont pas visibles, active-les avec load_tools(admin). " +
+      "Quand l'admin te donne une clé, un jeton ou une adresse dans la conversation, enregistre-le avec l'outil adapté, puis confirme SANS répéter le secret. " +
+      "Devant un bug ou une erreur : lance self_check, lis le journal si besoin, explique la cause simplement, puis corrige ce qui est à ta portée. Dis clairement ce qui ne peut se régler que chez l'hébergeur. " +
+      "Chaque modification demande l'accord de l'admin (il peut l'autoriser une fois ou pour toujours) : ne cherche jamais à contourner un refus.");
+  }
   if (names.has('remember')) rules.push("- L'utilisateur est ton ADMIN. S'il te demande de retenir quelque chose, utilise remember.");
   if (!ctx.admin) rules.push("- L'utilisateur n'est pas l'admin : tu ne peux pas modifier ta mémoire ni ses projets.");
   parts.push(rules.join('\n'));
@@ -235,15 +264,18 @@ const CHECKS = new Set(['read_file', 'run_command', 'git_diff', 'search_code']);
  * Retourne { content, steps, model }.
  */
 export async function runAgent({ agent, history, ctx }) {
-  const tools = availableTools({ agent, ctx });
+  let tools = [];
   const lastUser = history.filter((m) => m.role === 'user').slice(-1)[0];
   const query = typeof lastUser?.content === 'string' ? lastUser.content : (lastUser?.content || []).filter((p) => p.type === 'text').map((p) => p.text).join(' ');
   // Une image dans le message → modèle « vision » s'il est configuré (sinon le modèle puissant).
   const hasImage = Array.isArray(lastUser?.content) && lastUser.content.some((p) => p.type === 'image_url');
   const tier = hasImage ? 'vision' : chooseTier({ requested: ctx.tier, agent, query, workspace: ctx.workspace });
-  const messages = [{ role: 'system', content: systemPrompt({ agent, query, ctx, tools }) }, ...history];
   const temperature = agent || ctx.workspace ? 0.3 : load('persona').temperature;
   const sub = (ctx.depth || 0) > 0;
+  ctx = { ...ctx, query, activeGroups: new Set() };
+  tools = availableTools({ agent, ctx });
+  const messages = [{ role: 'system', content: systemPrompt({ agent, query, ctx, tools }) }, ...history];
+
   const steps = [];
   let content = '';
   let nudged = false;
@@ -267,7 +299,8 @@ export async function runAgent({ agent, history, ctx }) {
     try {
       if (!tool) throw new Error(`Outil non disponible : ${call.function.name}`);
       // (le matériel gère sa propre autorisation, appareil par appareil : voir devices.js)
-      if (ctx.perm.mode !== 'auto' && ['write', 'exec'].includes(tool.kind)) {
+      const always = load('settings').permissions?.always || [];
+      if (ctx.perm.mode !== 'auto' && ['write', 'exec'].includes(tool.kind) && !always.includes(tool.name)) {
         const allowed = await ctx.approve({ name: tool.name, args, agent: ctx.agentName });
         if (!allowed) throw new Error("L'admin a refusé cette action. Ne la refais pas ; demande-lui comment il veut procéder.");
       }
@@ -323,6 +356,7 @@ export async function runAgent({ agent, history, ctx }) {
     const results = out.toolCalls.every((c) => kindOf(c) === 'read' && c.function.name !== 'call_agent')
       ? await Promise.all(out.toolCalls.map(exec))
       : await out.toolCalls.reduce(async (acc, c) => [...(await acc), await exec(c)], Promise.resolve([]));
+    tools = availableTools({ agent, ctx }); // un groupe d'outils a pu être activé par load_tools
     for (const r of results) {
       if (r.ok && WRITES.has(r.call.function.name)) lastWrite = round;
       if (r.ok && CHECKS.has(r.call.function.name)) lastCheck = round;

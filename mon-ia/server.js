@@ -22,6 +22,8 @@ const { notify } = await import('./lib/notify.js');
 const files = await import('./lib/files.js');
 const learning = await import('./lib/learning.js');
 const backup = await import('./lib/backup.js');
+const selfadmin = await import('./lib/selfadmin.js');
+selfadmin.captureLogs(); // garde les dernières lignes du journal pour que l'IA puisse se diagnostiquer
 // Disque vide (hébergeur qui efface tout) : on recharge la dernière sauvegarde avant de démarrer.
 if (await backup.restoreIfEmpty()) console.log(`♻️  Mémoire restaurée depuis la sauvegarde du ${backup.backupStatus().lastBackupAt}`);
 backup.startAutoBackup();
@@ -155,7 +157,7 @@ async function handleChat(req, res) {
   const approve = (call) => new Promise((resolve) => {
     const id = newId();
     myApprovals.add(id);
-    pending.set(id, { resolve: (v) => { myApprovals.delete(id); resolve(v); }, perm });
+    pending.set(id, { resolve: (v) => { myApprovals.delete(id); resolve(v); }, perm, name: call.name });
     emit({ type: 'approval', id, ...call });
     setTimeout(() => { if (pending.has(id)) { pending.get(id).resolve(false); pending.delete(id); } }, 30 * 60e3);
   });
@@ -172,11 +174,13 @@ async function handleChat(req, res) {
   try {
     result = await runAgent({ agent, history, ctx: { admin, workspace, perm, emit, approve, memory: conv.summary, tier: ['fast', 'smart'].includes(tier) ? tier : tier === 'deep' ? 'smart' : 'auto', deep: admin && tier === 'deep', lang, voice: !!voice, signal: abort.signal, depth: 0 } });
   } catch (e) {
-    if (!abort.signal.aborted) emit({ type: 'error', message: e.message });
+    if (!abort.signal.aborted) { emit({ type: 'error', message: e.message }); console.error('Erreur pendant une réponse :', e.message); }
   }
   clearInterval(ping);
   const stopped = abort.signal.aborted ? '\n\n_(interrompu)_' : '';
   conv.messages.push({ role: 'assistant', content: (result.content || '') + stopped, steps: result.steps, model: result.model });
+  // Les clés et jetons donnés dans la conversation sont enregistrés par les outils : on les efface de l'historique.
+  for (const msg of conv.messages.slice(-6)) if (typeof msg.content === 'string') msg.content = selfadmin.redactSecrets(msg.content);
   conv.updatedAt = now();
   save('conversations');
   emit({ type: 'done', conversationId: conv.id, index: conv.messages.length - 1 });
@@ -557,10 +561,16 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/approve' && m === 'POST') {
       if (!isAdmin(req)) return json(res, 401, { error: 'Admin uniquement' });
-      const { id, allow, always } = await body(req);
+      const { id, allow, always, forever } = await body(req);
       const it = pending.get(id);
       if (!it) return json(res, 404, { error: 'Demande expirée' });
       if (always) it.perm.mode = 'auto';
+      // « Toujours autoriser cette action » : mémorisé, sauf pour le matériel qui garde sa permission appareil par appareil.
+      if (allow && forever && it.name && it.name !== 'control_device') {
+        const st = load('settings');
+        st.permissions ||= { always: [] };
+        if (!st.permissions.always.includes(it.name)) { st.permissions.always.push(it.name); save('settings'); }
+      }
       pending.delete(id);
       it.resolve(!!allow);
       return json(res, 200, { ok: true });
@@ -611,6 +621,8 @@ missions.startScheduler();
 // Nova se rend visite à elle-même par son adresse publique, ce qui compte comme une visite.
 // Render fournit cette adresse tout seul (RENDER_EXTERNAL_URL) ; ailleurs, mets KEEP_AWAKE_URL. KEEP_AWAKE=false pour désactiver.
 const keepAwake = { url: (process.env.KEEP_AWAKE_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/$/, ''), lastOk: null, lastError: null };
+selfadmin.runtime.keepAwake = keepAwake;
+selfadmin.runtime.publicUrl = keepAwake.url;
 if (process.env.KEEP_AWAKE === 'false') keepAwake.url = '';
 if (keepAwake.url) {
   const ping = async () => {
