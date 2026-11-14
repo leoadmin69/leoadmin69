@@ -1,3 +1,13 @@
+---
+title: Nova
+emoji: ✨
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # ✦ Mon IA : ton assistant et agent de code personnel, hébergé gratuitement, que tu entraînes toi-même
 
 Une IA avec sa propre interface de chat et un **panneau d'admin**. Comme un agent de code, elle peut :
@@ -239,14 +249,7 @@ Agents fournis : **Développeur web**, **Chercheur**, **Organisateur**.
 
 ### Hugging Face Spaces (recommandé)
 1. [huggingface.co](https://huggingface.co) → **New Space** → SDK **Docker** → Blank.
-2. Envoie le contenu de `mon-ia/` dans le Space, et ajoute en haut de son `README.md` :
-   ```yaml
-   ---
-   title: Mon IA
-   sdk: docker
-   app_port: 7860
-   ---
-   ```
+2. Envoie le contenu de `mon-ia/` dans le Space (le `README.md` contient déjà l'en-tête demandé par Hugging Face).
 3. **Settings → Variables and secrets** : secrets `LLM_API_KEY` et `ADMIN_PASSWORD`, variables `LLM_BASE_URL` et `LLM_MODEL`.
 4. ⚠️ Le disque gratuit est effacé à chaque redémarrage : fais **Admin → Données → Télécharger** régulièrement.
    Les projets Git se re-clonent facilement. Pour les sites créés de zéro, demande-lui de les pousser sur un dépôt GitHub.
