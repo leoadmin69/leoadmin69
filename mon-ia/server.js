@@ -25,7 +25,7 @@ const backup = await import('./lib/backup.js');
 const selfadmin = await import('./lib/selfadmin.js');
 selfadmin.captureLogs(); // garde les dernières lignes du journal pour que l'IA puisse se diagnostiquer
 // Disque vide (hébergeur qui efface tout) : on recharge la dernière sauvegarde avant de démarrer.
-if (await backup.restoreIfEmpty()) console.log(`♻️  Mémoire restaurée depuis la sauvegarde du ${backup.backupStatus().lastBackupAt}`);
+if (await backup.restoreIfEmpty()) console.log(`♻️  Mémoire restaurée depuis la sauvegarde du ${backup.backupStatus().lastBackupAt} — modèles restaurés : ${load('models').providers.length}, réglages : ${Object.keys(load("settings")).length}`);
 // Démarrage : la restauration passe AVANT toute écriture, sinon elle se croit inutile.
 const { seedLearningSessions } = await import('./lib/seed.js');
 const { ensureSelfProject } = await import('./lib/selfproject.js');
