@@ -272,7 +272,9 @@
         <span class="help">Le plus simple : installe l'appli gratuite <a href="https://ntfy.sh" target="_blank">ntfy</a> sur ton téléphone et abonne-toi
           à un sujet au nom long et secret (ex : <code>mon-ia-3k9x7q2</code>). Ou utilise un bot Telegram (crée-le avec @BotFather).</span>
         <div class="row"><label>Sujet ntfy<input id="nTopic" placeholder="mon-ia-3k9x7q2"></label><label>Serveur ntfy<input id="nServer" placeholder="https://ntfy.sh"></label></div>
-        <div class="row"><label>Jeton du bot Telegram<input id="nTgToken" type="password" autocomplete="off"></label><label>ID de ta conversation Telegram<input id="nTgChat"></label></div>
+        <div class="row"><label>Jeton du bot Telegram<input id="nTgToken" type="password" autocomplete="off"></label><label>ID de ta conversation Telegram<input id="nTgChat" placeholder="rempli tout seul avec le bouton ci-dessous"></label></div>
+        <div><button type="button" class="btn ghost small" id="nTgDetect">Trouver mon ID Telegram</button>
+          <span class="help">Colle d'abord le jeton, puis envoie « bonjour » à ton bot dans Telegram, et clique ici.</span></div>
         <label>Webhook (autre système, reçoit un JSON)<input id="nWebhook" placeholder="https://…"></label>
         <div style="display:flex;gap:8px;align-items:center"><button type="button" class="btn" id="nSave">Enregistrer</button>
           <button type="button" class="btn ghost" id="nTest">Envoyer un test</button><span class="help" id="nMsg"></span></div>
@@ -671,6 +673,14 @@ $('nTest').onclick = async () => {
   await api('settings', 'PUT', notifyData());
   const r = await api('settings/test-notify', 'POST');
   $('nMsg').textContent = r.sent.length ? `✅ Envoyé via ${r.sent.join(', ')}` : '❌ ' + (r.errors.join(', ') || 'aucun canal configuré');
+};
+$('nTgDetect').onclick = async () => {
+  await api('settings', 'PUT', notifyData());
+  $('nMsg').textContent = 'Recherche…';
+  const r = await api('settings/telegram-detect', 'POST');
+  if (r.error) return ($('nMsg').textContent = '❌ ' + r.error);
+  $('nTgChat').value = r.chatId;
+  $('nMsg').textContent = `✅ Trouvé${r.name ? ' : ' + r.name : ''}. Clique « Envoyer un test ».`;
 };
 $('vSave').onclick = async () => { await api('settings', 'PUT', { voice: { sttProvider: $('vProv').value, sttModel: $('vModel').value.trim() } }); $('vMsg').textContent = '✓ Enregistré'; };
 $('qSave').onclick = async () => { await api('settings', 'PUT', { quantum: { ibmToken: $('qToken').value.trim(), ibmInstance: $('qInstance').value.trim(), python: $('qPython').value.trim() } }); $('qMsg').textContent = '✓ Enregistré'; };

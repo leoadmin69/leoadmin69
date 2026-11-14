@@ -248,6 +248,21 @@ async function adminApi(req, res, p, m) {
       if (data.learning) { st.learning = { ...st.learning, ...data.learning }; save('settings'); learning.syncLearningMission(); }
       save('settings');
     }
+    // Trouve l'identifiant Telegram de l'admin : il suffit qu'il ait envoyé un message à son bot.
+    if (id === 'telegram-detect' && m === 'POST') {
+      const token = String(st.notify.telegramToken || '').trim();
+      if (!token) return json(res, 200, { error: "Enregistre d'abord le jeton du bot." });
+      try {
+        const r = await fetch(`https://api.telegram.org/bot${token}/getUpdates`, { signal: AbortSignal.timeout(15000) });
+        const j = await r.json();
+        if (!j.ok) return json(res, 200, { error: `Telegram : ${j.description || 'jeton refusé'}` });
+        const chats = j.result.map((u) => (u.message || u.edited_message)?.chat).filter((c) => c?.type === 'private');
+        const chat = chats[chats.length - 1];
+        if (!chat) return json(res, 200, { error: "Aucun message reçu. Ouvre ton bot dans Telegram, appuie sur « Démarrer », envoie-lui « bonjour », puis réessaie." });
+        st.notify.telegramChatId = String(chat.id); save('settings');
+        return json(res, 200, { chatId: String(chat.id), name: [chat.first_name, chat.last_name].filter(Boolean).join(' ') || chat.username || '' });
+      } catch (e) { return json(res, 200, { error: `Connexion à Telegram impossible : ${e.message}` }); }
+    }
     if (id === 'test-notify' && m === 'POST') return json(res, 200, await notify('🔔 Test', `Les notifications de ${load('persona').name} fonctionnent !`));
     return json(res, 200, { notify: { ...st.notify, telegramToken: st.notify.telegramToken ? MASK : '' }, voice: st.voice, learning: st.learning || {}, quantum: { ...(st.quantum || {}), ibmToken: st.quantum?.ibmToken ? MASK : '' } });
   }
