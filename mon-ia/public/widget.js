@@ -4,7 +4,7 @@
   var s = document.currentScript;
   var base = new URL(s.src).origin;
   var key = s.getAttribute('data-key') || '';
-  var color = s.getAttribute('data-color') || '#c4623a';
+  var color = s.getAttribute('data-color') || 'linear-gradient(135deg,#1fd5f5,#7c5cff)';
   var title = s.getAttribute('data-title') || 'Assistant';
   var open = false;
   var btn = document.createElement('button');
@@ -16,7 +16,7 @@
   frame.title = title;
   frame.allow = 'microphone; autoplay';
   frame.style.cssText = 'position:fixed;right:20px;bottom:88px;width:min(400px,calc(100vw - 40px));height:min(620px,calc(100vh - 120px));border:0;' +
-    'border-radius:16px;box-shadow:0 10px 40px rgba(0,0,0,.25);z-index:2147483646;display:none;background:#fff';
+    'border-radius:16px;box-shadow:0 0 0 1px rgba(77,232,255,.35),0 10px 50px rgba(77,232,255,.25);z-index:2147483646;display:none;background:#04060c';
   btn.onclick = function () {
     if (!frame.src) frame.src = base + '/?embed=1' + (key ? '&key=' + encodeURIComponent(key) : '');
     open = !open;

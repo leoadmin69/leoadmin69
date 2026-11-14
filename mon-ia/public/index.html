@@ -4,11 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mon IA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&display=swap">
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="/core3d.js"></script>
 </head>
 <body>
 <div class="app">
@@ -20,6 +24,7 @@
   </aside>
   <main class="main">
     <div class="topbar"><button class="btn ghost small" onclick="side.classList.toggle('open')">☰</button><b class="ai-name">Mon IA</b></div>
+    <div class="core-mini" id="coreMini"></div>
     <div class="thread" id="thread"><div class="inner" id="inner"></div></div>
     <div class="composer">
       <div class="attachments" id="attachments"></div>
@@ -27,7 +32,7 @@
         <button type="button" class="btn ghost mic" id="attachBtn" title="Joindre des fichiers (images, PDF, Word, Excel, code…)">📎</button>
         <button type="button" class="btn ghost mic" id="shotBtn" title="Capture d'écran">📸</button>
         <input type="file" id="fileInput" multiple hidden accept="image/*,.pdf,.docx,.pptx,.xlsx,.txt,.md,.csv,.json,.html,.css,.js,.ts,.py,.java,.c,.cpp,.cs,.go,.rs,.php,.rb,.sh,.sql,.yaml,.yml,.xml,.log">
-        <textarea id="input" rows="1" placeholder="Écris ton message… (tu peux aussi coller une capture d'écran)"></textarea>
+        <textarea id="input" rows="1" placeholder="Écris ton message…" title="Tu peux aussi coller une capture d'écran (Ctrl+V) ou glisser un fichier"></textarea>
         <button type="button" class="btn ghost mic" id="mic" title="Parler (micro)">🎙</button>
         <button class="btn" id="send" title="Envoyer">➤</button>
       </form>
@@ -160,18 +165,28 @@ function empty() {
   const chips = status.admin
     ? ['Analyse mon projet et propose 5 améliorations', 'Crée une page « Contact » avec un formulaire moderne', "Crée un agent « Rédacteur SEO » qui optimise les textes d'un site", 'Mets le site en ligne']
     : ['Écris une fonction Python qui trie une liste de dictionnaires par date', "Quelles sont les dernières nouvelles sur l'intelligence artificielle ?", 'Organise ma semaine : 3 projets, 2 rendez-vous et du sport'];
-  $('inner').innerHTML = `<div class="empty"><div class="logo" style="margin:auto;width:48px;height:48px;font-size:24px">✦</div>
-    <h1>Bonjour, je suis ${esc(status.name)}</h1><div class="help">Code, sites, agents, recherches, organisation… que puis-je faire pour toi ?</div>
+  $('inner').innerHTML = `<div class="empty"><div class="core-hero" id="coreHero"></div>
+    <div class="status-line">Système en ligne</div>
+    <h1>${esc(status.name)}</h1><div class="help">Que puis-je faire pour toi ?</div>
     <div class="chips">${chips.map((c) => `<button type="button">${esc(c)}</button>`).join('')}</div></div>`;
   $('inner').querySelectorAll('.chips button').forEach((b) => (b.onclick = () => { $('input').value = b.textContent; send(); }));
+  placeCore();
 }
+
+// Le noyau 3D : grand sur l'accueil, petit dans le coin pendant une conversation.
+function placeCore() {
+  const hero = $('coreHero');
+  (hero || $('coreMini')).appendChild(NovaCore.el);
+  $('coreMini').classList.toggle('show', !hero);
+}
+const coreState = (s) => window.NovaCore?.setState(s);
 
 async function openConv(id) {
   const r = await fetch('/api/conversations/' + id, { headers: headers() });
   if (!r.ok) return;
   const c = await r.json();
   convId = id; renderConvs(); side.classList.remove('open');
-  $('inner').innerHTML = '';
+  $('inner').innerHTML = ''; placeCore();
   c.messages.forEach((m, i) => {
     if (m.role === 'user') return addUser(m.content, m.files || []);
     const a = addAssistant();
@@ -324,6 +339,7 @@ async function send(viaVoice = false) {
   const sentFiles = pending.splice(0);
   renderPending();
   if (!convId) $('inner').innerHTML = '';
+  placeCore(); coreState('thinking');
   busy = true; setBusy(true); $('input').value = ''; autosize();
   addUser(text, sentFiles);
   const a = addAssistant();
@@ -372,7 +388,7 @@ async function send(viaVoice = false) {
   a.el.classList.remove('cursor');
   a.flow.querySelectorAll('.action.running').forEach((d) => d.classList.remove('running'));
   if (done) addActions(a.el, done.index, null, full);
-  busy = false; setBusy(false);
+  busy = false; setBusy(false); coreState('idle');
   if (!convMode) $('input').focus();
   if ((ttsOn || convMode) && full.trim()) speak(full, () => { if (convMode) listen(); });
   else if (convMode) listen();
@@ -473,7 +489,8 @@ function speak(text, onEnd) {
     const u = new SpeechSynthesisUtterance(c);
     if (voice) { u.voice = voice; u.lang = voice.lang; } else u.lang = LANG_CODES[lang] || 'fr-FR';
     u.rate = Number(vpref().rate) || 1;
-    if (i === chunks.length - 1) { u.onend = () => onEnd?.(); u.onerror = () => onEnd?.(); }
+    if (i === chunks.length - 1) { u.onend = u.onerror = () => { coreState(busy ? 'thinking' : 'idle'); onEnd?.(); }; }
+    if (i === 0) u.onstart = () => coreState('speaking');
     speechSynthesis.speak(u);
   });
 }
@@ -485,7 +502,7 @@ function sttMode() {
   if (m === 'browser' && SR) return 'browser';
   return SR ? 'browser' : status.serverStt ? 'server' : null;
 }
-function setMic(on) { $('mic').classList.toggle('on', on); $('mic').textContent = on ? '⏺' : '🎙'; }
+function setMic(on) { $('mic').classList.toggle('on', on); $('mic').textContent = on ? '⏺' : '🎙'; coreState(on ? 'listening' : busy ? 'thinking' : 'idle'); }
 function listen() {
   if (listening || busy) return;
   const mode = sttMode();
@@ -551,7 +568,7 @@ async function listenServer() {
   listening = recorder; setMic(true); recorder.start();
 }
 
-function setTts(on) { ttsOn = on; pref('tts', on ? '1' : '0'); $('ttsBtn').classList.toggle('on', on); $('ttsBtn').textContent = on ? '🔊 Voix' : '🔈 Voix'; if (!on) speechSynthesis?.cancel(); }
+function setTts(on) { if (!on) coreState(busy ? 'thinking' : 'idle'); ttsOn = on; pref('tts', on ? '1' : '0'); $('ttsBtn').classList.toggle('on', on); $('ttsBtn').textContent = on ? '🔊 Voix' : '🔈 Voix'; if (!on) speechSynthesis?.cancel(); }
 function setConv(on) {
   convMode = on; $('convBtn').classList.toggle('on', on);
   if (on) { listen(); } else { stopListening(); speechSynthesis?.cancel(); }

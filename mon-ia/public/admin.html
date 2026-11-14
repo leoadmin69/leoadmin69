@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Administration</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&display=swap">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -469,7 +471,7 @@ async function load(tab) {
       <div class="meta">créée ${date(k.createdAt)}${k.lastUsed ? ' · utilisée ' + date(k.lastUsed) : ''}</div></div>
       <button class="btn ghost small" onclick="del('apikeys','${k.id}')">Révoquer</button></div>`).join('');
     const o = location.origin;
-    $('snipWidget').textContent = `<script src="${o}/widget.js" data-key="nova_…" data-title="Assistant" data-color="#c4623a" defer><\/script>`;
+    $('snipWidget').textContent = `<script src="${o}/widget.js" data-key="nova_…" data-title="Assistant" defer><\/script>`;
     $('snipApi').textContent = `# Discuter\ncurl ${o}/api/v1/chat -H "Authorization: Bearer nova_…" -H "Content-Type: application/json" \\\n  -d '{"message":"Bonjour !","lang":"fr"}'\n\n# Lancer une mission (avec des données) — l'id est dans l'onglet Missions\ncurl -X POST "${o}/api/v1/missions/ID_MISSION/run" -H "Authorization: Bearer nova_…" \\\n  -d '{"commande": 1234, "client": "Sami"}'`;
   }
   if (tab === 'tasks') {
