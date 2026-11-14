@@ -60,6 +60,11 @@ Le moteur de Mon IA est conçu pour en tirer le maximum :
 | **Lectures en parallèle** | Plusieurs lectures et recherches indépendantes s'exécutent en même temps : c'est plus rapide. |
 | **Agents spécialisés + mémoire + leçons** | Le savoir-faire s'accumule au fil de tes corrections. |
 
+**Mode « Profond » (raisonnement multi-pistes)** : dans le menu 🧠 du chat. Trois raisonnements indépendants (analytique, sceptique, alternatif)
+explorent ta question en parallèle, si possible sur des modèles différents, puis l'IA les confronte et ne garde que la meilleure réponse.
+C'est inspiré de l'idée quantique (plusieurs états à la fois, puis un seul), mais **ce n'est pas du calcul quantique** : aucun modèle de langage
+ne tourne sur un ordinateur quantique aujourd'hui. Ce mode coûte 3 appels de plus par message : garde-le pour les questions difficiles.
+
 **Configuration conseillée (gratuite)** : ajoute 2 ou 3 fournisseurs dans Admin → **Modèles**, clique sur **Tester** pour chacun, puis :
 - 🧠 Puissant : le meilleur modèle de code gratuit du moment, sur OpenRouter (filtre « free ») ou Google Gemini (modèles Flash) ;
 - ⚡ Rapide : un modèle léger et rapide (Groq, Gemini Flash-Lite…) ;

@@ -138,7 +138,7 @@ async function handleChat(req, res) {
   }));
   let result = { content: '', steps: [] };
   try {
-    result = await runAgent({ agent, history, ctx: { admin, workspace, perm, emit, approve, tier: ['fast', 'smart'].includes(tier) ? tier : 'auto', lang, voice: !!voice, signal: abort.signal, depth: 0 } });
+    result = await runAgent({ agent, history, ctx: { admin, workspace, perm, emit, approve, tier: ['fast', 'smart'].includes(tier) ? tier : tier === 'deep' ? 'smart' : 'auto', deep: admin && tier === 'deep', lang, voice: !!voice, signal: abort.signal, depth: 0 } });
   } catch (e) {
     if (!abort.signal.aborted) emit({ type: 'error', message: e.message });
   }

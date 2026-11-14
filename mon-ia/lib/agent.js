@@ -2,7 +2,7 @@
 // partagée par l'IA principale et tous les agents spécialisés.
 import { load, save, newId, now } from './store.js';
 import { search } from './retrieval.js';
-import { streamChat } from './llm.js';
+import { streamChat, complete, chainFor } from './llm.js';
 import { BASIC_TOOLS, defineTool } from './tools.js';
 import { CODE_TOOLS, describeWorkspace } from './workspace.js';
 import { DEVICE_TOOLS } from './devices.js';
@@ -169,6 +169,40 @@ function systemPrompt({ agent, query, ctx, tools }) {
   return parts.join('\n\n');
 }
 
+// ---------- Raisonnement multi-pistes (mode « Profond ») ----------
+// Inspiré de l'idée quantique (explorer plusieurs états à la fois, puis n'en garder qu'un), mais 100 % classique :
+// trois raisonnements indépendants en parallèle, si possible sur des modèles différents, puis confrontation critique.
+const ANGLES = [
+  ['Analytique', "Raisonne pas à pas, méthodiquement, en vérifiant chaque étape. Donne ta meilleure réponse."],
+  ['Sceptique', "Cherche d'abord les pièges, les hypothèses cachées, les cas limites et les erreurs classiques sur ce sujet. Puis donne la réponse qui y résiste."],
+  ['Alternatif', "Aborde le problème par un angle différent de l'approche évidente (autre méthode, autre point de vue). Donne ta réponse."],
+];
+async function explorePaths(query, tier, ctx) {
+  const providers = chainFor(tier).filter((p) => p.apiKey);
+  if (!providers.length) return '';
+  const results = await Promise.all(ANGLES.map(async ([label, angle], i) => {
+    const id = newId();
+    const p = providers[i % providers.length];
+    ctx.emit({ type: 'tool', id, name: 'explore_path', args: { query: `${label} · ${p.model}` } });
+    try {
+      const text = await complete(p, [
+        { role: 'system', content: `Tu es une piste de réflexion parmi plusieurs. ${angle} Sois concis (400 mots max) et signale tes incertitudes.` },
+        { role: 'user', content: query.slice(0, 12000) },
+      ]);
+      ctx.emit({ type: 'tool_result', id, ok: true, output: text.slice(0, 3000) });
+      return `### Piste ${i + 1} (${label}, ${p.model})\n${text.slice(0, 5000)}`;
+    } catch (e) {
+      ctx.emit({ type: 'tool_result', id, ok: false, output: e.message });
+      return '';
+    }
+  }));
+  const ok = results.filter(Boolean);
+  if (!ok.length) return '';
+  return `(Système) Trois pistes de réflexion indépendantes ont exploré la demande en parallèle :\n\n${ok.join('\n\n')}\n\n` +
+    "Confronte-les de façon critique : où sont-elles d'accord, où divergent-elles, laquelle se trompe et pourquoi ? Vérifie avec tes outils si un fait est contesté. " +
+    "Puis donne UNE réponse finale, la plus juste possible, sans décrire ce processus (sauf désaccord important à signaler).";
+}
+
 // Garde la conversation dans la limite de contexte des modèles gratuits.
 function compact(messages, budget = 90000) {
   let size = JSON.stringify(messages).length;
@@ -207,6 +241,10 @@ export async function runAgent({ agent, history, ctx }) {
   const steps = [];
   let content = '';
   let nudged = false;
+  if (ctx.deep && !sub && query.trim()) {
+    const note = await explorePaths(query, tier === 'vision' ? 'smart' : tier, ctx);
+    if (note) { messages.push({ role: 'user', content: note }); steps.push('explore_paths(3 pistes)'); }
+  }
   let usedModel = '';
   let lastWrite = -1;
   let lastCheck = -1;
