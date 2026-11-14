@@ -21,6 +21,8 @@ const missions = await import('./lib/missions.js');
 const { notify } = await import('./lib/notify.js');
 const files = await import('./lib/files.js');
 const learning = await import('./lib/learning.js');
+const { seedLearningSessions } = await import('./lib/seed.js');
+seedLearningSessions();
 const backup = await import('./lib/backup.js');
 const selfadmin = await import('./lib/selfadmin.js');
 selfadmin.captureLogs(); // garde les dernières lignes du journal pour que l'IA puisse se diagnostiquer
