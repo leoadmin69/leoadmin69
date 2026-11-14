@@ -72,7 +72,8 @@ function apiKey(req) {
   return k || null;
 }
 const canChat = (req) => PUBLIC_CHAT || isAdmin(req) || !!apiKey(req)?.scopes?.includes('chat');
-const maskDevice = (d) => ({ ...d, haToken: d.haToken ? MASK : '' });
+const devicesLib = await import('./lib/devices.js');
+const maskDevice = ({ tokenHash, ...d }) => ({ ...d, haToken: d.haToken ? MASK : '', online: d.type === 'remote' ? devicesLib.deviceOnline(d.id) : undefined, info: devicesLib.deviceInfo(d.id) });
 const keepMasked = (oldObj, data, fields) => { for (const f of fields) if (data[f] === MASK) data[f] = oldObj?.[f] || ''; return data; };
 
 // Les missions utilisent le même moteur d'agent que le chat, en mode autonome.
@@ -274,12 +275,19 @@ async function adminApi(req, res, p, m) {
       if (!data.name) return json(res, 400, { error: 'Nom requis' });
       const old = list.find((x) => x.id === id);
       const clean = keepMasked(old, {
-        name: data.name, description: data.description || '', type: ['homeassistant', 'http', 'command'].includes(data.type) ? data.type : 'http',
+        name: data.name, description: data.description || '', type: ['homeassistant', 'http', 'command', 'remote'].includes(data.type) ? data.type : 'http', allowShell: !!data.allowShell,
         permission: ['off', 'ask', 'auto'].includes(data.permission) ? data.permission : 'ask',
         haUrl: data.haUrl || '', haToken: data.haToken || '', entities: data.entities || '',
         actions: Array.isArray(data.actions) ? data.actions.filter((a) => a.name) : [],
       }, ['haToken']);
-      return json(res, 200, maskDevice(crud('devices', m, id, clean)));
+      const saved = crud('devices', m, id, clean);
+      // Appareil distant : un jeton est créé (affiché une seule fois) pour l'agent à installer dessus.
+      let token;
+      if (saved.type === 'remote' && (!saved.tokenHash || action === 'token')) {
+        token = 'novadev_' + crypto.randomBytes(24).toString('base64url');
+        saved.tokenHash = sha(token); save('devices');
+      }
+      return json(res, 200, { ...maskDevice(saved), token });
     }
   }
   if (resource === 'missions') {
@@ -398,6 +406,17 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/logout') return json(res, 200, { ok: true }, { 'Set-Cookie': 'ia_admin=; Path=/; Max-Age=0' });
     if (p === '/api/chat' && m === 'POST') return handleChat(req, res);
+
+    // Agents distants installés sur les appareils de l'admin
+    if (p === '/api/device/poll' || p === '/api/device/result') {
+      const raw = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+      const dev = raw.startsWith('novadev_') && load('devices').find((d) => d.type === 'remote' && d.tokenHash === sha(raw));
+      if (!dev || dev.permission === 'off') return json(res, 401, { error: 'Jeton invalide ou appareil désactivé' });
+      if (p.endsWith('/poll')) return json(res, 200, { job: await devicesLib.remotePoll(dev.id, { host: url.searchParams.get('host'), os: url.searchParams.get('os') }) });
+      const r = await body(req);
+      devicesLib.remoteResult(r.id, r);
+      return json(res, 200, { ok: true });
+    }
 
     // Envoi de fichiers (images, captures, PDF, documents)
     if (p === '/api/upload' && m === 'POST') {

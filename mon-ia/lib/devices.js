@@ -5,12 +5,45 @@
 //  - 'homeassistant' : passe par Home Assistant (couvre la plupart des objets connectés : Zigbee, Wi-Fi, Shelly, ESPHome…)
 //  - 'http'          : appareil avec une API web (ESP32, Tasmota, Shelly, relais réseau…)
 //  - 'command'       : commande lancée sur la machine qui héberge l'IA (ex : GPIO d'un Raspberry Pi)
+//  - 'remote'        : appareil distant (PC, Raspberry Pi, serveur…) sur lequel tourne l'agent nova-agent.mjs.
+//                      L'agent se connecte à l'IA (connexion sortante), donc l'appareil est joignable de n'importe où.
 //
 // Permission par appareil : 'off' (interdit), 'ask' (autorisation à chaque fois), 'auto' (libre).
 import { spawn } from 'node:child_process';
-import { load } from './store.js';
+import { load, newId } from './store.js';
 import { defineTool } from './tools.js';
 import { notify } from './notify.js';
+
+// ---------- Appareils distants : file d'ordres relevée par l'agent ----------
+const queues = new Map();  // deviceId -> [job]
+const waiters = new Map(); // deviceId -> fonction qui réveille l'agent en attente
+const results = new Map(); // jobId -> resolve
+const seen = new Map();    // deviceId -> { at, host, os }
+export const deviceOnline = (id) => Date.now() - (seen.get(id)?.at || 0) < 60000;
+export const deviceInfo = (id) => seen.get(id) || null;
+
+/** Appelé par l'agent : attend un ordre (jusqu'à 25 s). */
+export function remotePoll(id, info) {
+  seen.set(id, { at: Date.now(), ...info });
+  const q = queues.get(id) || [];
+  if (q.length) return Promise.resolve(q.shift());
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { waiters.delete(id); seen.set(id, { at: Date.now(), ...info }); resolve(null); }, 25000);
+    waiters.set(id, () => { clearTimeout(timer); waiters.delete(id); resolve((queues.get(id) || []).shift() || null); });
+  });
+}
+export function remoteResult(jobId, data) { results.get(jobId)?.(data); results.delete(jobId); }
+
+function runRemote(d, command, value, label) {
+  if (!deviceOnline(d.id)) throw new Error(`L'appareil « ${d.name} » est hors ligne (l'agent distant n'est pas connecté).`);
+  const job = { id: newId() + newId(), command, value: value ?? '', label };
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { results.delete(job.id); resolve("Pas de réponse de l'appareil après 120 s."); }, 120000);
+    results.set(job.id, (r) => { clearTimeout(timer); resolve(`Code ${r.code}\n${String(r.output || '').slice(0, 6000)}`); });
+    queues.set(d.id, [...(queues.get(d.id) || []), job]);
+    waiters.get(d.id)?.();
+  });
+}
 
 const findDevice = (ref) => {
   const r = String(ref || '').toLowerCase();
@@ -65,8 +98,10 @@ function listDevices() {
     const perm = d.permission === 'auto' ? 'contrôle libre' : 'autorisation requise à chaque action';
     const what = d.type === 'homeassistant'
       ? `entités : ${entities(d).join(', ')} (actions : turn_on, turn_off, toggle, ou un service Home Assistant comme light.turn_on)`
-      : `actions : ${(d.actions || []).map((a) => `${a.name}${a.read ? ' (lecture)' : ''}${a.description ? ' — ' + a.description : ''}`).join(' ; ')}`;
-    return `• ${d.name} [${d.type}, ${perm}] ${d.description || ''}\n  ${what}`;
+      : `actions : ${(d.actions || []).map((a) => `${a.name}${a.read ? ' (lecture)' : ''}${a.description ? ' — ' + a.description : ''}`).join(' ; ')}` +
+        (d.type === 'remote' && d.allowShell ? ' ; shell (commande libre : mets la commande dans value)' : '');
+    const net = d.type === 'remote' ? (deviceOnline(d.id) ? `, EN LIGNE (${deviceInfo(d.id)?.os || '?'})` : ', HORS LIGNE') : '';
+    return `• ${d.name} [${d.type}, ${perm}${net}] ${d.description || ''}\n  ${what}`;
   }).join('\n');
 }
 
@@ -81,6 +116,7 @@ async function readDevice({ device, target }) {
   }
   const a = target ? findAction(d, target) : (d.actions || []).find((x) => x.read);
   if (!a || !a.read) throw new Error(`Aucune action de lecture « ${target || ''} » sur ${d.name}.`);
+  if (d.type === 'remote') return runRemote(d, a.command, '', `Lecture : ${a.name}`);
   return d.type === 'http' ? httpAction(a) : runCommand(a.command);
 }
 
@@ -114,9 +150,14 @@ async function controlDevice({ device, action, entity, value }, ctx) {
     const [s] = await ha(d, `states/${entity}`).then((x) => [x]).catch(() => [null]);
     return `Fait : ${label}.${s ? ` Nouvel état : ${s.state}` : ''}`;
   }
+  if (d.type === 'remote' && action === 'shell') {
+    if (!d.allowShell) throw new Error("Les commandes libres ne sont pas autorisées sur cet appareil : utilise une action déclarée.");
+    if (!value) throw new Error('Mets la commande à exécuter dans value.');
+    return `Fait : ${d.name} → $ ${value}\n${await runRemote(d, String(value), '', `$ ${String(value).slice(0, 120)}`)}`;
+  }
   const a = findAction(d, action);
   if (!a) throw new Error(`Action inconnue « ${action} ». Actions : ${(d.actions || []).map((x) => x.name).join(', ')}`);
-  const out = d.type === 'http' ? await httpAction(a, value) : await runCommand(a.command, value);
+  const out = d.type === 'http' ? await httpAction(a, value) : d.type === 'remote' ? await runRemote(d, a.command, value, `Action : ${a.name}`) : await runCommand(a.command, value);
   return `Fait : ${label}\n${out}`;
 }
 

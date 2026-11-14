@@ -198,6 +198,12 @@ Admin → **Appareils**. Trois façons de brancher du matériel :
 | **Appareil web** | ESP32, Tasmota, Shelly, relais réseau… : tu déclares chaque action (nom + URL). |
 | **Commande locale** | Quand l'IA tourne sur un Raspberry Pi : commandes GPIO, scripts. La valeur demandée arrive dans `$VALUE` (aucune injection possible). |
 
+**Appareils distants (où que tu sois)** : type « Appareil distant ». Tu lances un petit programme (`nova-agent.mjs`, fourni par ton IA) sur le PC, le Raspberry Pi
+ou le serveur à lui confier. C'est l'appareil qui se connecte à ton IA (connexion sortante) : il reste joignable de partout, sans ouvrir de port chez toi,
+même si ton IA est hébergée dans le cloud. Elle peut y lancer les actions que tu as déclarées, y compris pendant une mission en ton absence
+(si l'appareil est réglé sur « libre »). Les commandes libres sont une option à cocher, à réserver à un appareil de confiance.
+L'appareil doit être allumé, connecté à internet, avec l'agent en marche.
+
 Pour chaque appareil, tu choisis la permission : **🔐 me demander à chaque fois** (même en mode Auto), **✅ libre** ou **⛔ désactivé**.
 L'IA ne peut utiliser **que** les actions et entités que tu as déclarées. Exemple : *« Allume la lumière du salon à 60 % »*, *« Quelle température dans le salon ? »*.
 Pour joindre les appareils de ta maison, l'IA doit tourner chez toi, ou passer par une adresse Home Assistant accessible depuis internet.

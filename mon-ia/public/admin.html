@@ -234,7 +234,8 @@
         <label>Nom<input id="dvName" required placeholder="Salon"></label>
         <label>Type<select id="dvType">
           <option value="homeassistant">Home Assistant (recommandé)</option><option value="http">Appareil web (ESP32, Shelly, Tasmota…)</option>
-          <option value="command">Commande locale (Raspberry Pi, GPIO…)</option></select></label>
+          <option value="command">Commande locale (Raspberry Pi, GPIO…)</option>
+          <option value="remote">Appareil distant : PC, Raspberry Pi, serveur… (agent à installer)</option></select></label>
         <label>Permission<select id="dvPerm">
           <option value="ask">🔐 Me demander à chaque fois</option><option value="auto">✅ Libre</option><option value="off">⛔ Désactivé</option></select></label>
       </div>
@@ -244,13 +245,18 @@
           <label>Jeton longue durée (Profil → Sécurité)<input id="dvHaToken" type="password" autocomplete="off"></label></div>
         <label>Entités autorisées (séparées par des virgules)<input id="dvEntities" placeholder="light.salon, switch.prise_tv, sensor.temperature_salon, climate.salon"></label>
       </div>
-      <div class="dvt-http dvt-command">
+      <div class="dvt-remote help">Après l'ajout, une commande à lancer sur l'appareil s'affichera. L'appareil se connecte lui-même à ton IA :
+        il reste joignable où que tu sois, sans ouvrir de port chez toi.
+        <label style="display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="dvShell" style="width:auto">
+          Autoriser aussi les commandes libres (l'IA peut lancer n'importe quelle commande sur cet appareil : à réserver à un appareil de confiance, avec la permission « me demander »)</label></div>
+      <div class="dvt-http dvt-command dvt-remote">
         <b style="font-size:14px">Actions</b> <span class="help">· dans l'URL, le corps ou la commande, la valeur demandée s'écrit <code>{{value}}</code> (commande : variable <code>$VALUE</code>)</span>
         <div id="dvActions" class="grid" style="margin-top:8px"></div>
         <button type="button" class="btn ghost small" id="dvAddAction" style="margin-top:8px">+ Ajouter une action</button>
       </div>
       <div style="display:flex;gap:8px"><button class="btn" id="dvSave">Ajouter l'appareil</button><button type="button" class="btn ghost" id="dvCancel" hidden>Annuler</button></div>
     </form>
+    <div id="dvToken" style="margin-top:14px"></div>
     <div class="grid" id="dvList" style="margin-top:14px"></div>
   </section>
 
@@ -453,11 +459,13 @@ async function load(tab) {
   if (tab === 'devices') {
     devicesList = await api('devices');
     const perm = { ask: '🔐 demande', auto: '✅ libre', off: '⛔ désactivé' };
-    $('dvList').innerHTML = devicesList.map((d) => `<div class="item"><div><b>${esc(d.name)}</b> <span class="tag">${{ homeassistant: 'Home Assistant', http: 'Web', command: 'Commande' }[d.type]}</span> <span class="tag">${perm[d.permission]}</span>
+    $('dvList').innerHTML = devicesList.map((d) => `<div class="item"><div><b>${esc(d.name)}</b> <span class="tag">${{ homeassistant: 'Home Assistant', http: 'Web', command: 'Commande', remote: 'Distant' }[d.type]}</span> <span class="tag">${perm[d.permission]}</span>
+        ${d.type === 'remote' ? `<span class="tag">${d.online ? '🟢 en ligne' + (d.info?.host ? ' · ' + esc(d.info.host) : '') : '⚪ hors ligne'}</span>${d.allowShell ? ' <span class="tag">commandes libres</span>' : ''}` : ''}
         <div class="meta">${esc(d.description)}</div>
         <div class="meta">${d.type === 'homeassistant' ? esc(d.entities) : (d.actions || []).map((a) => esc(a.name) + (a.read ? ' (lecture)' : '')).join(', ')}</div>
         <div class="meta" id="dt-${d.id}"></div></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button class="btn ghost small" onclick="testDevice('${d.id}')">Lire l'état</button>
+        ${d.type === 'remote' ? `<button class="btn ghost small" onclick="newDeviceToken('${d.id}')">Nouveau jeton</button>` : ''}
         <button class="btn ghost small" onclick="editDevice('${d.id}')">Modifier</button><button class="btn ghost small" onclick="del('devices','${d.id}')">Supprimer</button></div></div>`).join('') || '<p class="help">Aucun appareil.</p>';
   }
   if (tab === 'integrations') {
@@ -580,7 +588,7 @@ function dvTypeUi() { const t = $('dvType').value; document.querySelectorAll('[c
 $('dvType').onchange = dvTypeUi;
 let actionRows = [];
 function renderActionRows() {
-  const cmd = $('dvType').value === 'command';
+  const cmd = ['command', 'remote'].includes($('dvType').value);
   $('dvActions').innerHTML = actionRows.map((a, i) => `<div class="row" style="align-items:center;border:1px solid var(--border);border-radius:10px;padding:8px">
     <input placeholder="nom (ex : allumer)" value="${esc(a.name)}" oninput="actionRows[${i}].name=this.value" style="flex:1">
     ${cmd ? `<input placeholder="commande (ex : gpio write 17 1)" value="${esc(a.command)}" oninput="actionRows[${i}].command=this.value" style="flex:3">`
@@ -597,17 +605,29 @@ $('dvCancel').onclick = resetDevice; dvTypeUi();
 $('dvForm').onsubmit = async (e) => {
   e.preventDefault();
   const data = { name: $('dvName').value, description: $('dvDesc').value, type: $('dvType').value, permission: $('dvPerm').value,
-    haUrl: $('dvHaUrl').value, haToken: $('dvHaToken').value, entities: $('dvEntities').value, actions: actionRows };
+    haUrl: $('dvHaUrl').value, haToken: $('dvHaToken').value, entities: $('dvEntities').value, actions: actionRows, allowShell: $('dvShell').checked };
   const r = await api('devices' + ($('dvId').value ? '/' + $('dvId').value : ''), $('dvId').value ? 'PUT' : 'POST', data);
   if (r.error) return alert(r.error);
   resetDevice(); load('devices');
+  if (r.token) showDeviceToken(r);
 };
 window.editDevice = (id) => {
   const d = devicesList.find((x) => x.id === id);
   $('dvId').value = id; $('dvName').value = d.name; $('dvDesc').value = d.description; $('dvType').value = d.type; $('dvPerm').value = d.permission;
-  $('dvHaUrl').value = d.haUrl || ''; $('dvHaToken').value = d.haToken || ''; $('dvEntities').value = d.entities || '';
+  $('dvHaUrl').value = d.haUrl || ''; $('dvHaToken').value = d.haToken || ''; $('dvEntities').value = d.entities || ''; $('dvShell').checked = !!d.allowShell;
   actionRows = (d.actions || []).map((a) => ({ ...a })); dvTypeUi();
   $('dvSave').textContent = 'Enregistrer'; $('dvCancel').hidden = false; $('dvForm').scrollIntoView({ behavior: 'smooth' });
+};
+function showDeviceToken(r) {
+  $('dvToken').innerHTML = `<div class="approval"><b>Sur l'appareil « ${esc(r.name)} », installe Node.js puis lance ces deux commandes (le jeton ne sera plus affiché) :</b>
+    <pre class="out">curl -O ${location.origin}/nova-agent.mjs\nnode nova-agent.mjs ${location.origin} ${esc(r.token)}</pre>
+    <span class="help">Pour qu'il reste actif en permanence, lance-le au démarrage de l'appareil (service systemd, pm2, tâche planifiée Windows).</span></div>`;
+  $('dvToken').scrollIntoView({ behavior: 'smooth' });
+}
+window.newDeviceToken = async (id) => {
+  if (!confirm("Créer un nouveau jeton ? L'ancien ne fonctionnera plus.")) return;
+  const d = devicesList.find((x) => x.id === id);
+  showDeviceToken(await api(`devices/${id}/token`, 'PUT', d));
 };
 window.testDevice = async (id) => { $('dt-' + id).textContent = 'Lecture…'; const r = await api(`devices/${id}/test`, 'POST'); $('dt-' + id).textContent = (r.ok ? '✅ ' : '❌ ') + r.output; };
 
