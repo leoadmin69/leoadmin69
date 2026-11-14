@@ -1,0 +1,13 @@
+{
+  "name": "mon-ia",
+  "version": "1.0.0",
+  "description": "Assistant IA personnel, auto-hébergé, que son admin peut entraîner (connaissances, leçons, corrections).",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": { "node": ">=18" },
+  "license": "MIT"
+}

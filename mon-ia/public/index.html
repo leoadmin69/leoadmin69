@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mon IA</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="side">
+    <div class="brand"><div class="logo">✦</div><span class="ai-name">Mon IA</span></div>
+    <button class="btn" id="newChat">+ Nouvelle conversation</button>
+    <div class="convs" id="convs"></div>
+    <div class="side-foot"><span id="who">Invité</span><a href="/admin">Admin ⚙</a></div>
+  </aside>
+  <main class="main">
+    <div class="topbar"><button class="btn ghost small" onclick="side.classList.toggle('open')">☰</button><b class="ai-name">Mon IA</b></div>
+    <div class="thread" id="thread"><div class="inner" id="inner"></div></div>
+    <div class="composer">
+      <form class="box" id="form">
+        <textarea id="input" rows="1" placeholder="Écris ton message…  (Entrée pour envoyer, Maj+Entrée pour une ligne)"></textarea>
+        <button class="btn" id="send">➤</button>
+      </form>
+      <div class="hint" id="hint"></div>
+    </div>
+  </main>
+</div>
+
+<div class="modal" id="login">
+  <form class="card" id="loginForm">
+    <h3 style="margin:0">Connexion</h3>
+    <span class="help">Cette IA est privée. Entre le mot de passe admin.</span>
+    <input type="password" id="pwd" placeholder="Mot de passe" autocomplete="current-password">
+    <span class="err" id="loginErr"></span>
+    <button class="btn">Entrer</button>
+  </form>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const side = $('side');
+let token = localStorage.getItem('token') || '';
+let status = {};
+let convId = null;
+let busy = false;
+const myConvs = () => JSON.parse(localStorage.getItem('convs') || '[]');
+const headers = () => ({ 'Content-Type': 'application/json', 'x-admin-token': token });
+
+marked.setOptions({ breaks: true });
+function md(text) {
+  const div = document.createElement('div');
+  div.innerHTML = DOMPurify.sanitize(marked.parse(text || ''));
+  div.querySelectorAll('pre code').forEach((el) => {
+    hljs.highlightElement(el);
+    const b = document.createElement('button');
+    b.className = 'copy'; b.textContent = 'Copier';
+    b.onclick = () => { navigator.clipboard.writeText(el.innerText); b.textContent = 'Copié ✓'; setTimeout(() => (b.textContent = 'Copier'), 1500); };
+    el.parentElement.appendChild(b);
+  });
+  return div;
+}
+
+async function init() {
+  status = await (await fetch('/api/status', { headers: headers() })).json();
+  document.querySelectorAll('.ai-name').forEach((e) => (e.textContent = status.name));
+  document.title = status.name;
+  $('who').textContent = status.admin ? '👑 Admin' : 'Invité';
+  $('hint').textContent = `${status.name} peut se tromper. Modèle : ${status.llm.model}` + (status.llm.configured ? '' : ' — ⚠️ clé API manquante');
+  if (!status.publicChat && !status.admin) $('login').classList.add('open');
+  renderConvs(); empty();
+}
+
+function renderConvs() {
+  $('convs').innerHTML = '';
+  for (const c of myConvs()) {
+    const a = document.createElement('div');
+    a.className = 'conv' + (c.id === convId ? ' active' : '');
+    a.textContent = c.title; a.title = c.title;
+    a.onclick = () => openConv(c.id);
+    $('convs').appendChild(a);
+  }
+}
+
+function empty() {
+  convId = null; renderConvs();
+  $('inner').innerHTML = `<div class="empty"><div class="logo" style="margin:auto;width:48px;height:48px;font-size:24px">✦</div>
+    <h1>Bonjour, je suis ${status.name}</h1><div class="help">Code, informations, organisation… que puis-je faire pour toi ?</div>
+    <div class="chips">
+      <button>Écris une fonction Python qui trie une liste de dictionnaires par date</button>
+      <button>Quelles sont les dernières nouvelles sur l'intelligence artificielle ?</button>
+      <button>Organise ma semaine : 3 projets, 2 rendez-vous et du sport</button>
+      <button>Ajoute « appeler le fournisseur » à mes tâches pour demain</button>
+    </div></div>`;
+  $('inner').querySelectorAll('.chips button').forEach((b) => (b.onclick = () => { $('input').value = b.textContent; send(); }));
+}
+
+async function openConv(id) {
+  const r = await fetch('/api/conversations/' + id, { headers: headers() });
+  if (!r.ok) return;
+  const c = await r.json();
+  convId = id; renderConvs(); side.classList.remove('open');
+  $('inner').innerHTML = '';
+  c.messages.forEach((m, i) => addMsg(m.role, m.content, i, m.feedback));
+  scroll();
+}
+
+function addMsg(role, content, index, feedback) {
+  const el = document.createElement('div');
+  el.className = 'msg ' + role;
+  const tools = document.createElement('div');
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  if (role === 'user') bubble.textContent = content; else bubble.appendChild(md(content));
+  el.append(tools, bubble);
+  $('inner').appendChild(el);
+  if (role === 'assistant' && index != null) addActions(el, index, feedback, content);
+  return { el, bubble, tools };
+}
+
+function addActions(el, index, feedback, content) {
+  const bar = document.createElement('div');
+  bar.className = 'actions';
+  const up = Object.assign(document.createElement('button'), { textContent: '👍', title: 'Bonne réponse' });
+  const down = Object.assign(document.createElement('button'), { textContent: '👎', title: 'Mauvaise réponse' });
+  const copy = Object.assign(document.createElement('button'), { textContent: 'Copier' });
+  if (feedback?.rating === 'up') up.classList.add('on');
+  if (feedback?.rating === 'down') down.classList.add('on');
+  bar.append(up, down, copy);
+  const corr = document.createElement('div');
+  corr.className = 'correction';
+  if (status.admin) {
+    const fix = Object.assign(document.createElement('button'), { textContent: '✎ Corriger (apprendre)' });
+    bar.appendChild(fix);
+    corr.innerHTML = `<textarea rows="4" placeholder="Écris la bonne réponse : ${status.name} la retiendra pour toujours."></textarea>
+      <div><button class="btn small">Enseigner cette correction</button></div>`;
+    corr.querySelector('textarea').value = feedback?.correction || '';
+    fix.onclick = () => corr.classList.toggle('open');
+    corr.querySelector('button').onclick = async () => {
+      await rate(index, 'down', corr.querySelector('textarea').value);
+      corr.classList.remove('open'); fix.textContent = '✓ Leçon enregistrée';
+    };
+  }
+  up.onclick = () => { rate(index, 'up'); up.classList.add('on'); down.classList.remove('on'); };
+  down.onclick = () => { rate(index, 'down'); down.classList.add('on'); up.classList.remove('on'); if (status.admin) corr.classList.add('open'); };
+  copy.onclick = () => { navigator.clipboard.writeText(content); copy.textContent = 'Copié ✓'; };
+  el.append(bar, corr);
+}
+
+const rate = (index, rating, correction) => fetch('/api/feedback', { method: 'POST', headers: headers(), body: JSON.stringify({ conversationId: convId, index, rating, correction }) });
+const scroll = () => ($('thread').scrollTop = $('thread').scrollHeight);
+const TOOL_LABEL = { web_search: '🔎 Recherche web', read_page: '📄 Lecture', search_knowledge: '🧠 Mémoire', add_task: '✅ Tâche ajoutée', list_tasks: '📋 Tâches', complete_task: '✔️ Tâche terminée', remember: '💾 Mémorisé' };
+
+async function send() {
+  const text = $('input').value.trim();
+  if (!text || busy) return;
+  if (!convId) $('inner').innerHTML = '';
+  busy = true; $('send').disabled = true; $('input').value = ''; autosize();
+  addMsg('user', text);
+  const a = addMsg('assistant', '');
+  a.bubble.classList.add('cursor');
+  scroll();
+  let full = '';
+  try {
+    const res = await fetch('/api/chat', { method: 'POST', headers: headers(), body: JSON.stringify({ conversationId: convId, message: text }) });
+    if (!res.ok) throw new Error((await res.json()).error);
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const events = buf.split('\n\n'); buf = events.pop();
+      for (const ev of events) {
+        if (!ev.startsWith('data:')) continue;
+        const e = JSON.parse(ev.slice(5));
+        if (e.type === 'start' && !convId) {
+          convId = e.conversationId;
+          localStorage.setItem('convs', JSON.stringify([{ id: convId, title: text.slice(0, 60) }, ...myConvs()]));
+          renderConvs();
+        }
+        if (e.type === 'token') { full += e.text; a.bubble.replaceChildren(md(full)); scroll(); }
+        if (e.type === 'tool') {
+          const t = document.createElement('span'); t.className = 'tool';
+          t.textContent = (TOOL_LABEL[e.name] || e.name) + (e.args.query ? ` : ${e.args.query}` : e.args.title ? ` : ${e.args.title}` : '');
+          a.tools.appendChild(t);
+        }
+        if (e.type === 'error') { full += `\n\n> ⚠️ Erreur : ${e.message}`; a.bubble.replaceChildren(md(full)); }
+        if (e.type === 'done') addActions(a.el, e.index, null, full);
+      }
+    }
+  } catch (err) {
+    a.bubble.replaceChildren(md('⚠️ ' + err.message));
+  }
+  a.bubble.classList.remove('cursor');
+  busy = false; $('send').disabled = false; $('input').focus();
+}
+
+function autosize() { const i = $('input'); i.style.height = 'auto'; i.style.height = Math.min(i.scrollHeight, 200) + 'px'; }
+$('input').addEventListener('input', autosize);
+$('input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+$('form').onsubmit = (e) => { e.preventDefault(); send(); };
+$('newChat').onclick = () => { empty(); side.classList.remove('open'); };
+$('loginForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const r = await fetch('/api/login', { method: 'POST', headers: headers(), body: JSON.stringify({ password: $('pwd').value }) });
+  const j = await r.json();
+  if (!r.ok) return ($('loginErr').textContent = j.error);
+  token = j.token; localStorage.setItem('token', token); $('login').classList.remove('open'); init();
+};
+init();
+</script>
+</body>
+</html>

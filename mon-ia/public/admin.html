@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Administration</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="admin">
+  <header>
+    <div class="brand"><div class="logo">✦</div><span>Administration de <span id="aiName">l'IA</span></span></div>
+    <div style="display:flex;gap:8px"><a class="btn ghost" href="/">← Retour au chat</a><button class="btn ghost" id="logout">Déconnexion</button></div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="dash" class="on">Tableau de bord</button>
+    <button data-tab="persona">Personnalité</button>
+    <button data-tab="knowledge">Connaissances</button>
+    <button data-tab="lessons">Leçons</button>
+    <button data-tab="tasks">Tâches</button>
+    <button data-tab="convs">Conversations</button>
+    <button data-tab="data">Données</button>
+  </nav>
+
+  <section class="panel on" id="dash">
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))" id="stats"></div>
+    <h3>Comment ton IA apprend</h3>
+    <ol class="help">
+      <li><b>Personnalité</b> : qui elle est, son ton, ses règles. Appliquée à chaque message.</li>
+      <li><b>Connaissances</b> : colle des textes (docs, notes, FAQ, infos sur ton entreprise). Elle retrouve automatiquement les passages utiles.</li>
+      <li><b>Leçons</b> : règles courtes toujours respectées (« Ne jamais… », « Toujours… »). Dans le chat, dis-lui « retiens que… ».</li>
+      <li><b>Corrections</b> : dans le chat, clique 👎 ou ✎ sous une réponse et écris la bonne. Elle devient une leçon.</li>
+      <li><b>Entraînement profond</b> : onglet Données → exporte le dataset de tes bonnes réponses pour un vrai fine-tuning (voir README).</li>
+    </ol>
+  </section>
+
+  <section class="panel" id="persona">
+    <div class="grid">
+      <label>Nom<input id="pName"></label>
+      <label>Instructions (sa « personnalité »)<textarea id="pInstr" rows="14"></textarea></label>
+      <label>Créativité (température : 0 = précise, 1 = créative)<input id="pTemp" type="number" min="0" max="1.5" step="0.1"></label>
+      <div><button class="btn" id="savePersona">Enregistrer</button> <span class="help" id="pSaved"></span></div>
+    </div>
+  </section>
+
+  <section class="panel" id="knowledge">
+    <div class="grid">
+      <div class="row"><input id="kTitle" placeholder="Titre (ex : Horaires de la boutique)"><input id="kTags" placeholder="Mots-clés (optionnel)"></div>
+      <textarea id="kContent" rows="7" placeholder="Colle ici le texte à apprendre. Les longs documents sont découpés automatiquement."></textarea>
+      <div class="row" style="align-items:center">
+        <div><button class="btn" id="addK">Apprendre</button></div>
+        <label class="help" style="flex:2">ou importer un fichier texte (.txt, .md, .csv, .json) : <input type="file" id="kFile" accept=".txt,.md,.csv,.json,.html" multiple></label>
+      </div>
+      <input id="kFilter" placeholder="Filtrer…">
+      <div class="grid" id="kList"></div>
+    </div>
+  </section>
+
+  <section class="panel" id="lessons">
+    <div class="grid">
+      <div class="row"><input id="lText" placeholder="Ex : Toujours répondre en tutoyant. / Mon entreprise s'appelle …"><div style="flex:0"><button class="btn" id="addL">Ajouter</button></div></div>
+      <div class="grid" id="lList"></div>
+    </div>
+  </section>
+
+  <section class="panel" id="tasks">
+    <div class="grid">
+      <div class="row"><input id="tTitle" placeholder="Nouvelle tâche"><input id="tDue" type="date" style="flex:0 0 170px">
+        <select id="tPrio" style="flex:0 0 130px"><option>basse</option><option selected>normale</option><option>haute</option></select>
+        <div style="flex:0"><button class="btn" id="addT">Ajouter</button></div></div>
+      <div class="grid" id="tList"></div>
+    </div>
+  </section>
+
+  <section class="panel" id="convs"><div class="grid" id="cList"></div></section>
+
+  <section class="panel" id="data">
+    <div class="grid">
+      <div class="item"><div><b>Dataset d'entraînement (JSONL)</b><p class="help">Toutes les réponses notées 👍 ou corrigées, au format standard pour fine-tuner un modèle open-source (Unsloth / Colab gratuit).</p></div><button class="btn" id="exp">Exporter</button></div>
+      <div class="item"><div><b>Sauvegarde complète</b><p class="help">Les hébergeurs gratuits effacent parfois le disque : télécharge régulièrement une sauvegarde.</p></div><button class="btn" id="bak">Télécharger</button></div>
+      <div class="item"><div><b>Restaurer</b><p class="help">Recharge une sauvegarde .json (remplace les données actuelles).</p></div><input type="file" id="rest" accept=".json" style="max-width:240px"></div>
+    </div>
+  </section>
+</div>
+
+<div class="modal" id="login">
+  <form class="card" id="loginForm">
+    <h3 style="margin:0">Connexion admin</h3>
+    <input type="password" id="pwd" placeholder="Mot de passe admin" autocomplete="current-password">
+    <span class="err" id="loginErr"></span>
+    <button class="btn">Entrer</button>
+  </form>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let token = localStorage.getItem('token') || '';
+const H = () => ({ 'Content-Type': 'application/json', 'x-admin-token': token });
+const api = async (path, method = 'GET', body) => {
+  const r = await fetch('/api/admin/' + path, { method, headers: H(), body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 401) { $('login').classList.add('open'); throw new Error('401'); }
+  return r.json();
+};
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const date = (d) => d ? new Date(d).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '';
+function download(name, text, type = 'application/json') {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click();
+}
+
+document.querySelectorAll('#tabs button').forEach((b) => (b.onclick = () => {
+  document.querySelectorAll('#tabs button, .panel').forEach((x) => x.classList.remove('on'));
+  b.classList.add('on'); $(b.dataset.tab).classList.add('on'); load(b.dataset.tab);
+}));
+
+async function load(tab) {
+  if (tab === 'dash') {
+    const [k, l, t, c] = await Promise.all(['knowledge', 'lessons', 'tasks', 'conversations'].map((n) => api(n)));
+    const st = await (await fetch('/api/status', { headers: H() })).json();
+    $('stats').innerHTML = [['Fiches de connaissances', k.length], ['Leçons', l.length], ['Tâches ouvertes', t.filter((x) => !x.done).length], ['Conversations', c.length], ['Retours reçus', c.reduce((s, x) => s + x.feedback, 0)]]
+      .map(([n, v]) => `<div class="stat"><b>${v}</b><span class="help">${n}</span></div>`).join('') +
+      `<div class="stat"><b style="font-size:15px">${esc(st.llm.model)}</b><span class="help">${st.llm.configured ? 'Modèle connecté' : '⚠️ LLM_API_KEY manquante'}</span></div>`;
+  }
+  if (tab === 'persona') {
+    const p = await api('persona');
+    $('pName').value = p.name; $('pInstr').value = p.instructions; $('pTemp').value = p.temperature;
+  }
+  if (tab === 'knowledge') {
+    const list = await api('knowledge'); const f = $('kFilter').value.toLowerCase();
+    $('kList').innerHTML = list.filter((x) => !f || (x.title + x.content).toLowerCase().includes(f)).reverse().map((x) =>
+      `<div class="item"><div><b>${esc(x.title)}</b> <span class="meta">${esc(x.tags)} · ${date(x.createdAt)}</span><p>${esc(x.content.slice(0, 400))}${x.content.length > 400 ? '…' : ''}</p></div>
+       <button class="btn ghost small" onclick="del('knowledge','${x.id}')">Supprimer</button></div>`).join('') || '<p class="help">Aucune connaissance pour l\'instant.</p>';
+  }
+  if (tab === 'lessons') {
+    const list = await api('lessons');
+    $('lList').innerHTML = list.slice().reverse().map((x) =>
+      `<div class="item"><div><p style="margin:0">${esc(x.text)}</p><span class="meta">${esc(x.source)} · ${date(x.createdAt)}</span></div>
+       <button class="btn ghost small" onclick="del('lessons','${x.id}')">Supprimer</button></div>`).join('') || '<p class="help">Aucune leçon. Ajoute-en une ou corrige une réponse dans le chat.</p>';
+  }
+  if (tab === 'tasks') {
+    const list = await api('tasks');
+    const order = { haute: 0, normale: 1, basse: 2 };
+    list.sort((a, b) => a.done - b.done || order[a.priority] - order[b.priority] || String(a.due || '9').localeCompare(String(b.due || '9')));
+    $('tList').innerHTML = list.map((x) =>
+      `<div class="item" style="${x.done ? 'opacity:.55' : ''}"><label style="display:flex;gap:10px;align-items:center;flex:1">
+        <input type="checkbox" style="width:auto" ${x.done ? 'checked' : ''} onchange="api('tasks/${x.id}','PUT',{done:this.checked}).then(()=>load('tasks'))">
+        <div><b style="${x.done ? 'text-decoration:line-through' : ''}">${esc(x.title)}</b><div class="meta">priorité ${esc(x.priority)}${x.due ? ' · pour le ' + esc(x.due) : ''} · id ${x.id}</div></div></label>
+        <button class="btn ghost small" onclick="del('tasks','${x.id}')">Supprimer</button></div>`).join('') || '<p class="help">Aucune tâche. Demande à ton IA « ajoute … à mes tâches ».</p>';
+  }
+  if (tab === 'convs') {
+    const list = await api('conversations');
+    $('cList').innerHTML = list.map((x) =>
+      `<div class="item"><div><b>${esc(x.title)}</b><div class="meta">${x.count} messages · ${x.feedback} retours · ${date(x.updatedAt)}</div></div>
+       <div class="row" style="flex:0;flex-wrap:nowrap"><button class="btn ghost small" onclick="openConv('${x.id}')">Ouvrir</button>
+       <button class="btn ghost small" onclick="del('conversations','${x.id}')">Supprimer</button></div></div>`).join('') || '<p class="help">Aucune conversation.</p>';
+  }
+}
+window.del = async (res, id) => { if (confirm('Supprimer ?')) { await api(`${res}/${id}`, 'DELETE'); load(res === 'conversations' ? 'convs' : res); } };
+window.openConv = (id) => {
+  const c = JSON.parse(localStorage.getItem('convs') || '[]');
+  if (!c.find((x) => x.id === id)) localStorage.setItem('convs', JSON.stringify([{ id, title: 'Conversation ' + id }, ...c]));
+  location.href = '/';
+};
+
+$('savePersona').onclick = async () => {
+  await api('persona', 'PUT', { name: $('pName').value, instructions: $('pInstr').value, temperature: Number($('pTemp').value) });
+  $('pSaved').textContent = 'Enregistré ✓'; setTimeout(() => ($('pSaved').textContent = ''), 2000);
+};
+$('addK').onclick = async () => {
+  if (!$('kTitle').value || !$('kContent').value) return alert('Titre et contenu requis');
+  await api('knowledge', 'POST', { title: $('kTitle').value, tags: $('kTags').value, content: $('kContent').value });
+  $('kTitle').value = $('kTags').value = $('kContent').value = ''; load('knowledge');
+};
+$('kFile').onchange = async (e) => {
+  for (const f of e.target.files) await api('knowledge', 'POST', { title: f.name.replace(/\.\w+$/, ''), content: await f.text(), tags: 'fichier' });
+  e.target.value = ''; load('knowledge');
+};
+$('kFilter').oninput = () => load('knowledge');
+$('addL').onclick = async () => { if ($('lText').value) { await api('lessons', 'POST', { text: $('lText').value }); $('lText').value = ''; load('lessons'); } };
+$('addT').onclick = async () => { if ($('tTitle').value) { await api('tasks', 'POST', { title: $('tTitle').value, due: $('tDue').value, priority: $('tPrio').value }); $('tTitle').value = ''; load('tasks'); } };
+$('exp').onclick = async () => { const r = await fetch('/api/admin/export', { headers: H() }); const t = await r.text(); if (!t) return alert('Pas encore de réponses notées 👍 ou corrigées.'); download('dataset.jsonl', t, 'application/jsonl'); };
+$('bak').onclick = async () => download(`sauvegarde-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(await api('backup'), null, 2));
+$('rest').onchange = async (e) => { if (confirm('Remplacer les données actuelles ?')) { await api('restore', 'POST', JSON.parse(await e.target.files[0].text())); alert('Restauré ✓'); load('dash'); } };
+$('logout').onclick = () => { localStorage.removeItem('token'); location.reload(); };
+$('loginForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const r = await fetch('/api/login', { method: 'POST', headers: H(), body: JSON.stringify({ password: $('pwd').value }) });
+  const j = await r.json();
+  if (!r.ok) return ($('loginErr').textContent = j.error);
+  token = j.token; localStorage.setItem('token', token); $('login').classList.remove('open'); init();
+};
+async function init() {
+  const st = await (await fetch('/api/status', { headers: H() })).json();
+  $('aiName').textContent = st.name;
+  if (!st.admin) return $('login').classList.add('open');
+  load('dash');
+}
+init();
+</script>
+</body>
+</html>
