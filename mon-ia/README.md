@@ -125,6 +125,14 @@ L'outil `deploy` choisit automatiquement :
 
 Si ton dépôt GitHub est déjà relié à Vercel, Netlify ou GitHub Pages, un simple `git_commit_push` suffit : le site se met à jour tout seul.
 
+## Sur ton iPhone : l'icône Nova sur l'écran d'accueil
+
+1. Ouvre l'adresse de Nova dans **Safari** (pas Chrome : sur iPhone, seul Safari sait installer une application web).
+2. Appuie sur le bouton **Partager** (le carré avec une flèche), puis **« Sur l'écran d'accueil »**.
+3. Nomme-la « Nova » et valide. L'icône apparaît comme une appli ; elle s'ouvre en plein écran.
+
+Le micro et la voix fonctionnent dans cette version installée ; les notifications web sur iPhone demandent iOS 16.4 ou plus. Pour être sûr de les recevoir, garde ntfy ou Telegram (section Notifications).
+
 ## 5. Images, captures d'écran et documents
 
 - 📎 Joindre : **images**, **PDF**, **Word** (.docx), **PowerPoint** (.pptx), **Excel** (.xlsx), textes et fichiers de code (20 Mo max).
