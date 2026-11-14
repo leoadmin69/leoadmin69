@@ -115,8 +115,19 @@ export async function restoreIfEmpty() {
 /** Sauvegarde dès que la mémoire a changé (au plus toutes les N minutes) et juste avant l'arrêt du serveur. */
 export function startAutoBackup() {
   if (!backupConfigured()) return;
-  onSave(() => { state.dirty = true; });
-  let last = Date.now();
+  // Chaque changement est sauvegardé dans les 5 secondes : un redéploiement qui arrive juste après ne doit rien faire perdre.
+  let flush = null;
+  onSave(() => {
+    state.dirty = true;
+    clearTimeout(flush);
+    flush = setTimeout(() => {
+      if (state.running || state.restoreFailed) return;
+      last = Date.now();
+      backupNow().catch((e) => console.error('Sauvegarde automatique :', e.message));
+    }, 5000);
+    flush.unref?.();
+  });
+  let last = 0;
   setInterval(() => {
     if (!state.dirty || state.running || state.restoreFailed || Date.now() - last < cfg().minutes * 60000) return;
     last = Date.now();
