@@ -361,7 +361,9 @@ export async function runAgent({ agent, history, ctx }) {
   const sub = (ctx.depth || 0) > 0;
   // Petit budget de tokens (offre gratuite) → mode léger : prompt court et outils chargés à la demande.
   const budgetModel = agent?.model || chainFor(tier)[0]?.model;
-  ctx = { ...ctx, query, activeGroups: new Set(), lean: modelBudget(budgetModel) < 12000 };
+  // Mode léger seulement après un refus « requête trop grosse » (voir plus bas). Par défaut, Nova garde toutes ses capacités :
+  // les messages anciens et les résultats trop longs sont raccourcis par fit(), sans retirer ses consignes ni ses outils.
+  ctx = { ...ctx, query, activeGroups: new Set(), lean: false };
   tools = availableTools({ agent, ctx });
   const messages = [{ role: 'system', content: systemPrompt({ agent, query, ctx, tools }) }, ...history];
 
