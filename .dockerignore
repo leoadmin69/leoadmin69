@@ -1,0 +1,6 @@
+node_modules
+.next
+.git
+mon-ia/node_modules
+mon-ia/data
+mon-ia/.env
