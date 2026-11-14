@@ -242,7 +242,7 @@ async function adminApi(req, res, p, m) {
     if (m === 'GET') return json(res, 200, view());
     if (id === 'test' && m === 'POST') {
       const prov = data.id ? getProviders().find((x) => x.id === data.id) : null;
-      const target = { ...(prov || {}), ...data, apiKey: data.apiKey && data.apiKey !== MASK ? data.apiKey : prov?.apiKey || '' };
+      const target = { ...(prov || {}), ...data, apiKey: (data.apiKey && data.apiKey !== MASK ? data.apiKey : prov?.apiKey || '').trim() };
       return json(res, 200, await testProvider(target));
     }
     if (id === 'roles' && m === 'PUT') {
@@ -254,12 +254,13 @@ async function adminApi(req, res, p, m) {
       if (id === 'env') return json(res, 400, { error: 'Ce fournisseur vient du fichier .env : modifie-le là-bas.' });
       if (!data.baseUrl || !data.model) return json(res, 400, { error: 'URL et modèle requis' });
       const fields = { name: data.name || data.model, baseUrl: data.baseUrl.trim(), model: data.model.trim() };
-      if (m === 'POST') cfg.providers.push({ id: newId(), ...fields, apiKey: data.apiKey || '' });
+      // Une clé collée peut contenir un espace ou un retour à la ligne : on les retire.
+      if (m === 'POST') cfg.providers.push({ id: newId(), ...fields, apiKey: (data.apiKey || '').trim() });
       else {
         const prov = cfg.providers.find((x) => x.id === id);
         if (!prov) return json(res, 404, { error: 'Introuvable' });
         Object.assign(prov, fields);
-        if (data.apiKey && data.apiKey !== MASK) prov.apiKey = data.apiKey;
+        if (data.apiKey && data.apiKey !== MASK) prov.apiKey = data.apiKey.trim();
       }
       save('models');
       return json(res, 200, view());

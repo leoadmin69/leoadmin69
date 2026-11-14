@@ -163,7 +163,7 @@ export async function testProvider(p) {
   try {
     const res = await fetch(`${clean(p.baseUrl)}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${p.apiKey}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${String(p.apiKey || '').trim()}` },
       body: JSON.stringify({ model: p.model, messages: [{ role: 'user', content: 'Réponds uniquement : OK' }], max_tokens: 10 }),
       signal: AbortSignal.timeout(30000),
     });
