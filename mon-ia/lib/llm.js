@@ -168,7 +168,8 @@ export async function testProvider(p) {
       signal: AbortSignal.timeout(30000),
     });
     const txt = await res.text();
-    if (!res.ok) return { ok: false, error: `HTTP ${res.status} : ${txt.slice(0, 300)}` };
+    // Le message indique l'adresse et le modèle réellement envoyés : on voit tout de suite une faute de saisie.
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status} (adresse : ${clean(p.baseUrl)}, modèle : « ${p.model} ») : ${txt.slice(0, 300)}` };
     let reply = '';
     try { reply = JSON.parse(txt).choices?.[0]?.message?.content || ''; } catch { /* réponse inattendue */ }
     return { ok: true, ms: Date.now() - t, reply: reply.slice(0, 50) };
