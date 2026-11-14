@@ -22,6 +22,8 @@ const { notify } = await import('./lib/notify.js');
 const files = await import('./lib/files.js');
 const learning = await import('./lib/learning.js');
 const { seedLearningSessions } = await import('./lib/seed.js');
+const { ensureSelfProject } = await import('./lib/selfproject.js');
+ensureSelfProject().then((w) => w && console.log(`🧬 Projet « ${w.name} » prêt : Nova peut modifier son propre code (commit + push).`)).catch((e) => console.error('Projet propre de Nova :', e.message));
 seedLearningSessions();
 const backup = await import('./lib/backup.js');
 const selfadmin = await import('./lib/selfadmin.js');
