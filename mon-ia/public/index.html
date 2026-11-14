@@ -242,6 +242,13 @@ function addAssistant() {
       if (!modelEl) { modelEl = document.createElement('div'); modelEl.className = 'model-tag'; el.prepend(modelEl); }
       modelEl.textContent = ({ fast: '⚡ ', smart: '🧠 ', vision: '👁 ' }[e.tier] || '') + e.name;
     },
+    notice(text) {
+      // Message d'attente discret (quota du modèle…), effacé dès que la réponse reprend.
+      let n = el.querySelector('.notice');
+      if (!text) return n?.remove();
+      if (!n) { n = document.createElement('div'); n.className = 'notice'; el.appendChild(n); }
+      n.textContent = '⏳ ' + text;
+    },
     toolResult(e) {
       const d = tools[e.id]; if (!d) return;
       d.classList.remove('running'); d.classList.add(e.ok ? 'ok' : 'fail');
@@ -372,7 +379,8 @@ async function send(viaVoice = false) {
           convId = e.conversationId;
           if (!status.admin) pref('conv', convId); // le visiteur retrouvera sa conversation à sa prochaine visite
         }
-        if (e.type === 'token') { full += e.text; a.token(e.text); }
+        if (e.type === 'token') { full += e.text; a.token(e.text); a.notice(''); }
+        if (e.type === 'notice') a.notice(e.text);
         if (e.type === 'tool') a.tool(e);
         if (e.type === 'tool_result') a.toolResult(e);
         if (e.type === 'plan') a.plan(e.steps);
@@ -386,7 +394,7 @@ async function send(viaVoice = false) {
   } catch (err) {
     a.text(err.name === 'AbortError' ? '_(interrompu)_' : '⚠️ ' + err.message);
   }
-  a.el.classList.remove('cursor');
+  a.el.classList.remove('cursor'); a.notice('');
   a.flow.querySelectorAll('.action.running').forEach((d) => d.classList.remove('running'));
   if (done) addActions(a.el, done.index, null, full);
   busy = false; setBusy(false); coreState('idle');

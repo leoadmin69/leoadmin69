@@ -296,3 +296,5 @@ body.embed .core-mini { width: 56px; height: 56px; top: 4px; right: 6px; }
 .older { display: block; margin: 0 auto 22px; }
 body.embed .topbar { display: none; }
 @media (max-width: 760px) { .topbar { padding-right: 68px; } .core-mini { top: -2px; right: 6px; width: 54px; height: 54px; } }
+
+.notice { font-size: 13px; color: var(--muted); margin-top: 6px; }

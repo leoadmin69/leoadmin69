@@ -75,6 +75,11 @@ explorent ta question en parallèle, si possible sur des modèles différents, p
 C'est inspiré de l'idée quantique (plusieurs états à la fois, puis un seul), mais **ce n'est pas du calcul quantique** : aucun modèle de langage
 ne tourne sur un ordinateur quantique aujourd'hui. Ce mode coûte 3 appels de plus par message : garde-le pour les questions difficiles.
 
+**Petites limites des offres gratuites** : certains fournisseurs refusent une requête trop grosse (Groq gratuit : 8 000 tokens par minute).
+Ton IA apprend la limite de chaque modèle à la première erreur, puis passe en « mode léger » pour ce modèle : prompt raccourci, moins de messages récents
+relus (le résumé de mémoire prend le relais) et outils chargés à la demande. Quand le quota de la minute est atteint, elle attend et reprend toute seule.
+Pour forcer une limite : variable `LLM_MAX_REQUEST_TOKENS`. Pour un travail long (code, apprentissage), préfère un modèle à grande limite comme Gemini.
+
 **Configuration conseillée (gratuite)** : ajoute 2 ou 3 fournisseurs dans Admin → **Modèles**, clique sur **Tester** pour chacun, puis :
 - 🧠 Puissant : le meilleur modèle de code gratuit du moment, sur OpenRouter (filtre « free ») ou Google Gemini (modèles Flash) ;
 - ⚡ Rapide : un modèle léger et rapide (Groq, Gemini Flash-Lite…) ;

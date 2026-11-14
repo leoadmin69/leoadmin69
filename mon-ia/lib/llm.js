@@ -1,6 +1,6 @@
 // Connexion aux modèles : plusieurs fournisseurs (API compatibles OpenAI), deux niveaux
 // (⚡ rapide / 🧠 puissant) et une chaîne de secours si un fournisseur échoue ou sature.
-import { load } from './store.js';
+import { load, save } from './store.js';
 
 const clean = (u) => (u || '').replace(/\/$/, '');
 
@@ -37,7 +37,30 @@ export const llmInfo = () => {
   };
 };
 
-async function request(p, body, signal) {
+// ---------- Taille maximale d'une requête ----------
+// Les offres gratuites limitent le nombre de tokens par minute (ex. Groq : 8 000). Une requête plus grosse est refusée.
+// On apprend la limite de chaque modèle à la première erreur, puis on reste en dessous.
+const DEFAULT_BUDGET = 30000;
+export function modelBudget(model) {
+  const forced = Number(process.env.LLM_MAX_REQUEST_TOKENS);
+  if (forced > 0) return forced;
+  return load('settings').modelLimits?.[model] || DEFAULT_BUDGET;
+}
+export function learnLimit(model, message) {
+  const st = load('settings');
+  st.modelLimits ||= {};
+  const current = st.modelLimits[model] || DEFAULT_BUDGET;
+  const limit = Number(/limit[^0-9]{0,12}(\d{3,7})/i.exec(message)?.[1]);
+  // On vise 65 % de la limite annoncée (marge pour la réponse) ; si ça ne suffit toujours pas, on réduit encore d'un quart.
+  let next = limit ? Math.floor(limit * 0.65) : Math.floor(current * 0.5);
+  if (next >= current) next = Math.floor(current * 0.75);
+  st.modelLimits[model] = Math.max(1500, next);
+  save('settings');
+  return st.modelLimits[model];
+}
+const isTooLarge = (status, txt) => status === 413 || /request too large|reduce your message|context length|maximum context|too many tokens|context_length/i.test(txt);
+
+async function request(p, body, signal, onWait) {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(`${clean(p.baseUrl)}/chat/completions`, {
       method: 'POST', signal,
@@ -45,9 +68,12 @@ async function request(p, body, signal) {
       body: JSON.stringify(body),
     });
     // Les offres gratuites limitent le débit : on attend un peu et on réessaie.
-    if (![429, 502, 503].includes(res.status) || attempt >= 2) return res;
-    const wait = Math.min(Number(res.headers.get('retry-after')) || 3 * 2 ** attempt, 20);
-    await res.text();
+    if (![429, 502, 503].includes(res.status) || attempt >= 3) return res;
+    const txt = await res.text();
+    if (isTooLarge(res.status, txt)) return new Response(txt, { status: 413 }); // inutile d'attendre : il faut réduire la requête
+    // Quota par minute atteint : on attend le délai indiqué (jusqu'à environ une minute).
+    const wait = Math.min(Math.ceil(Number(res.headers.get('retry-after'))) || 4 * 2 ** attempt, 65);
+    onWait?.(wait);
     await new Promise((r) => setTimeout(r, wait * 1000));
   }
 }
@@ -88,7 +114,7 @@ async function readStream(res, onToken) {
  * tier : 'fast' | 'smart'. model : force un nom de modèle (agents) sur le fournisseur principal.
  * onModel(name) est appelé avec le modèle qui répond réellement.
  */
-export async function streamChat({ messages, tools, temperature = 0.6, onToken, onModel, model, tier = 'smart', signal }) {
+export async function streamChat({ messages, tools, temperature = 0.6, onToken, onModel, onWait, model, tier = 'smart', signal }) {
   const chain = chainFor(tier);
   if (!chain.length) throw new Error('Aucun modèle configuré. Ajoute une clé API dans Admin → Modèles (ou dans le fichier .env).');
   let lastError;
@@ -99,14 +125,20 @@ export async function streamChat({ messages, tools, temperature = 0.6, onToken, 
     if (tools?.length) { body.tools = tools; body.tool_choice = 'auto'; }
     let produced = false;
     try {
-      let res = await request(p, body, signal);
+      let res = await request(p, body, signal, onWait);
       if (!res.ok && tools?.length && res.status === 400) {
         const txt = await res.text();
         // Modèle sans appels d'outils : on réessaie sans.
-        if (/tool|function/i.test(txt) && /support/i.test(txt)) res = await request(p, { ...body, tools: undefined, tool_choice: undefined }, signal);
+        if (isTooLarge(400, txt)) throw Object.assign(new Error(`${p.name} (${useModel}) : API 400 : ${txt.slice(0, 300)}`), { fatal: true, tooLarge: true, model: useModel });
+        if (/tool|function/i.test(txt) && /support/i.test(txt)) res = await request(p, { ...body, tools: undefined, tool_choice: undefined }, signal, onWait);
         else throw Object.assign(new Error(`${p.name} (${useModel}) : API 400 : ${txt.slice(0, 300)}`), { fatal: /tool_use_failed|failed to call/i.test(txt) });
       }
-      if (!res.ok) throw new Error(`${p.name} (${useModel}) : API ${res.status} : ${(await res.text()).slice(0, 300)}`);
+      if (!res.ok) {
+        const txt = await res.text();
+        const tooLarge = isTooLarge(res.status, txt);
+        // Requête trop grosse : on ne bascule pas sur un autre modèle, c'est à l'appelant de la réduire.
+        throw Object.assign(new Error(`${p.name} (${useModel}) : API ${res.status} : ${txt.slice(0, 300)}`), { fatal: tooLarge, tooLarge, model: useModel, status: res.status });
+      }
       onModel?.(useModel);
       return await readStream(res, (t) => { produced = true; onToken?.(t); });
     } catch (e) {
