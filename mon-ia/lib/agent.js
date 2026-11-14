@@ -257,6 +257,10 @@ function systemPrompt({ agent, query, ctx, tools }) {
   }
   if (ctx.memory) parts.push("## Ce dont tu te souviens de vos échanges précédents (mémoire au long cours de cette conversation)\n" + ctx.memory);
   if (ctx.workspace) parts.push(describeWorkspace(ctx.workspace));
+  else if (ctx.admin && names.has('get_settings')) {
+    // Pas de projet ouvert : Nova doit le dire, pas inventer une réponse.
+    parts.push("## Aucun projet ouvert\nTu n'as accès à aucun code pour l'instant. Si l'admin te demande de modifier ton interface ou un fichier, dis-le clairement : « Aucun projet n'est ouvert. Sélectionne le projet dans le menu 📁 du chat. Si Nova (elle-même) n'apparaît pas, la variable NOVA_SELF_REPO n'est pas configurée chez l'hébergeur. » Ne réponds jamais « je ne sais pas où est le fichier » sans avoir vérifié l'accès.");
+  }
 
   const rules = ['## Façon de travailler',
     "- Tu es autonome : enchaîne les outils jusqu'à ce que la tâche soit vraiment terminée, puis fais un résumé.",
