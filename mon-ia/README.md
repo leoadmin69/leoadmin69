@@ -141,6 +141,21 @@ Admin → **Apprentissage** → *Activer*. Chaque jour à l'heure choisie, elle 
 Son « intelligence brute » reste celle du modèle choisi. Pour la faire progresser aussi : passe à un meilleur modèle quand il en sort (Admin → Modèles),
 et fais régulièrement un **fine-tuning** sur ses meilleures réponses (Admin → Données → Exporter, voir la section Entraîner).
 
+**Autonomie de développement** (réglage dans Admin → Apprentissage) :
+- *Elle propose, je valide* (par défaut) ;
+- *Autonome* : elle fait évoluer **seule** ses règles de travail, sa personnalité et ses agents de réflexion. Tu es notifié à chaque évolution et tu peux
+  l'annuler en un clic. Ses propres règles restent toujours en dessous des tiennes, les agents qu'elle se crée seule n'ont que des outils sans effet
+  extérieur (recherche, lecture, réflexion, simulation), et tout ce qui **exécute** (code, publication, matériel, nouvelles missions) reste soumis à tes autorisations.
+
+### Calcul quantique
+
+- **Simulateur intégré** (`quantum_simulate`) : elle écrit des circuits quantiques (OpenQASM 2) et les simule exactement, jusqu'à 20 qubits.
+  Gratuit, instantané, rien à configurer. Résultats vérifiés identiques à ceux de Qiskit, la référence d'IBM. *« Montre-moi l'intrication avec un état de Bell »*, *« Lance l'algorithme de Grover sur 3 qubits »*.
+- **Vrais ordinateurs quantiques IBM** (`quantum_run_ibm`) : Admin → Intégrations → Quantique. Il faut un compte IBM Quantum (offre gratuite : quelques minutes
+  de calcul par mois) et Qiskit sur le serveur (`pip install qiskit qiskit-ibm-runtime`). Chaque envoi demande ton autorisation ; le résultat se récupère ensuite
+  avec l'identifiant du job (la file d'attente peut être longue).
+- Ce sont des **expériences** quantiques qu'elle lance pour toi. Son raisonnement à elle reste celui d'un modèle de langage classique.
+
 ## 7. Tâches automatiques planifiées
 
 Ce sont les **Missions** (section 9) : programme-les dans Admin → Missions, ou demande-le dans le chat
@@ -263,6 +278,7 @@ lib/missions.js      Missions autonomes : planification, exécution, comptes ren
 lib/devices.js       Contrôle de matériel (Home Assistant, appareils web, commandes) avec permissions
 lib/notify.js        Notifications : ntfy, Telegram, webhook
 lib/files.js         Pièces jointes : images (vision), PDF, Word, PowerPoint, Excel, textes
+lib/quantum.js       Simulateur quantique intégré et accès aux ordinateurs quantiques IBM (scripts/ibm_quantum.py)
 lib/learning.js      Auto-apprentissage : bilan, étude, fiches, journal, propositions, avis d'autres IA
 public/widget.js     Bulle de discussion à intégrer sur n'importe quel site
 lib/llm.js           Fournisseurs de modèles, rôles ⚡/🧠, secours, streaming, réessais

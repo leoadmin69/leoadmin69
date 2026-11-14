@@ -10,6 +10,7 @@ import { NOTIFY_TOOLS } from './notify.js';
 import { MISSION_TOOLS } from './missions.js';
 import { FILE_TOOLS } from './files.js';
 import { LEARNING_TOOLS } from './learning.js';
+import { QUANTUM_TOOLS } from './quantum.js';
 
 const MAX_ROUNDS = 40;
 const MAX_DEPTH = 2;
@@ -67,7 +68,7 @@ export const AGENT_TOOLS = [
   }, ['name', 'instructions'], createAgent, { kind: 'write', group: 'agents', adminOnly: true }),
 ];
 
-export const ALL_TOOLS = [...BASIC_TOOLS, ...CODE_TOOLS, ...AGENT_TOOLS, ...NOTIFY_TOOLS, ...MISSION_TOOLS, ...DEVICE_TOOLS, ...FILE_TOOLS, ...LEARNING_TOOLS];
+export const ALL_TOOLS = [...BASIC_TOOLS, ...CODE_TOOLS, ...AGENT_TOOLS, ...NOTIFY_TOOLS, ...MISSION_TOOLS, ...DEVICE_TOOLS, ...FILE_TOOLS, ...LEARNING_TOOLS, ...QUANTUM_TOOLS];
 
 // ---------- Choix du modèle : ⚡ rapide ou 🧠 puissant ----------
 
@@ -92,6 +93,7 @@ export function availableTools({ agent, ctx }) {
     if (t.name === 'schedule_mission' && ctx.mission) return false;
     // En mission, elle ne peut pas écrire directement ses propres règles : elle passe par propose_improvement.
     if (t.name === 'remember' && ctx.mission) return false;
+    if (t.name.startsWith('quantum_') && t.name !== 'quantum_simulate' && !load('settings').quantum?.ibmToken) return false;
     if (t.name === 'call_agent' && (ctx.depth || 0) >= MAX_DEPTH) return false;
     if (t.name === 'remember' && ctx.depth) return false;
     if (agent?.tools?.length && !agent.tools.includes(t.name) && t.name !== 'think') return false;
@@ -137,8 +139,11 @@ function systemPrompt({ agent, query, ctx, tools }) {
   if (names.has('edit_file') || names.has('read_file')) parts.push(CODE_PRINCIPLES);
   parts.push(`Date du jour : ${new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.`);
 
-  const lessons = load('lessons');
+  const isOwn = (l) => String(l.source || '').includes('autonome');
+  const lessons = load('lessons').filter((l) => !isOwn(l));
+  const own = load('lessons').filter(isOwn);
   if (lessons.length) parts.push("## Ce que ton admin t'a appris (à respecter en priorité)\n" + lessons.slice(-60).map((l) => `- ${l.text}`).join('\n'));
+  if (own.length) parts.push("## Règles de travail que tu t'es données toi-même (elles ne priment jamais sur l'admin ni sur les règles de sécurité et d'autorisation)\n" + own.slice(-40).map((l) => `- ${l.text}`).join('\n'));
   const allKnowledge = load('knowledge');
   const taught = search(allKnowledge.filter((k) => k.origin !== 'auto'), query, 4);
   const selfLearned = search(allKnowledge.filter((k) => k.origin === 'auto'), query, 3);

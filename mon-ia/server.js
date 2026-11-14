@@ -239,11 +239,12 @@ async function adminApi(req, res, p, m) {
     if (m === 'PUT') {
       if (data.notify) st.notify = keepMasked(st.notify, { ...data.notify }, ['telegramToken']);
       if (data.voice) st.voice = { ...data.voice };
+      if (data.quantum) st.quantum = keepMasked(st.quantum, { ...data.quantum }, ['ibmToken']);
       if (data.learning) { st.learning = { ...st.learning, ...data.learning }; save('settings'); learning.syncLearningMission(); }
       save('settings');
     }
     if (id === 'test-notify' && m === 'POST') return json(res, 200, await notify('🔔 Test', `Les notifications de ${load('persona').name} fonctionnent !`));
-    return json(res, 200, { notify: { ...st.notify, telegramToken: st.notify.telegramToken ? MASK : '' }, voice: st.voice, learning: st.learning || {} });
+    return json(res, 200, { notify: { ...st.notify, telegramToken: st.notify.telegramToken ? MASK : '' }, voice: st.voice, learning: st.learning || {}, quantum: { ...(st.quantum || {}), ibmToken: st.quantum?.ibmToken ? MASK : '' } });
   }
   if (resource === 'apikeys') {
     const keys = load('apikeys');
@@ -292,7 +293,7 @@ async function adminApi(req, res, p, m) {
   }
   if (resource === 'journal') return json(res, 200, load('journal').slice(0, 60));
   if (resource === 'proposals') {
-    if (m === 'POST' && ['approve', 'reject'].includes(action)) {
+    if (m === 'POST' && ['approve', 'reject', 'revert'].includes(action)) {
       try { return json(res, 200, learning.applyProposal(id, action)); } catch (e) { return json(res, 400, { error: e.message }); }
     }
     return json(res, 200, load('proposals').slice(0, 100));

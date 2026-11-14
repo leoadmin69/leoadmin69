@@ -97,6 +97,13 @@
         <label>Heure de la session quotidienne<input type="time" id="lTime" value="03:00"></label>
         <label style="flex:0 0 auto;display:flex;gap:8px;align-items:center;white-space:nowrap"><input type="checkbox" id="lNotify" style="width:auto" checked> M'envoyer le compte rendu</label>
       </div>
+      <label>Autonomie de développement<select id="lAutonomy">
+        <option value="propose">Elle propose, je valide chaque évolution</option>
+        <option value="autonome">Autonome : elle fait évoluer seule ses règles de travail, sa personnalité et ses agents de réflexion (je suis notifié et je peux annuler)</option>
+      </select></label>
+      <span class="help">Dans les deux cas : apprendre, explorer et se forger des avis est entièrement libre. Et dans les deux cas, tout ce qui <b>exécute</b>
+        (code, commandes, publication, matériel, nouvelles missions) reste soumis à tes autorisations. En mode autonome, une page web piégée pourrait influencer
+        ses règles de travail : elles restent toujours en dessous des tiennes, et annulables en un clic.</span>
       <label>Centres d'intérêt suggérés (optionnel : elle reste libre d'explorer autre chose)
         <textarea id="lInterests" rows="2" placeholder="développement web, beach tennis, domotique, culture tunisienne et expressions de Bizerte, IA open source…"></textarea></label>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" class="btn" id="lSave">Enregistrer</button>
@@ -265,6 +272,16 @@
         <div style="display:flex;gap:8px;align-items:center"><button type="button" class="btn" id="vSave">Enregistrer</button><span class="help" id="vMsg"></span></div>
       </div>
       <div class="card grid" style="max-width:none">
+        <b>⚛️ Quantique</b>
+        <span class="help">Le simulateur quantique intégré fonctionne sans rien configurer. Pour lancer des circuits sur de <b>vrais ordinateurs quantiques IBM</b> :
+          crée un compte gratuit sur <a href="https://quantum.cloud.ibm.com" target="_blank">quantum.cloud.ibm.com</a>, copie ta clé API ici, et installe Qiskit sur le serveur
+          (<code>pip install qiskit qiskit-ibm-runtime</code>). L'offre gratuite donne quelques minutes de calcul par mois.</span>
+        <div class="row"><label>Clé API IBM Quantum<input id="qToken" type="password" autocomplete="off"></label>
+          <label>Instance (optionnel)<input id="qInstance" placeholder="CRN de l'instance"></label>
+          <label>Python (optionnel)<input id="qPython" placeholder="python3 ou chemin d'un venv"></label></div>
+        <div style="display:flex;gap:8px;align-items:center"><button type="button" class="btn" id="qSave">Enregistrer</button><span class="help" id="qMsg"></span></div>
+      </div>
+      <div class="card grid" style="max-width:none">
         <b>🔑 Clés d'intégration</b>
         <span class="help">Pour que d'autres systèmes (site, appli, Zapier, Make, n8n, Home Assistant, un autre serveur…) parlent à ton IA ou lancent ses missions.</span>
         <div class="row" style="align-items:flex-end"><label>Nom<input id="kName" placeholder="Site Beach Tennis"></label>
@@ -355,7 +372,7 @@ async function load(tab) {
   if (tab === 'learning') {
     const [st, props, journal, ms] = await Promise.all([api('settings'), api('proposals'), api('journal'), api('missions')]);
     const l = st.learning || {};
-    $('lEnabled').checked = !!l.enabled; $('lTime').value = l.time || '03:00'; $('lInterests').value = l.interests || ''; $('lNotify').checked = l.notify !== false;
+    $('lEnabled').checked = !!l.enabled; $('lTime').value = l.time || '03:00'; $('lInterests').value = l.interests || ''; $('lNotify').checked = l.notify !== false; $('lAutonomy').value = l.autonomy || 'propose';
     const lm = ms.find((x) => x.id === 'auto-learning');
     const last = lm?.runs?.[0];
     $('lMsg').textContent = lm?.running ? '⏳ Session en cours…' : last ? `Dernière session : ${date(last.startedAt)} (${last.status === 'ok' ? 'réussie' : 'erreur'})` : '';
@@ -364,7 +381,8 @@ async function load(tab) {
     $('pCount').textContent = pend.length ? `(${pend.length} en attente)` : '';
     $('pList').innerHTML = props.slice(0, 30).map((x) => `<div class="item" style="flex-direction:column;align-items:stretch">
       <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><span class="tag">${TYPES[x.type]}</span> <b>${esc(x.title)}</b>
-        <div class="meta">${date(x.createdAt)} · ${{ pending: '⏳ en attente', approved: '✅ validée', rejected: '❌ refusée' }[x.status]}</div></div>
+        <div class="meta">${date(x.createdAt)} · ${{ pending: '⏳ en attente', approved: '✅ validée', rejected: '❌ refusée', auto: '🧠 appliquée en autonomie', reverted: '↩️ annulée' }[x.status]}</div></div>
+        ${['auto', 'approved'].includes(x.status) ? `<div><button class="btn ghost small" onclick="decide('${x.id}','revert')">Annuler ce changement</button></div>` : ''}
         ${x.status === 'pending' ? `<div style="display:flex;gap:6px"><button class="btn small" onclick="decide('${x.id}','approve')">Valider</button><button class="btn ghost small" onclick="decide('${x.id}','reject')">Refuser</button></div>` : ''}</div>
       <p><b>Pourquoi :</b> ${esc(x.reason)}</p><pre class="out" style="border:1px solid var(--border);border-radius:8px;margin-top:6px">${esc(x.content)}</pre></div>`).join('')
       || '<p class="help">Aucune proposition pour l\'instant.</p>';
@@ -446,6 +464,7 @@ async function load(tab) {
     $('nTopic').value = n.ntfyTopic || ''; $('nServer').value = n.ntfyServer || ''; $('nTgToken').value = n.telegramToken || ''; $('nTgChat').value = n.telegramChatId || ''; $('nWebhook').value = n.webhookUrl || '';
     $('vProv').innerHTML = '<option value="">Désactivée (navigateur uniquement)</option>' + mods.providers.map((x) => `<option value="${x.id}" ${st.voice?.sttProvider === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
     $('vModel').value = st.voice?.sttModel || '';
+    $('qToken').value = st.quantum?.ibmToken || ''; $('qInstance').value = st.quantum?.ibmInstance || ''; $('qPython').value = st.quantum?.python || '';
     $('kList').innerHTML = keys.map((k) => `<div class="item"><div><b>${esc(k.name)}</b> <code>${esc(k.prefix)}…</code> <span class="tag">${k.scopes.join(' + ')}</span>
       <div class="meta">créée ${date(k.createdAt)}${k.lastUsed ? ' · utilisée ' + date(k.lastUsed) : ''}</div></div>
       <button class="btn ghost small" onclick="del('apikeys','${k.id}')">Révoquer</button></div>`).join('');
@@ -515,7 +534,7 @@ $('saveRoles').onclick = async () => {
 };
 
 // ----- Apprentissage -----
-const learningData = () => ({ learning: { enabled: $('lEnabled').checked, time: $('lTime').value, interests: $('lInterests').value.trim(), notify: $('lNotify').checked } });
+const learningData = () => ({ learning: { enabled: $('lEnabled').checked, time: $('lTime').value, interests: $('lInterests').value.trim(), notify: $('lNotify').checked, autonomy: $('lAutonomy').value } });
 $('lSave').onclick = async () => { await api('settings', 'PUT', learningData()); $('lMsg').textContent = '✓ Enregistré'; };
 $('lRun').onclick = async () => {
   await api('settings', 'PUT', learningData());
@@ -599,6 +618,7 @@ $('nTest').onclick = async () => {
   $('nMsg').textContent = r.sent.length ? `✅ Envoyé via ${r.sent.join(', ')}` : '❌ ' + (r.errors.join(', ') || 'aucun canal configuré');
 };
 $('vSave').onclick = async () => { await api('settings', 'PUT', { voice: { sttProvider: $('vProv').value, sttModel: $('vModel').value.trim() } }); $('vMsg').textContent = '✓ Enregistré'; };
+$('qSave').onclick = async () => { await api('settings', 'PUT', { quantum: { ibmToken: $('qToken').value.trim(), ibmInstance: $('qInstance').value.trim(), python: $('qPython').value.trim() } }); $('qMsg').textContent = '✓ Enregistré'; };
 $('kCreate').onclick = async () => {
   const scopes = [$('kChat').checked && 'chat', $('kMissions').checked && 'missions'].filter(Boolean);
   if (!scopes.length) return alert('Choisis au moins une permission');

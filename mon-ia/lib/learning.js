@@ -8,6 +8,7 @@ import { load, save, newId, now } from './store.js';
 import { defineTool } from './tools.js';
 import { getProviders, chainFor, complete } from './llm.js';
 import { saveMission } from './missions.js';
+import { notify } from './notify.js';
 
 export const LEARNING_MISSION_ID = 'auto-learning';
 
@@ -42,26 +43,43 @@ export function syncLearningMission() {
 
 // ---------- Propositions ----------
 
-export function applyProposal(id, decision) {
+// En mode autonome, un agent qu'elle se crée seule ne reçoit que des outils sans effet extérieur.
+const SAFE_AGENT_TOOLS = ['web_search', 'read_page', 'search_knowledge', 'think', 'update_plan', 'read_document', 'list_learned', 'ask_other_ai', 'quantum_simulate'];
+
+export function applyProposal(id, decision, { auto = false } = {}) {
   const list = load('proposals');
   const p = list.find((x) => x.id === id);
-  if (!p || p.status !== 'pending') throw new Error('Proposition introuvable ou déjà traitée');
+  if (!p) throw new Error('Proposition introuvable');
+  // Annulation d'un changement appliqué (validé ou autonome)
+  if (decision === 'revert') {
+    if (!['approved', 'auto'].includes(p.status)) throw new Error('Rien à annuler');
+    if (p.type === 'lesson') save('lessons', load('lessons').filter((l) => l.id !== p.refId));
+    if (p.type === 'agent') save('agents', load('agents').filter((a) => a.id !== p.refId));
+    if (p.type === 'persona') { const persona = load('persona'); persona.instructions = persona.instructions.replace('\n' + p.content, ''); save('persona'); }
+    if (p.type === 'mission') save('missions', load('missions').filter((m) => m.id !== p.refId));
+    p.status = 'reverted'; p.decidedAt = now(); save('proposals');
+    return p;
+  }
+  if (p.status !== 'pending') throw new Error('Proposition déjà traitée');
   if (decision === 'approve') {
+    p.refId = newId();
     if (p.type === 'lesson') {
-      load('lessons').push({ id: newId(), text: p.content, source: 'auto-apprentissage (validé)', createdAt: now() }); save('lessons');
+      load('lessons').push({ id: p.refId, text: p.content, source: auto ? 'auto-apprentissage (autonome)' : 'auto-apprentissage (validé)', createdAt: now() }); save('lessons');
     } else if (p.type === 'persona') {
       const persona = load('persona'); persona.instructions += '\n' + p.content; save('persona');
     } else if (p.type === 'agent') {
       const a = JSON.parse(p.content);
       if (!a.name || !a.instructions) throw new Error('Agent incomplet');
-      load('agents').push({ id: newId(), name: a.name, description: a.description || '', instructions: a.instructions, tools: Array.isArray(a.tools) ? a.tools : [], model: '', createdAt: now() });
+      const tools = Array.isArray(a.tools) ? a.tools : [];
+      load('agents').push({ id: p.refId, name: a.name, description: a.description || '', instructions: a.instructions,
+        tools: auto ? (tools.filter((t) => SAFE_AGENT_TOOLS.includes(t)).length ? tools.filter((t) => SAFE_AGENT_TOOLS.includes(t)) : SAFE_AGENT_TOOLS) : tools, model: '', createdAt: now() });
       save('agents');
     } else if (p.type === 'mission') {
       const m = JSON.parse(p.content);
-      saveMission({ title: m.title, instructions: m.instructions, schedule: m.schedule || { type: 'manual' }, mode: 'read', enabled: true });
+      p.refId = saveMission({ title: m.title, instructions: m.instructions, schedule: m.schedule || { type: 'manual' }, mode: 'read', enabled: true }).id;
     }
   }
-  p.status = decision === 'approve' ? 'approved' : 'rejected';
+  p.status = decision === 'approve' ? (auto ? 'auto' : 'approved') : 'rejected';
   p.decidedAt = now();
   save('proposals');
   return p;
@@ -117,8 +135,16 @@ function proposeImprovement({ type, title, content, reason }) {
   if (!['lesson', 'persona', 'agent', 'mission'].includes(type)) throw new Error('type : lesson, persona, agent ou mission');
   if (type === 'agent' || type === 'mission') JSON.parse(content); // doit être du JSON valide
   const list = load('proposals');
-  list.unshift({ id: newId(), type, title, content, reason, status: 'pending', createdAt: now() });
+  const id = newId();
+  list.unshift({ id, type, title, content, reason, status: 'pending', createdAt: now() });
   save('proposals');
+  // Mode autonome : elle fait évoluer seule ses règles de travail, ses agents de réflexion et sa personnalité.
+  // Ce qui déclenche des exécutions (missions) reste toujours soumis à l'accord de l'admin.
+  if (load('settings').learning?.autonomy === 'autonome' && type !== 'mission') {
+    applyProposal(id, 'approve', { auto: true });
+    notify('🧠 Évolution autonome', `${title}\n${reason}\n(Annulable dans Admin → Apprentissage)`).catch(() => {});
+    return `Changement « ${title} » appliqué de façon autonome. L'admin est informé et peut l'annuler.`;
+  }
   return `Proposition « ${title} » envoyée à l'admin pour validation.`;
 }
 
