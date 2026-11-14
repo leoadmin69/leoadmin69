@@ -10,7 +10,7 @@ export function getProviders() {
   if (process.env.LLM_API_KEY || process.env.LLM_BASE_URL) {
     list.unshift({
       id: 'env', name: 'Fichier .env', baseUrl: process.env.LLM_BASE_URL || 'https://api.groq.com/openai/v1',
-      apiKey: process.env.LLM_API_KEY || '', model: process.env.LLM_MODEL || 'llama-3.3-70b-versatile', fromEnv: true,
+      apiKey: process.env.LLM_API_KEY || '', model: process.env.LLM_MODEL || 'openai/gpt-oss-120b', fromEnv: true,
     });
   }
   return list;
