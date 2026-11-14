@@ -12,6 +12,7 @@ import { FILE_TOOLS } from './files.js';
 import { LEARNING_TOOLS } from './learning.js';
 import { QUANTUM_TOOLS } from './quantum.js';
 import { ADMIN_TOOLS } from './selfadmin.js';
+import { GITHUB_TOOLS } from './github.js';
 import { openHypotheses, updateWeights, simulateOutcomes, recordHypotheses, settleHypothesis, calibration } from './superposition.js';
 const HYPO_STORE = { get: (id) => load('hypothesisLog').find((e) => e.id === id) };
 
@@ -110,7 +111,7 @@ const SUPERPOSITION_TOOLS = [
     { id: S, outcome: S }, ['id', 'outcome'], ({ id, outcome }) => (settleHypothesis(id, outcome) ? 'Issue notée : je recalibrerai mes poids sur ce cas.' : 'Raisonnement introuvable.'), { kind: 'safe', adminOnly: true, group: 'agents' }),
 ];
 
-export const ALL_TOOLS = [...BASIC_TOOLS, ...CODE_TOOLS, ...AGENT_TOOLS, ...NOTIFY_TOOLS, ...MISSION_TOOLS, ...DEVICE_TOOLS, ...FILE_TOOLS, ...LEARNING_TOOLS, ...QUANTUM_TOOLS, ...ADMIN_TOOLS, ...SUPERPOSITION_TOOLS,
+export const ALL_TOOLS = [...BASIC_TOOLS, ...CODE_TOOLS, ...AGENT_TOOLS, ...NOTIFY_TOOLS, ...MISSION_TOOLS, ...DEVICE_TOOLS, ...FILE_TOOLS, ...LEARNING_TOOLS, ...QUANTUM_TOOLS, ...ADMIN_TOOLS, ...SUPERPOSITION_TOOLS, ...GITHUB_TOOLS,
   // Certains groupes d'outils ne sont envoyés au modèle que quand le sujet s'y prête (pour économiser le quota des modèles gratuits).
   // Cet outil permet à l'IA de les activer elle-même si elle en a besoin.
   defineTool('load_tools', "Activer un groupe d'outils supplémentaires pour la suite : admin (tes réglages, modèles, clés, appareils, diagnostic), learning (apprentissage, journal, propositions), quantum (calcul quantique).",

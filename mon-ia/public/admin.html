@@ -297,6 +297,14 @@
         <div style="display:flex;gap:8px;align-items:center"><button type="button" class="btn" id="vSave">Enregistrer</button><span class="help" id="vMsg"></span></div>
       </div>
       <div class="card grid" style="max-width:none">
+        <b>🐙 GitHub</b>
+        <span class="help">Donne à Nova l'accès à tes dépôts : lecture, écriture, branches, pull requests, fusion et déploiement. Chaque écriture ou fusion te demande ton accord.
+          Crée le jeton sur GitHub → Settings → Developer settings → Fine-grained tokens, en choisissant <b>seulement les dépôts voulus</b>, avec « Contents », « Pull requests » et « Metadata » en Read and write.</span>
+        <div class="row"><label>Jeton GitHub<input id="ghToken" type="password" autocomplete="off" placeholder="github_pat_…"></label>
+          <label>Dépôts autorisés (optionnel, séparés par des virgules)<input id="ghRepos" placeholder="leoadmin69/Cinq, leoadmin69/leoadmin69"></label></div>
+        <div style="display:flex;gap:8px;align-items:center"><button type="button" class="btn" id="ghSave">Enregistrer</button><span class="help" id="ghMsg"></span></div>
+      </div>
+      <div class="card grid" style="max-width:none">
         <b>⚛️ Quantique</b>
         <span class="help">Le simulateur quantique intégré fonctionne sans rien configurer. Pour lancer des circuits sur de <b>vrais ordinateurs quantiques IBM</b> :
           crée un compte gratuit sur <a href="https://quantum.cloud.ibm.com" target="_blank">quantum.cloud.ibm.com</a>, copie ta clé API ici, et installe Qiskit sur le serveur
@@ -501,6 +509,7 @@ async function load(tab) {
     $('nTopic').value = n.ntfyTopic || ''; $('nServer').value = n.ntfyServer || ''; $('nTgToken').value = n.telegramToken || ''; $('nTgChat').value = n.telegramChatId || ''; $('nWebhook').value = n.webhookUrl || '';
     $('vProv').innerHTML = '<option value="">Désactivée (navigateur uniquement)</option>' + mods.providers.map((x) => `<option value="${x.id}" ${st.voice?.sttProvider === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
     $('vModel').value = st.voice?.sttModel || '';
+    $('ghToken').value = st.github?.token || ''; $('ghRepos').value = st.github?.allowRepos || '';
     $('qToken').value = st.quantum?.ibmToken || ''; $('qInstance').value = st.quantum?.ibmInstance || ''; $('qPython').value = st.quantum?.python || '';
     $('kList').innerHTML = keys.map((k) => `<div class="item"><div><b>${esc(k.name)}</b> <code>${esc(k.prefix)}…</code> <span class="tag">${k.scopes.join(' + ')}</span>
       <div class="meta">créée ${date(k.createdAt)}${k.lastUsed ? ' · utilisée ' + date(k.lastUsed) : ''}</div></div>
@@ -693,6 +702,11 @@ $('nTgDetect').onclick = async () => {
   $('nMsg').textContent = `✅ Trouvé${r.name ? ' : ' + r.name : ''}. Clique « Envoyer un test ».`;
 };
 $('vSave').onclick = async () => { await api('settings', 'PUT', { voice: { sttProvider: $('vProv').value, sttModel: $('vModel').value.trim() } }); $('vMsg').textContent = '✓ Enregistré'; };
+$('ghSave').onclick = async () => {
+  const token = $('ghToken').value.trim();
+  await api('settings', 'PUT', { github: { token: token === '••••••' ? undefined : token, allowRepos: $('ghRepos').value.trim() } });
+  $('ghMsg').textContent = '✓ Enregistré. Nova peut maintenant accéder à GitHub.';
+};
 $('qSave').onclick = async () => { await api('settings', 'PUT', { quantum: { ibmToken: $('qToken').value.trim(), ibmInstance: $('qInstance').value.trim(), python: $('qPython').value.trim() } }); $('qMsg').textContent = '✓ Enregistré'; };
 $('kCreate').onclick = async () => {
   const scopes = [$('kChat').checked && 'chat', $('kMissions').checked && 'missions'].filter(Boolean);

@@ -63,6 +63,7 @@ function getSettings() {
     apprentissage: { ...(st.learning || {}), derniere_session: load('missions').find((m) => m.id === LEARNING_MISSION_ID)?.runs?.[0]?.startedAt || null },
     voix: st.voice || {},
     quantique: { ibmToken: mask(st.quantum?.ibmToken), ibmInstance: st.quantum?.ibmInstance || '' },
+    github: { token: mask(st.github?.token), depots_autorises: st.github?.allowRepos || '(tous ceux du jeton)' },
     sauvegarde: pick(backupStatus(), ['configured', 'repo', 'lastBackupAt', 'lastRestoreAt', 'lastError', 'restoreFailed']),
     eveil: runtime.keepAwake ? { actif: !!runtime.keepAwake.url, dernier_signal: runtime.keepAwake.lastOk, erreur: runtime.keepAwake.lastError } : { actif: false },
     adresse_publique: runtime.publicUrl || '(inconnue)',
@@ -114,6 +115,7 @@ const SECTIONS = {
   notifications: ['ntfyTopic', 'ntfyServer', 'telegramToken', 'telegramChatId', 'webhookUrl'],
   voice: ['sttProvider', 'sttModel'],
   quantum: ['ibmToken', 'ibmInstance', 'python'],
+  github: ['token', 'allowRepos'],
 };
 function updateSettings({ section, values }) {
   const allowed = SECTIONS[section];
@@ -125,7 +127,7 @@ function updateSettings({ section, values }) {
     save('persona', { ...load('persona'), ...clean });
   } else {
     const st = load('settings');
-    const key = { learning: 'learning', notifications: 'notify', voice: 'voice', quantum: 'quantum' }[section];
+    const key = { learning: 'learning', notifications: 'notify', voice: 'voice', quantum: 'quantum', github: 'github' }[section];
     st[key] = { ...(st[key] || {}), ...clean };
     save('settings');
     if (section === 'learning') syncLearningMission();

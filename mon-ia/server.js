@@ -285,6 +285,7 @@ async function adminApi(req, res, p, m) {
       if (data.notify) st.notify = keepMasked(st.notify, { ...data.notify }, ['telegramToken']);
       if (data.voice) st.voice = { ...data.voice };
       if (data.quantum) st.quantum = keepMasked(st.quantum, { ...data.quantum }, ['ibmToken']);
+      if (data.github) st.github = { ...(st.github || {}), ...Object.fromEntries(Object.entries(data.github).filter(([k, v]) => v !== undefined && !(k === 'token' && v === MASK))) };
       if (data.learning) { st.learning = { ...st.learning, ...data.learning }; save('settings'); learning.syncLearningMission(); }
       save('settings');
     }
@@ -304,7 +305,7 @@ async function adminApi(req, res, p, m) {
       } catch (e) { return json(res, 200, { error: `Connexion à Telegram impossible : ${e.message}` }); }
     }
     if (id === 'test-notify' && m === 'POST') return json(res, 200, await notify('🔔 Test', `Les notifications de ${load('persona').name} fonctionnent !`));
-    return json(res, 200, { notify: { ...st.notify, telegramToken: st.notify.telegramToken ? MASK : '' }, voice: st.voice, learning: st.learning || {}, quantum: { ...(st.quantum || {}), ibmToken: st.quantum?.ibmToken ? MASK : '' } });
+    return json(res, 200, { notify: { ...st.notify, telegramToken: st.notify.telegramToken ? MASK : '' }, voice: st.voice, learning: st.learning || {}, github: { ...(st.github || {}), token: st.github?.token ? MASK : '' }, quantum: { ...(st.quantum || {}), ibmToken: st.quantum?.ibmToken ? MASK : '' } });
   }
   if (resource === 'apikeys') {
     const keys = load('apikeys');
