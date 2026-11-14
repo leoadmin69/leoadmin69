@@ -13,7 +13,7 @@ import { notify } from './notify.js';
 export const LEARNING_MISSION_ID = 'auto-learning';
 
 export function learningPrompt(interests) {
-  return `Session d'apprentissage quotidienne. Tu es intellectuellement libre : c'est toi qui choisis ce que tu apprends et comment.
+  return `Session d'apprentissage. Tu es intellectuellement libre : c'est toi qui choisis ce que tu apprends et comment.
 
 1. BILAN — Appelle review_recent_activity. Repère tes erreurs, tes réponses notées 👎 ou corrigées, les outils qui ont échoué et les questions où tu as manqué de connaissances.
 2. CHOIX — Choisis 1 à 3 sujets : tes lacunes repérées, les centres d'intérêt de l'admin${interests ? ` (${interests})` : ''}, et un sujet de ta propre curiosité qui te rendrait plus compétente ou plus cultivée. Consulte list_learned pour ne pas réapprendre ce que tu sais déjà.
@@ -37,7 +37,8 @@ export function syncLearningMission() {
     title: "🧠 Session d'apprentissage", instructions: learningPrompt(cfg.interests), agentId: '', workspaceId: '',
     mode: 'read', // elle apprend librement, mais une session d'apprentissage ne peut rien exécuter ni modifier
     notifyOn: cfg.notify === false ? 'errors' : 'always',
-    schedule: { type: 'daily', time: cfg.time || '03:00' }, enabled: !!cfg.enabled,
+    // « every » : 'daily' (une session par jour à l'heure choisie) ou un nombre de minutes (apprentissage continu).
+    schedule: Number(cfg.every) >= 15 ? { type: 'interval', minutes: Number(cfg.every) } : { type: 'daily', time: cfg.time || '03:00' }, enabled: !!cfg.enabled,
   }, LEARNING_MISSION_ID);
 }
 

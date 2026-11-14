@@ -96,9 +96,14 @@
     <div class="card grid" style="max-width:none">
       <div class="row" style="align-items:flex-end">
         <label style="flex:0 0 auto;display:flex;gap:8px;align-items:center;white-space:nowrap"><input type="checkbox" id="lEnabled" style="width:auto"> Activer l'auto-apprentissage</label>
-        <label>Heure de la session quotidienne<input type="time" id="lTime" value="03:00"></label>
+        <label>Rythme<select id="lEvery">
+          <option value="daily">Une session par jour</option><option value="360">Toutes les 6 heures</option><option value="180">Toutes les 3 heures</option>
+          <option value="60">Toutes les heures</option><option value="30">En continu (toutes les 30 min)</option></select></label>
+        <label id="lTimeLbl">Heure de la session<input type="time" id="lTime" value="03:00"></label>
         <label style="flex:0 0 auto;display:flex;gap:8px;align-items:center;white-space:nowrap"><input type="checkbox" id="lNotify" style="width:auto" checked> M'envoyer le compte rendu</label>
       </div>
+      <span class="help">⚠️ Chaque session consomme le quota gratuit de ton modèle (plusieurs dizaines d'appels). En rythme rapide, branche plusieurs modèles
+        dans l'onglet Modèles (avec des secours) pour que Nova puisse toujours te répondre, et décoche le compte rendu pour ne pas être inondé de notifications.</span>
       <label>Autonomie de développement<select id="lAutonomy">
         <option value="propose">Elle propose, je valide chaque évolution</option>
         <option value="autonome">Autonome : elle fait évoluer seule ses règles de travail, sa personnalité et ses agents de réflexion (je suis notifié et je peux annuler)</option>
@@ -372,7 +377,8 @@ async function load(tab) {
     const st = await (await fetch('/api/status', { headers: H() })).json();
     $('stats').innerHTML = [['Fiches de connaissances', k.length], ['Leçons', l.length], ['Tâches ouvertes', t.filter((x) => !x.done).length], ['Conversations', c.length], ['Retours reçus', c.reduce((s, x) => s + x.feedback, 0)]]
       .map(([n, v]) => `<div class="stat"><b>${v}</b><span class="help">${n}</span></div>`).join('') +
-      `<div class="stat"><b style="font-size:15px">🧠 ${esc(st.llm.smart || '—')}<br>⚡ ${esc(st.llm.fast || '—')}</b><span class="help">${st.llm.configured ? 'Modèles connectés' : '⚠️ Aucun modèle : onglet Modèles'}</span></div>`;
+      `<div class="stat"><b style="font-size:15px">🧠 ${esc(st.llm.smart || '—')}<br>⚡ ${esc(st.llm.fast || '—')}</b><span class="help">${st.llm.configured ? 'Modèles connectés' : '⚠️ Aucun modèle : onglet Modèles'}</span></div>` +
+      `<div class="stat"><b style="font-size:15px">${st.keepAwake?.active ? (st.keepAwake.lastError ? '⚠️ Éveil en échec' : '☀️ Toujours éveillée') : '🌙 Peut s\'endormir'}</b><span class="help">${st.keepAwake?.active ? (st.keepAwake.lastError ? esc(st.keepAwake.lastError) : st.keepAwake.lastOk ? 'Dernier signal : ' + date(st.keepAwake.lastOk) : 'Premier signal en cours…') : 'Maintien en éveil inactif (voir README)'}</span></div>`;
   }
   if (tab === 'models') {
     models = await api('models');
@@ -389,7 +395,7 @@ async function load(tab) {
   if (tab === 'learning') {
     const [st, props, journal, ms] = await Promise.all([api('settings'), api('proposals'), api('journal'), api('missions')]);
     const l = st.learning || {};
-    $('lEnabled').checked = !!l.enabled; $('lTime').value = l.time || '03:00'; $('lInterests').value = l.interests || ''; $('lNotify').checked = l.notify !== false; $('lAutonomy').value = l.autonomy || 'propose';
+    $('lEnabled').checked = !!l.enabled; $('lTime').value = l.time || '03:00'; $('lInterests').value = l.interests || ''; $('lNotify').checked = l.notify !== false; $('lAutonomy').value = l.autonomy || 'propose'; $('lEvery').value = String(l.every || 'daily'); $('lTimeLbl').style.display = $('lEvery').value === 'daily' ? '' : 'none';
     const lm = ms.find((x) => x.id === 'auto-learning');
     const last = lm?.runs?.[0];
     $('lMsg').textContent = lm?.running ? '⏳ Session en cours…' : last ? `Dernière session : ${date(last.startedAt)} (${last.status === 'ok' ? 'réussie' : 'erreur'})` : '';
@@ -570,7 +576,8 @@ $('saveRoles').onclick = async () => {
 };
 
 // ----- Apprentissage -----
-const learningData = () => ({ learning: { enabled: $('lEnabled').checked, time: $('lTime').value, interests: $('lInterests').value.trim(), notify: $('lNotify').checked, autonomy: $('lAutonomy').value } });
+const learningData = () => ({ learning: { enabled: $('lEnabled').checked, time: $('lTime').value, interests: $('lInterests').value.trim(), notify: $('lNotify').checked, autonomy: $('lAutonomy').value, every: $('lEvery').value } });
+$('lEvery').onchange = () => ($('lTimeLbl').style.display = $('lEvery').value === 'daily' ? '' : 'none');
 $('lSave').onclick = async () => { await api('settings', 'PUT', learningData()); $('lMsg').textContent = '✓ Enregistré'; };
 $('lRun').onclick = async () => {
   await api('settings', 'PUT', learningData());

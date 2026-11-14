@@ -257,6 +257,14 @@ Agents fournis : **Développeur web**, **Chercheur**, **Organisateur**.
 ### Render.com
 New → **Web Service** → ton dépôt GitHub → *Root directory* `mon-ia` → Runtime **Docker** → mêmes variables. (Le plan gratuit s'endort après 15 min.)
 
+### Toujours éveillée
+
+Les hébergeurs gratuits endorment un service qui ne reçoit pas de visite (Render : après 15 minutes). Ton IA se rend donc visite à elle-même
+toutes les 5 minutes par son adresse publique. Sur Render, c'est automatique ; ailleurs, renseigne `KEEP_AWAKE_URL`. L'état s'affiche sur le tableau de bord de l'admin.
+- Sur Render, un compte gratuit a 750 heures par mois : assez pour **un seul** service allumé en permanence.
+- L'hébergeur peut quand même redémarrer le service (mise à jour, maintenance) : la sauvegarde automatique ci-dessous protège la mémoire.
+- Pour l'apprentissage continu : Admin → Apprentissage → Rythme (jusqu'à une session toutes les 30 minutes). Attention au quota gratuit des modèles.
+
 ### Sauvegarde automatique de la mémoire
 
 Sur les hébergeurs gratuits, le disque s'efface à chaque redémarrage ou mise en veille. Pour que ton IA ne perde rien :

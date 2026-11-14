@@ -396,6 +396,7 @@ const server = http.createServer(async (req, res) => {
     if (m === 'GET' && !p.startsWith('/api/')) return serveStatic(res, p);
 
     // API publique
+    if (p === '/api/ping') return json(res, 200, { ok: true });
     if (p === '/api/status') {
       const admin = isAdmin(req);
       // Le cookie permet d'ouvrir les aperçus de sites dans un nouvel onglet.
@@ -403,6 +404,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, {
         name: load('persona').name, llm: llmInfo(), publicChat: canChat(req), admin,
         serverStt: !!load('settings').voice?.sttProvider,
+        keepAwake: admin ? { active: !!keepAwake.url, lastOk: keepAwake.lastOk, lastError: keepAwake.lastError } : undefined,
         agents: load('agents').map(({ id, name, description }) => ({ id, name, description })),
         workspaces: admin ? load('workspaces').map((w) => ({ id: w.id, name: w.name, previewUrl: ws.previewUrl(w), publicUrl: w.published ? ws.publicUrl(w) : null })) : [],
       }, setCookie);
@@ -557,6 +559,24 @@ const server = http.createServer(async (req, res) => {
 
 if (load('settings').learning?.enabled || load('missions').some((x) => x.id === learning.LEARNING_MISSION_ID)) learning.syncLearningMission();
 missions.startScheduler();
+
+// --- Maintien en éveil : les hébergeurs gratuits endorment un service sans visite (Render : 15 min). ---
+// Nova se rend visite à elle-même par son adresse publique, ce qui compte comme une visite.
+// Render fournit cette adresse tout seul (RENDER_EXTERNAL_URL) ; ailleurs, mets KEEP_AWAKE_URL. KEEP_AWAKE=false pour désactiver.
+const keepAwake = { url: (process.env.KEEP_AWAKE_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/$/, ''), lastOk: null, lastError: null };
+if (process.env.KEEP_AWAKE === 'false') keepAwake.url = '';
+if (keepAwake.url) {
+  const ping = async () => {
+    try {
+      const r = await fetch(`${keepAwake.url}/api/ping`, { signal: AbortSignal.timeout(20000) });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      await r.text();
+      keepAwake.lastOk = now(); keepAwake.lastError = null;
+    } catch (e) { keepAwake.lastError = e.message; }
+  };
+  setInterval(ping, (Number(process.env.KEEP_AWAKE_SECONDS) || 300) * 1000).unref();
+  setTimeout(ping, 10000).unref();
+}
 server.listen(PORT, () => {
   const info = llmInfo();
   console.log(`🤖 ${load('persona').name} est en ligne sur http://localhost:${PORT}  (admin : /admin)`);
