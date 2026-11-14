@@ -22,6 +22,7 @@ export function chainFor(tier = 'smart') {
   const roles = load('models').roles || {};
   const byId = (id) => providers.find((p) => p.id === id);
   const first = byId(roles[tier]) || byId(roles.smart) || byId(roles.fast) || providers[0];
+  // Pour les images, seuls le modèle vision et les secours sont essayés avant les autres.
   const chain = [first, ...(roles.fallbacks || []).map(byId), ...providers].filter(Boolean);
   return [...new Map(chain.map((p) => [p.id, p])).values()];
 }
@@ -114,6 +115,14 @@ export async function streamChat({ messages, tools, temperature = 0.6, onToken, 
     }
   }
   throw lastError;
+}
+
+/** Réponse complète (sans streaming) d'un fournisseur précis : utilisé pour consulter d'autres IA. */
+export async function complete(p, messages, { maxTokens = 1500 } = {}) {
+  const res = await request(p, { model: p.model, messages, max_tokens: maxTokens, temperature: 0.4 }, AbortSignal.timeout(90000));
+  const txt = await res.text();
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${txt.slice(0, 150)}`);
+  return JSON.parse(txt).choices?.[0]?.message?.content || '';
 }
 
 /** Petit test de connexion pour l'admin. */

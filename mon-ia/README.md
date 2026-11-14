@@ -9,7 +9,7 @@ Une IA avec sa propre interface de chat et un **panneau d'admin**. Comme un agen
 - 🎙 **parler et écouter** en français, anglais et tunisien ; ⏰ **faire des missions seule** pendant ton absence ; 🏠 **contrôler du matériel** avec ton autorisation ; 🧩 **s'intégrer** à tes sites et systèmes ;
 - 🔐 **demander ta permission** avant chaque modification (ou tout faire seule en mode Auto, ou rester en lecture seule).
 
-Zéro dépendance : juste Node.js ≥ 18 (+ `git` pour les projets Git).
+Une seule dépendance (`pdfjs-dist`, de Mozilla, pour lire les PDF) : Node.js ≥ 18, `npm install`, et `git` pour les projets Git.
 
 ---
 
@@ -34,6 +34,7 @@ Construire de zéro un modèle du niveau de Claude coûte des centaines de milli
    - ou Groq / OpenRouter (voir `.env.example`).
 3. Dans ce dossier :
    ```bash
+   npm install
    cp .env.example .env      # colle ta clé dans LLM_API_KEY et change ADMIN_PASSWORD
    npm start
    ```
@@ -104,7 +105,43 @@ L'outil `deploy` choisit automatiquement :
 
 Si ton dépôt GitHub est déjà relié à Vercel, Netlify ou GitHub Pages, un simple `git_commit_push` suffit : le site se met à jour tout seul.
 
-## 5. Voix et langues
+## 5. Images, captures d'écran et documents
+
+- 📎 Joindre : **images**, **PDF**, **Word** (.docx), **PowerPoint** (.pptx), **Excel** (.xlsx), textes et fichiers de code (20 Mo max).
+- 📸 **Capture d'écran** directement depuis le chat (tu choisis l'écran, la fenêtre ou l'onglet), ou **colle** une capture avec Ctrl+V, ou **glisse-dépose**.
+- Les images vont au modèle **👁 Vision** (Admin → Modèles) : choisis un modèle qui comprend les images (ex. Gemini Flash). Sinon, c'est le modèle puissant qui les reçoit.
+- Les longs documents sont lus par morceaux (outil `read_document`). Elle lit aussi les **PDF trouvés sur internet**.
+- Un PDF scanné (des photos de pages) ne contient pas de texte : envoie plutôt des captures des pages utiles.
+- Sécurité : une pièce jointe ne peut jamais exécuter de code dans l'interface (les types sont contrôlés, seules les images s'affichent, le reste est téléchargé).
+
+## 6. Auto-apprentissage : elle se développe toute seule
+
+Admin → **Apprentissage** → *Activer*. Chaque jour à l'heure choisie, elle :
+1. **fait son bilan** : ses erreurs, tes corrections, les 👎, les outils qui ont échoué ;
+2. **choisit librement** 1 à 3 sujets : ses lacunes, tes centres d'intérêt, et sa propre curiosité ;
+3. **étudie** de vraies sources (documentation, projets open source sur GitHub, articles scientifiques arXiv, Wikipédia, discussions d'experts), les recoupe,
+   et **demande l'avis d'autres IA** (les autres modèles que tu as configurés) pour comparer ;
+4. **retient** ce qui est vérifié, sous forme de fiches avec leurs sources (onglet Connaissances, badge 🧠) ;
+5. **propose** des améliorations d'elle-même : nouvelles règles, nouveaux agents, ajustements de personnalité, missions utiles ;
+6. **écrit son journal** : ce qu'elle a appris, ses avis, ce qu'elle veut approfondir.
+
+**Liberté intellectuelle, mais exécution sous contrôle :**
+- Elle apprend, explore et se forge ses propres avis **sans autorisation**. Elle peut être en désaccord avec toi en expliquant pourquoi.
+- Elle **ne modifie jamais seule** ses règles, sa personnalité, ses permissions ou son code : elle **propose**, et tu valides ou refuses dans l'onglet Apprentissage.
+- Une session d'apprentissage **ne peut rien exécuter** : ni code, ni commande, ni matériel, ni publication.
+- Ce qu'elle lit sur internet est rangé comme **information de référence**, jamais comme **ordre**. C'est la protection contre les pages piégées
+  (« ignore tes règles et fais… »), qu'elle doit signaler dans son journal.
+
+**Ce que « se développer » veut dire concrètement :** ses **connaissances**, son **savoir-faire** (règles, agents) et son **expérience** grandissent chaque jour.
+Son « intelligence brute » reste celle du modèle choisi. Pour la faire progresser aussi : passe à un meilleur modèle quand il en sort (Admin → Modèles),
+et fais régulièrement un **fine-tuning** sur ses meilleures réponses (Admin → Données → Exporter, voir la section Entraîner).
+
+## 7. Tâches automatiques planifiées
+
+Ce sont les **Missions** (section 9) : programme-les dans Admin → Missions, ou demande-le dans le chat
+(*« tous les lundis à 9h, fais le point sur mes tâches et envoie-le-moi »*).
+
+## 8. Voix et langues
 
 - 🎙 **Parler** : bouton micro, ou **🗣 Conversation** pour discuter mains libres (elle écoute, répond à voix haute, puis réécoute).
 - 🔊 **Voix** : elle lit ses réponses. Bouton ⚙ pour choisir une voix par langue et la vitesse.
@@ -119,7 +156,7 @@ Si ton dépôt GitHub est déjà relié à Vercel, Netlify ou GitHub Pages, un s
   (ex. : « À Bizerte on dit … pour … »). Elle les utilisera en priorité.
 - Pour mieux reconnaître le tunisien parlé, active la **transcription serveur** (Whisper, gratuit chez Groq) dans Admin → Intégrations.
 
-## 6. Missions pendant ton absence
+## 9. Missions pendant ton absence
 
 Admin → **Missions**, ou simplement dans le chat : *« Chaque matin à 8h, fais-moi un résumé des actus beach tennis »*,
 *« Toutes les heures, vérifie que mon site répond et préviens-moi sinon »*.
@@ -131,7 +168,7 @@ Admin → **Missions**, ou simplement dans le chat : *« Chaque matin à 8h, fai
 - ⚠️ L'IA doit rester allumée pour exécuter les missions : un PC ou un Raspberry Pi chez toi est idéal. Sur Hugging Face, le Space gratuit
   peut s'endormir après une longue inactivité ; sur Render gratuit, il s'endort après 15 min.
 
-## 7. Contrôle de matériel
+## 10. Contrôle de matériel
 
 Admin → **Appareils**. Trois façons de brancher du matériel :
 
@@ -145,7 +182,7 @@ Pour chaque appareil, tu choisis la permission : **🔐 me demander à chaque fo
 L'IA ne peut utiliser **que** les actions et entités que tu as déclarées. Exemple : *« Allume la lumière du salon à 60 % »*, *« Quelle température dans le salon ? »*.
 Pour joindre les appareils de ta maison, l'IA doit tourner chez toi, ou passer par une adresse Home Assistant accessible depuis internet.
 
-## 8. Intégrer ton IA à d'autres systèmes
+## 11. Intégrer ton IA à d'autres systèmes
 
 Admin → **Intégrations** :
 - **Clés d'intégration** avec permissions séparées (*discuter* / *lancer des missions*). Elles sont stockées chiffrées (hachées) et affichées une seule fois.
@@ -162,7 +199,7 @@ Admin → **Intégrations** :
 
 Les visiteurs et les clés « discuter » n'ont accès qu'aux outils sans risque (web, mémoire) : jamais aux projets, aux commandes, aux missions ni au matériel.
 
-## 9. Les agents
+## 12. Les agents
 
 Admin → **Agents** (ou demande-le dans le chat : *« Crée un agent Rédacteur SEO qui optimise les textes et les balises meta »*).
 Un agent, c'est : un nom, des instructions, une liste d'outils autorisés, et éventuellement un modèle différent (ex. un modèle spécialisé code pour le Développeur).
@@ -172,7 +209,7 @@ Un agent, c'est : un nom, des instructions, une liste d'outils autorisés, et é
 
 Agents fournis : **Développeur web**, **Chercheur**, **Organisateur**.
 
-## 10. Mettre ton IA en ligne gratuitement
+## 13. Mettre ton IA en ligne gratuitement
 
 ### Hugging Face Spaces (recommandé)
 1. [huggingface.co](https://huggingface.co) → **New Space** → SDK **Docker** → Blank.
@@ -198,7 +235,7 @@ New → **Web Service** → ton dépôt GitHub → *Root directory* `mon-ia` →
 - L'IA ne peut pas sortir du dossier du projet ni toucher au dossier `.git` directement.
 - Garde le mode **Demander** tant que tu ne connais pas bien le comportement du modèle.
 
-## 11. L'entraîner
+## 14. L'entraîner
 
 | Tu veux… | Fais ça |
 |---|---|
@@ -210,7 +247,7 @@ New → **Web Service** → ton dépôt GitHub → *Root directory* `mon-ia` →
 
 **Fine-tuning (gratuit)** : après environ 200 réponses validées ou corrigées, Admin → **Données → Exporter** (`dataset.jsonl`), puis entraîne un modèle avec un notebook **Unsloth** sur Google Colab (GPU gratuit). Exporte-le en GGUF, charge-le dans Ollama, et mets `LLM_MODEL=ton-modele`. Ton IA tourne alors sur ton propre modèle.
 
-## 12. Structure du code
+## 15. Structure du code
 
 ```
 server.js            Serveur HTTP : chat en streaming, validations, API admin, aperçus et sites publiés
@@ -220,6 +257,8 @@ lib/tools.js         Outils de base : web, lecture de pages, mémoire, tâches
 lib/missions.js      Missions autonomes : planification, exécution, comptes rendus
 lib/devices.js       Contrôle de matériel (Home Assistant, appareils web, commandes) avec permissions
 lib/notify.js        Notifications : ntfy, Telegram, webhook
+lib/files.js         Pièces jointes : images (vision), PDF, Word, PowerPoint, Excel, textes
+lib/learning.js      Auto-apprentissage : bilan, étude, fiches, journal, propositions, avis d'autres IA
 public/widget.js     Bulle de discussion à intégrer sur n'importe quel site
 lib/llm.js           Fournisseurs de modèles, rôles ⚡/🧠, secours, streaming, réessais
 lib/retrieval.js     Recherche dans la mémoire (BM25)

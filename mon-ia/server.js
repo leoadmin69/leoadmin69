@@ -19,6 +19,8 @@ const { runAgent, findAgent, ALL_TOOLS } = await import('./lib/agent.js');
 const ws = await import('./lib/workspace.js');
 const missions = await import('./lib/missions.js');
 const { notify } = await import('./lib/notify.js');
+const files = await import('./lib/files.js');
+const learning = await import('./lib/learning.js');
 
 const PORT = Number(process.env.PORT || 3000);
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
@@ -91,16 +93,17 @@ const pending = new Map(); // id -> { resolve, perm }
 async function handleChat(req, res) {
   const admin = isAdmin(req);
   if (!canChat(req)) return json(res, 401, { error: 'Connexion requise' });
-  const { conversationId, message, agentId, workspaceId, mode, tier, lang, voice } = await body(req);
-  if (!message?.trim()) return json(res, 400, { error: 'Message vide' });
+  const { conversationId, message = '', agentId, workspaceId, mode, tier, lang, voice, files: fileIds = [] } = await body(req);
+  const attached = (Array.isArray(fileIds) ? fileIds : []).slice(0, 10).map(files.getUpload).filter(Boolean);
+  if (!message?.trim() && !attached.length) return json(res, 400, { error: 'Message vide' });
 
   const convs = load('conversations');
   let conv = convs.find((c) => c.id === conversationId);
   if (!conv) {
-    conv = { id: newId(), title: message.slice(0, 60), messages: [], updatedAt: now() };
+    conv = { id: newId(), title: (message || attached.map((f) => f.name).join(', ')).slice(0, 60), messages: [], updatedAt: now() };
     convs.unshift(conv);
   }
-  conv.messages.push({ role: 'user', content: message });
+  conv.messages.push({ role: 'user', content: message, ...(attached.length ? { files: attached.map(({ id, name, kind }) => ({ id, name, kind })) } : {}) });
   const agent = findAgent(agentId);
   const workspace = admin && workspaceId ? ws.getWorkspace(workspaceId) : null;
   Object.assign(conv, { agentId: agent?.id || null, workspaceId: workspace?.id || null });
@@ -126,8 +129,12 @@ async function handleChat(req, res) {
   });
 
   // Historique : on rappelle au modèle les actions faites aux tours précédents.
-  const history = conv.messages.slice(-24).map(({ role, content, steps }) => ({
-    role, content: steps?.length ? `${content}\n\n[Actions effectuées : ${steps.join(', ')}]` : content,
+  // Les pièces jointes sont intégrées au message (texte des documents, images en vision pour les messages récents).
+  const recent = conv.messages.slice(-24);
+  const history = recent.map(({ role, content, steps, files: f }, i) => ({
+    role,
+    content: f?.length ? files.toModelContent(content, f.map((x) => x.id), { withImages: i >= recent.length - 4 })
+      : steps?.length ? `${content}\n\n[Actions effectuées : ${steps.join(', ')}]` : content,
   }));
   let result = { content: '', steps: [] };
   try {
@@ -200,7 +207,7 @@ async function adminApi(req, res, p, m) {
       return json(res, 200, await testProvider(target));
     }
     if (id === 'roles' && m === 'PUT') {
-      cfg.roles = { fast: data.fast || '', smart: data.smart || '', fallbacks: Array.isArray(data.fallbacks) ? data.fallbacks : [] };
+      cfg.roles = { fast: data.fast || '', smart: data.smart || '', vision: data.vision || '', fallbacks: Array.isArray(data.fallbacks) ? data.fallbacks : [] };
       save('models');
       return json(res, 200, view());
     }
@@ -232,10 +239,11 @@ async function adminApi(req, res, p, m) {
     if (m === 'PUT') {
       if (data.notify) st.notify = keepMasked(st.notify, { ...data.notify }, ['telegramToken']);
       if (data.voice) st.voice = { ...data.voice };
+      if (data.learning) { st.learning = { ...st.learning, ...data.learning }; save('settings'); learning.syncLearningMission(); }
       save('settings');
     }
     if (id === 'test-notify' && m === 'POST') return json(res, 200, await notify('🔔 Test', `Les notifications de ${load('persona').name} fonctionnent !`));
-    return json(res, 200, { notify: { ...st.notify, telegramToken: st.notify.telegramToken ? MASK : '' }, voice: st.voice });
+    return json(res, 200, { notify: { ...st.notify, telegramToken: st.notify.telegramToken ? MASK : '' }, voice: st.voice, learning: st.learning || {} });
   }
   if (resource === 'apikeys') {
     const keys = load('apikeys');
@@ -282,6 +290,13 @@ async function adminApi(req, res, p, m) {
       try { return json(res, 200, missions.saveMission(data, m === 'PUT' ? id : undefined)); } catch (e) { return json(res, 400, { error: e.message }); }
     }
   }
+  if (resource === 'journal') return json(res, 200, load('journal').slice(0, 60));
+  if (resource === 'proposals') {
+    if (m === 'POST' && ['approve', 'reject'].includes(action)) {
+      try { return json(res, 200, learning.applyProposal(id, action)); } catch (e) { return json(res, 400, { error: e.message }); }
+    }
+    return json(res, 200, load('proposals').slice(0, 100));
+  }
   if (resource === 'tools') return json(res, 200, ALL_TOOLS.map((t) => ({ name: t.name, kind: t.kind, group: t.group, description: t.def.function.description })));
 
   if (resource === 'agents') {
@@ -323,7 +338,7 @@ async function adminApi(req, res, p, m) {
     res.writeHead(200, { 'Content-Type': 'application/jsonl', 'Content-Disposition': 'attachment; filename="dataset.jsonl"' });
     return res.end(exportDataset());
   }
-  const NAMES = ['persona', 'knowledge', 'lessons', 'tasks', 'conversations', 'agents', 'models', 'missions', 'devices', 'settings'];
+  const NAMES = ['persona', 'knowledge', 'lessons', 'tasks', 'conversations', 'agents', 'models', 'missions', 'devices', 'settings', 'journal', 'proposals'];
   if (resource === 'backup') return json(res, 200, Object.fromEntries(NAMES.map((n) => [n, load(n)])));
   if (resource === 'restore' && m === 'POST') {
     for (const n of NAMES) if (data[n]) save(n, data[n]);
@@ -382,6 +397,33 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/logout') return json(res, 200, { ok: true }, { 'Set-Cookie': 'ia_admin=; Path=/; Max-Age=0' });
     if (p === '/api/chat' && m === 'POST') return handleChat(req, res);
+
+    // Envoi de fichiers (images, captures, PDF, documents)
+    if (p === '/api/upload' && m === 'POST') {
+      if (!canChat(req)) return json(res, 401, { error: 'Connexion requise' });
+      const name = decodeURIComponent(req.headers['x-file-name'] || 'fichier');
+      try {
+        const meta = await files.saveUpload(await rawBody(req, files.MAX_UPLOAD), name, req.headers['content-type']);
+        const { file, ...pub } = meta;
+        return json(res, 200, pub);
+      } catch (e) { return json(res, 400, { error: e.message }); }
+    }
+    const upMatch = p.match(/^\/api\/uploads\/([\w-]+)$/);
+    if (upMatch && m === 'GET') {
+      if (!canChat(req)) return json(res, 401, { error: 'Connexion requise' });
+      const meta = files.getUpload(upMatch[1]);
+      if (!meta) return json(res, 404, { error: 'Introuvable' });
+      // Sécurité : seules les images matricielles s'affichent dans la page (type déduit de l'extension, pas de l'envoi) ;
+      // tout le reste est téléchargé, et rien ne peut exécuter de script.
+      const IMG = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
+      const imgType = meta.kind === 'image' ? IMG[path.extname(meta.file).toLowerCase()] : null;
+      res.writeHead(200, {
+        'Content-Type': imgType || (meta.kind === 'pdf' ? 'application/pdf' : 'application/octet-stream'),
+        'Content-Disposition': `${imgType ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(meta.name)}`,
+        'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox",
+      });
+      return fs.createReadStream(files.uploadPath(meta)).pipe(res);
+    }
 
     // Transcription vocale côté serveur (Whisper ou autre modèle /audio/transcriptions)
     if (p === '/api/transcribe' && m === 'POST') {
@@ -483,6 +525,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+if (load('settings').learning?.enabled || load('missions').some((x) => x.id === learning.LEARNING_MISSION_ID)) learning.syncLearningMission();
 missions.startScheduler();
 server.listen(PORT, () => {
   const info = llmInfo();

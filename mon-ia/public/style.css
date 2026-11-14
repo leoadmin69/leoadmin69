@@ -119,3 +119,13 @@ pre.out:empty { display: none; }
 body.embed .side, body.embed .topbar, body.embed .admin-only, body.embed #agentLbl, body.embed #tierLbl, body.embed #voiceCfgBtn { display: none !important; }
 body.embed .thread { padding: 14px 12px; }
 body.embed .hint { display: none; }
+.attachments { max-width: 760px; margin: 0 auto 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+.attachments:empty { display: none; }
+.file-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 4px 8px; font-size: 13px; max-width: 100%; }
+.file-chip img { width: 34px; height: 34px; object-fit: cover; border-radius: 6px; }
+.file-chip button { background: none; border: 0; color: var(--muted); padding: 0 2px; }
+.file-chip.loading { opacity: .6; }
+.file-chip small { color: var(--muted); }
+.msg-files { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; margin-bottom: 6px; }
+.msg-files img { max-width: 220px; max-height: 160px; border-radius: 10px; border: 1px solid var(--border); display: block; }
+.box .mic { padding: 9px 8px; }

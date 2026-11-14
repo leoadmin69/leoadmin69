@@ -22,8 +22,12 @@
     <div class="topbar"><button class="btn ghost small" onclick="side.classList.toggle('open')">☰</button><b class="ai-name">Mon IA</b></div>
     <div class="thread" id="thread"><div class="inner" id="inner"></div></div>
     <div class="composer">
+      <div class="attachments" id="attachments"></div>
       <form class="box" id="form">
-        <textarea id="input" rows="1" placeholder="Écris ton message…"></textarea>
+        <button type="button" class="btn ghost mic" id="attachBtn" title="Joindre des fichiers (images, PDF, Word, Excel, code…)">📎</button>
+        <button type="button" class="btn ghost mic" id="shotBtn" title="Capture d'écran">📸</button>
+        <input type="file" id="fileInput" multiple hidden accept="image/*,.pdf,.docx,.pptx,.xlsx,.txt,.md,.csv,.json,.html,.css,.js,.ts,.py,.java,.c,.cpp,.cs,.go,.rs,.php,.rb,.sh,.sql,.yaml,.yml,.xml,.log">
+        <textarea id="input" rows="1" placeholder="Écris ton message… (tu peux aussi coller une capture d'écran)"></textarea>
         <button type="button" class="btn ghost mic" id="mic" title="Parler (micro)">🎙</button>
         <button class="btn" id="send" title="Envoyer">➤</button>
       </form>
@@ -168,7 +172,7 @@ async function openConv(id) {
   convId = id; renderConvs(); side.classList.remove('open');
   $('inner').innerHTML = '';
   c.messages.forEach((m, i) => {
-    if (m.role === 'user') return addUser(m.content);
+    if (m.role === 'user') return addUser(m.content, m.files || []);
     const a = addAssistant();
     if (m.steps?.length) {
       const d = document.createElement('details'); d.className = 'steps';
@@ -182,11 +186,18 @@ async function openConv(id) {
   scroll();
 }
 
-function addUser(content) {
+function addUser(content, files = []) {
   const el = document.createElement('div');
   el.className = 'msg user';
-  el.innerHTML = `<div class="bubble"></div>`;
-  el.firstChild.textContent = content;
+  if (files.length) {
+    const box = document.createElement('div');
+    box.className = 'msg-files';
+    box.innerHTML = files.map((f) => f.kind === 'image'
+      ? `<a href="/api/uploads/${f.id}${KEY ? '?key=' + encodeURIComponent(KEY) : ''}" target="_blank"><img src="/api/uploads/${f.id}${KEY ? '?key=' + encodeURIComponent(KEY) : ''}" alt="${esc(f.name)}"></a>`
+      : `<span class="file-chip">${f.kind === 'pdf' ? '📕' : '📄'} ${esc(f.name)}</span>`).join('');
+    el.appendChild(box);
+  }
+  if (content) { const b = document.createElement('div'); b.className = 'bubble'; b.textContent = content; el.appendChild(b); }
   $('inner').appendChild(el);
 }
 
@@ -218,7 +229,7 @@ function addAssistant() {
     model(e) {
       if (e.agent) return;
       if (!modelEl) { modelEl = document.createElement('div'); modelEl.className = 'model-tag'; el.prepend(modelEl); }
-      modelEl.textContent = (e.tier === 'fast' ? '⚡ ' : e.tier === 'smart' ? '🧠 ' : '') + e.name;
+      modelEl.textContent = ({ fast: '⚡ ', smart: '🧠 ', vision: '👁 ' }[e.tier] || '') + e.name;
     },
     toolResult(e) {
       const d = tools[e.id]; if (!d) return;
@@ -250,7 +261,9 @@ function addAssistant() {
 }
 
 const LABELS = { web_search: '🔎 Recherche web', read_page: '📄 Lecture de page', search_knowledge: '🧠 Mémoire', add_task: '✅ Ajout de tâche', list_tasks: '📋 Tâches',
-  complete_task: '✔️ Tâche terminée', remember: '💾 Mémorisation', list_files: '📂 Fichiers', read_file: '👁 Lecture', search_code: '🔍 Recherche dans le code',
+  complete_task: '✔️ Tâche terminée', read_document: '📕 Lecture du document', learn: '🧠 Apprentissage', ask_other_ai: '🤝 Avis d\'autres IA',
+  propose_improvement: '💡 Proposition', journal_entry: '📓 Journal', review_recent_activity: '🔁 Bilan', list_learned: '📚 Acquis',
+  schedule_mission: '⏰ Mission programmée', list_missions: '⏰ Missions', notify_admin: '🔔 Notification', list_devices: '🏠 Appareils', read_device: '🌡 Lecture appareil', control_device: '🎛 Contrôle appareil', remember: '💾 Mémorisation', list_files: '📂 Fichiers', read_file: '👁 Lecture', search_code: '🔍 Recherche dans le code',
   write_file: '📝 Écriture', edit_file: '✏️ Modification', delete_file: '🗑 Suppression', run_command: '⌨️ Commande', git_status: '🌿 Git status', git_diff: '🌿 Git diff',
   git_commit_push: '🚀 Commit + push', deploy: '🌍 Mise en ligne', update_plan: '🗒 Plan', think: '💭 Réflexion', call_agent: '🤖 Délégation', create_agent: '✨ Création d\'agent' };
 const label = (n) => LABELS[n] || n;
@@ -305,10 +318,13 @@ const scroll = () => ($('thread').scrollTop = $('thread').scrollHeight);
 
 async function send(viaVoice = false) {
   const text = $('input').value.trim();
-  if (!text || busy) return;
+  if ((!text && !pending.length) || busy) return;
+  if (pending.some((f) => f.uploading)) return alert('Patiente, un fichier est encore en cours d\'envoi.');
+  const sentFiles = pending.splice(0);
+  renderPending();
   if (!convId) $('inner').innerHTML = '';
   busy = true; setBusy(true); $('input').value = ''; autosize();
-  addUser(text);
+  addUser(text, sentFiles);
   const a = addAssistant();
   a.el.classList.add('cursor');
   scroll();
@@ -318,7 +334,7 @@ async function send(viaVoice = false) {
   try {
     const res = await fetch('/api/chat', {
       method: 'POST', headers: headers(), signal: controller.signal,
-      body: JSON.stringify({ conversationId: convId, message: text, agentId: $('agentSel').value, workspaceId: $('wsSel').value, mode: $('modeSel').value, tier: $('tierSel').value, lang: $('langSel').value, voice: viaVoice || convMode }),
+      body: JSON.stringify({ conversationId: convId, message: text, agentId: $('agentSel').value, workspaceId: $('wsSel').value, mode: $('modeSel').value, tier: $('tierSel').value, lang: $('langSel').value, voice: viaVoice || convMode, files: sentFiles.map((f) => f.id) }),
     });
     if (!res.ok) throw new Error((await res.json()).error);
     const reader = res.body.getReader();
@@ -335,7 +351,7 @@ async function send(viaVoice = false) {
         const stick = nearBottom();
         if (e.type === 'start' && !convId) {
           convId = e.conversationId;
-          pref('convs', JSON.stringify([{ id: convId, title: text.slice(0, 60) }, ...myConvs()]));
+          pref('convs', JSON.stringify([{ id: convId, title: (text || sentFiles.map((f) => f.name).join(', ')).slice(0, 60) }, ...myConvs()]));
           renderConvs();
         }
         if (e.type === 'token') { full += e.text; a.token(e.text); }
@@ -360,6 +376,54 @@ async function send(viaVoice = false) {
   if ((ttsOn || convMode) && full.trim()) speak(full, () => { if (convMode) listen(); });
   else if (convMode) listen();
 }
+
+// ===================== Pièces jointes =====================
+const pending = [];
+function renderPending() {
+  $('attachments').innerHTML = pending.map((f, i) => `<span class="file-chip ${f.uploading ? 'loading' : ''}">
+    ${f.preview ? `<img src="${f.preview}" alt="">` : f.kind === 'pdf' ? '📕' : '📄'} ${esc(f.name)}${f.uploading ? ' …' : f.chars ? ` <small>(${Math.round(f.chars / 1000)}k car.)</small>` : ''}
+    <button type="button" onclick="pending.splice(${i},1);renderPending()" title="Retirer">✕</button></span>`).join('');
+}
+window.pending = pending; window.renderPending = renderPending;
+async function addFile(file) {
+  if (file.size > 20e6) return alert(`${file.name} : trop volumineux (20 Mo max).`);
+  const item = { name: file.name, uploading: true, kind: file.type.startsWith('image/') ? 'image' : /\.pdf$/i.test(file.name) ? 'pdf' : 'doc', preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : null };
+  pending.push(item); renderPending();
+  try {
+    const r = await fetch('/api/upload', { method: 'POST', headers: { ...headers(), 'Content-Type': file.type || 'application/octet-stream', 'x-file-name': encodeURIComponent(file.name) }, body: file });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error);
+    Object.assign(item, j, { uploading: false });
+  } catch (e) {
+    pending.splice(pending.indexOf(item), 1);
+    alert(`${file.name} : ${e.message}`);
+  }
+  renderPending();
+}
+$('attachBtn').onclick = () => $('fileInput').click();
+$('fileInput').onchange = (e) => { [...e.target.files].forEach(addFile); e.target.value = ''; };
+$('input').addEventListener('paste', (e) => {
+  const imgs = [...(e.clipboardData?.files || [])];
+  if (imgs.length) { e.preventDefault(); imgs.forEach((f, i) => addFile(new File([f], f.name && f.name !== 'image.png' ? f.name : `capture-${Date.now()}-${i}.png`, { type: f.type }))); }
+});
+['dragover', 'drop'].forEach((ev) => document.querySelector('.main').addEventListener(ev, (e) => {
+  e.preventDefault();
+  if (ev === 'drop') [...(e.dataTransfer?.files || [])].forEach(addFile);
+}));
+$('shotBtn').onclick = async () => {
+  // Capture d'écran : tu choisis l'écran, la fenêtre ou l'onglet à partager, une image est prise.
+  if (!navigator.mediaDevices?.getDisplayMedia) return alert('La capture d\'écran n\'est pas disponible ici. Fais une capture avec ton système puis colle-la (Ctrl+V).');
+  let stream;
+  try { stream = await navigator.mediaDevices.getDisplayMedia({ video: true }); } catch { return; }
+  const video = document.createElement('video');
+  video.srcObject = stream; video.muted = true; await video.play();
+  await new Promise((r) => setTimeout(r, 300));
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  stream.getTracks().forEach((t) => t.stop());
+  canvas.toBlob((b) => addFile(new File([b], `capture-ecran-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.png`, { type: 'image/png' })), 'image/png');
+};
 
 // ===================== Voix =====================
 const LANG_CODES = { fr: 'fr-FR', en: 'en-US', tn: 'ar-TN' };

@@ -16,6 +16,7 @@
   <nav class="tabs" id="tabs">
     <button data-tab="dash" class="on">Tableau de bord</button>
     <button data-tab="models">Modèles</button>
+    <button data-tab="learning">Apprentissage</button>
     <button data-tab="persona">Personnalité</button>
     <button data-tab="knowledge">Connaissances</button>
     <button data-tab="lessons">Leçons</button>
@@ -50,6 +51,7 @@
       <div class="row">
         <label>🧠 Puissant<select id="rSmart"></select></label>
         <label>⚡ Rapide<select id="rFast"></select></label>
+        <label>👁 Vision (images)<select id="rVision"></select></label>
       </div>
       <div><span class="help">Secours (essayés dans l'ordre si le principal échoue) :</span><div class="checks" id="rFallbacks"></div></div>
       <div><button class="btn" id="saveRoles">Enregistrer les rôles</button> <span class="help" id="rMsg"></span></div>
@@ -82,6 +84,28 @@
       </div>
     </form>
     <div class="grid" id="mList" style="margin-top:14px"></div>
+  </section>
+
+  <section class="panel" id="learning">
+    <p class="help">Chaque jour, ton IA fait son bilan, <b>choisit librement</b> ce qu'elle veut apprendre, étudie des sources (web, projets open source,
+      articles scientifiques, avis d'autres IA), retient ce qui est vérifié et écrit son journal. Elle est libre intellectuellement, mais
+      <b>ne change jamais seule ses règles, sa personnalité, ses agents ou ses missions</b> : elle te le propose ici, et c'est toi qui valides.
+      Une session d'apprentissage ne peut rien exécuter (ni code, ni matériel, ni publication).</p>
+    <div class="card grid" style="max-width:none">
+      <div class="row" style="align-items:flex-end">
+        <label style="flex:0 0 auto;display:flex;gap:8px;align-items:center;white-space:nowrap"><input type="checkbox" id="lEnabled" style="width:auto"> Activer l'auto-apprentissage</label>
+        <label>Heure de la session quotidienne<input type="time" id="lTime" value="03:00"></label>
+        <label style="flex:0 0 auto;display:flex;gap:8px;align-items:center;white-space:nowrap"><input type="checkbox" id="lNotify" style="width:auto" checked> M'envoyer le compte rendu</label>
+      </div>
+      <label>Centres d'intérêt suggérés (optionnel : elle reste libre d'explorer autre chose)
+        <textarea id="lInterests" rows="2" placeholder="développement web, beach tennis, domotique, culture tunisienne et expressions de Bizerte, IA open source…"></textarea></label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" class="btn" id="lSave">Enregistrer</button>
+        <button type="button" class="btn ghost" id="lRun">▶ Lancer une session maintenant</button><span class="help" id="lMsg"></span></div>
+    </div>
+    <h3>Propositions d'amélioration <span class="help" id="pCount"></span></h3>
+    <div class="grid" id="pList"></div>
+    <h3>Journal d'apprentissage</h3>
+    <div class="grid" id="jList"></div>
   </section>
 
   <section class="panel" id="persona">
@@ -319,7 +343,7 @@ async function load(tab) {
   if (tab === 'models') {
     models = await api('models');
     const opts = (sel) => '<option value="">(automatique)</option>' + models.providers.map((p) => `<option value="${p.id}" ${sel === p.id ? 'selected' : ''}>${esc(p.name)} — ${esc(p.model)}</option>`).join('');
-    $('rSmart').innerHTML = opts(models.roles.smart); $('rFast').innerHTML = opts(models.roles.fast);
+    $('rSmart').innerHTML = opts(models.roles.smart); $('rFast').innerHTML = opts(models.roles.fast); $('rVision').innerHTML = opts(models.roles.vision);
     $('rFallbacks').innerHTML = models.providers.map((p) => `<label><input type="checkbox" value="${p.id}" ${(models.roles.fallbacks || []).includes(p.id) ? 'checked' : ''}> ${esc(p.name)}</label>`).join('') || '<span class="help">—</span>';
     $('mList').innerHTML = models.providers.map((p) => `<div class="item"><div><b>${esc(p.name)}</b> <span class="tag">${esc(p.model)}</span>
         ${models.roles.smart === p.id ? '<span class="tag">🧠 puissant</span>' : ''}${models.roles.fast === p.id ? ' <span class="tag">⚡ rapide</span>' : ''}
@@ -328,6 +352,26 @@ async function load(tab) {
         ${p.fromEnv ? '' : `<button class="btn ghost small" onclick="editModel('${p.id}')">Modifier</button><button class="btn ghost small" onclick="delModel('${p.id}')">Supprimer</button>`}</div></div>`).join('')
       || '<p class="help">Aucun fournisseur. Commence par Google Gemini ou OpenRouter : clé gratuite en 1 minute.</p>';
   }
+  if (tab === 'learning') {
+    const [st, props, journal, ms] = await Promise.all([api('settings'), api('proposals'), api('journal'), api('missions')]);
+    const l = st.learning || {};
+    $('lEnabled').checked = !!l.enabled; $('lTime').value = l.time || '03:00'; $('lInterests').value = l.interests || ''; $('lNotify').checked = l.notify !== false;
+    const lm = ms.find((x) => x.id === 'auto-learning');
+    const last = lm?.runs?.[0];
+    $('lMsg').textContent = lm?.running ? '⏳ Session en cours…' : last ? `Dernière session : ${date(last.startedAt)} (${last.status === 'ok' ? 'réussie' : 'erreur'})` : '';
+    const TYPES = { lesson: '📏 Règle', persona: '🎭 Personnalité', agent: '🤖 Nouvel agent', mission: '⏰ Mission' };
+    const pend = props.filter((x) => x.status === 'pending');
+    $('pCount').textContent = pend.length ? `(${pend.length} en attente)` : '';
+    $('pList').innerHTML = props.slice(0, 30).map((x) => `<div class="item" style="flex-direction:column;align-items:stretch">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><span class="tag">${TYPES[x.type]}</span> <b>${esc(x.title)}</b>
+        <div class="meta">${date(x.createdAt)} · ${{ pending: '⏳ en attente', approved: '✅ validée', rejected: '❌ refusée' }[x.status]}</div></div>
+        ${x.status === 'pending' ? `<div style="display:flex;gap:6px"><button class="btn small" onclick="decide('${x.id}','approve')">Valider</button><button class="btn ghost small" onclick="decide('${x.id}','reject')">Refuser</button></div>` : ''}</div>
+      <p><b>Pourquoi :</b> ${esc(x.reason)}</p><pre class="out" style="border:1px solid var(--border);border-radius:8px;margin-top:6px">${esc(x.content)}</pre></div>`).join('')
+      || '<p class="help">Aucune proposition pour l\'instant.</p>';
+    $('jList').innerHTML = journal.map((j) => `<div class="item"><div><div class="meta">${date(j.createdAt)}</div><p>${esc(j.text)}</p></div></div>`).join('')
+      || '<p class="help">Le journal se remplira après la première session.</p>';
+    if (lm?.running) setTimeout(() => $('learning').classList.contains('on') && load('learning'), 5000);
+  }
   if (tab === 'persona') {
     const p = await api('persona');
     $('pName').value = p.name; $('pInstr').value = p.instructions; $('pTemp').value = p.temperature;
@@ -335,7 +379,7 @@ async function load(tab) {
   if (tab === 'knowledge') {
     const list = await api('knowledge'); const f = $('kFilter').value.toLowerCase();
     $('kList').innerHTML = list.filter((x) => !f || (x.title + x.content).toLowerCase().includes(f)).reverse().map((x) =>
-      `<div class="item"><div><b>${esc(x.title)}</b> <span class="meta">${esc(x.tags)} · ${date(x.createdAt)}</span><p>${esc(x.content.slice(0, 400))}${x.content.length > 400 ? '…' : ''}</p></div>
+      `<div class="item"><div><b>${esc(x.title)}</b> ${x.origin === 'auto' ? '<span class="tag">🧠 appris seule</span>' : ''} <span class="meta">${esc(x.tags)} · ${date(x.createdAt)}</span><p>${esc(x.content.slice(0, 400))}${x.content.length > 400 ? '…' : ''}</p>${x.sources?.length ? `<div class="meta">Sources : ${x.sources.filter((u) => /^https?:\/\//i.test(u)).map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(u.replace(/^https?:\/\//, '').slice(0, 50))}</a>`).join(' · ')}</div>` : ''}</div>
        <button class="btn ghost small" onclick="del('knowledge','${x.id}')">Supprimer</button></div>`).join('') || '<p class="help">Aucune connaissance pour l\'instant.</p>';
   }
   if (tab === 'lessons') {
@@ -466,8 +510,23 @@ window.editModel = (id) => {
 window.delModel = async (id) => { if (confirm('Supprimer ce fournisseur ?')) { await api('models/' + id, 'DELETE'); load('models'); } };
 $('saveRoles').onclick = async () => {
   const fallbacks = [...$('rFallbacks').querySelectorAll('input:checked')].map((c) => c.value);
-  await api('models/roles', 'PUT', { smart: $('rSmart').value, fast: $('rFast').value, fallbacks });
+  await api('models/roles', 'PUT', { smart: $('rSmart').value, fast: $('rFast').value, vision: $('rVision').value, fallbacks });
   $('rMsg').textContent = '✓ Enregistré'; setTimeout(() => ($('rMsg').textContent = ''), 2000); load('models');
+};
+
+// ----- Apprentissage -----
+const learningData = () => ({ learning: { enabled: $('lEnabled').checked, time: $('lTime').value, interests: $('lInterests').value.trim(), notify: $('lNotify').checked } });
+$('lSave').onclick = async () => { await api('settings', 'PUT', learningData()); $('lMsg').textContent = '✓ Enregistré'; };
+$('lRun').onclick = async () => {
+  await api('settings', 'PUT', learningData());
+  await api('missions/auto-learning/run', 'POST');
+  $('lMsg').textContent = '⏳ Session lancée : le compte rendu arrivera ici et en notification.';
+  setTimeout(() => load('learning'), 3000);
+};
+window.decide = async (id, action) => {
+  const r = await api(`proposals/${id}/${action}`, 'POST');
+  if (r.error) alert(r.error);
+  load('learning');
 };
 
 // ----- Missions -----

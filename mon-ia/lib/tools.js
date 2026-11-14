@@ -35,7 +35,11 @@ async function webSearch({ query }) {
 
 async function readPage({ url }) {
   try {
-    const r = await fetch(url, { headers: UA, signal: AbortSignal.timeout(10000) });
+    const r = await fetch(url, { headers: UA, signal: AbortSignal.timeout(20000) });
+    if (/pdf/i.test(r.headers.get('content-type') || '') || /\.pdf($|\?)/i.test(url)) {
+      const { pdfText } = await import('./files.js');
+      return { url, text: (await pdfText(Buffer.from(await r.arrayBuffer()))).slice(0, 30000) };
+    }
     const html = await r.text();
     const text = html
       .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<nav[\s\S]*?<\/nav>|<footer[\s\S]*?<\/footer>/gi, ' ')
