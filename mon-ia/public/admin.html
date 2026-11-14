@@ -18,6 +18,8 @@
     <button data-tab="persona">Personnalité</button>
     <button data-tab="knowledge">Connaissances</button>
     <button data-tab="lessons">Leçons</button>
+    <button data-tab="projects">Projets</button>
+    <button data-tab="agents">Agents</button>
     <button data-tab="tasks">Tâches</button>
     <button data-tab="convs">Conversations</button>
     <button data-tab="data">Données</button>
@@ -62,6 +64,54 @@
       <div class="row"><input id="lText" placeholder="Ex : Toujours répondre en tutoyant. / Mon entreprise s'appelle …"><div style="flex:0"><button class="btn" id="addL">Ajouter</button></div></div>
       <div class="grid" id="lList"></div>
     </div>
+  </section>
+
+  <section class="panel" id="projects">
+    <p class="help">Donne à ton IA l'accès à un site : elle pourra lire, modifier le code, lancer des commandes, faire des commits et le mettre en ligne.
+      Choisis ensuite le projet dans le chat (menu 📁).</p>
+    <form class="grid card" style="max-width:none" id="wsForm">
+      <input type="hidden" id="wId">
+      <div class="row">
+        <label>Nom<input id="wName" placeholder="Mon site" required></label>
+        <label>Type<select id="wType">
+          <option value="git">Dépôt Git (GitHub, GitLab…)</option>
+          <option value="empty">Nouveau site vide</option>
+          <option value="folder">Dossier sur ce serveur / ce PC</option>
+        </select></label>
+      </div>
+      <div class="row t-git">
+        <label>URL du dépôt (https)<input id="wRepo" placeholder="https://github.com/moi/mon-site.git"></label>
+        <label>Branche<input id="wBranch" placeholder="main"></label>
+      </div>
+      <label class="t-git">Jeton d'accès (GitHub : Settings → Developer settings → Fine-grained token, permission « Contents : Read and write »)
+        <input id="wToken" type="password" placeholder="github_pat_…" autocomplete="off"></label>
+      <label class="t-folder">Chemin du dossier<input id="wFolder" placeholder="/home/moi/mon-site"></label>
+      <div class="row">
+        <label>Dossier servi pour l'aperçu / la publication<input id="wPreview" placeholder=". (ou dist, build, public…)"></label>
+        <label>Deploy hook (optionnel)<input id="wHook" placeholder="https://api.render.com/deploy/… ou Netlify/Vercel"></label>
+      </div>
+      <label>Commande de déploiement (optionnel)<input id="wCmd" placeholder="ex : npx vercel deploy --prod --yes --token $VERCEL_TOKEN"></label>
+      <label>Secrets du projet, un par ligne (accessibles aux commandes, jamais montrés à l'IA)
+        <textarea id="wSecrets" rows="2" placeholder="VERCEL_TOKEN=xxxx&#10;NETLIFY_AUTH_TOKEN=xxxx"></textarea></label>
+      <div class="row" style="align-items:center"><div style="flex:0;display:flex;gap:8px"><button class="btn" id="wSave">Ajouter le projet</button>
+        <button type="button" class="btn ghost" id="wCancel" hidden>Annuler</button></div><span class="help" id="wMsg"></span></div>
+    </form>
+    <div class="grid" id="wList" style="margin-top:14px"></div>
+  </section>
+
+  <section class="panel" id="agents">
+    <p class="help">Les agents sont des IA spécialisées avec leurs propres instructions et outils. Choisis-les dans le chat (menu 🤖),
+      ou laisse ton IA principale leur déléguer du travail. Tu peux aussi lui demander : « crée un agent qui… ».</p>
+    <form class="grid card" style="max-width:none" id="agForm">
+      <input type="hidden" id="aId">
+      <div class="row"><label>Nom<input id="aName" required placeholder="Rédacteur SEO"></label>
+        <label>Modèle (vide = par défaut)<input id="aModel" placeholder="ex : qwen/qwen3-coder:free"></label></div>
+      <label>Description courte<input id="aDesc" placeholder="Optimise les textes d'un site pour Google"></label>
+      <label>Instructions<textarea id="aInstr" rows="7" required placeholder="Tu es un expert… Ta méthode : 1. … 2. …"></textarea></label>
+      <div><b style="font-size:14px">Outils autorisés</b> <span class="help">(aucun coché = tous)</span><div class="checks" id="aTools"></div></div>
+      <div style="display:flex;gap:8px"><button class="btn" id="aSave">Créer l'agent</button><button type="button" class="btn ghost" id="aCancel" hidden>Annuler</button></div>
+    </form>
+    <div class="grid" id="aList" style="margin-top:14px"></div>
   </section>
 
   <section class="panel" id="tasks">
@@ -137,6 +187,29 @@ async function load(tab) {
       `<div class="item"><div><p style="margin:0">${esc(x.text)}</p><span class="meta">${esc(x.source)} · ${date(x.createdAt)}</span></div>
        <button class="btn ghost small" onclick="del('lessons','${x.id}')">Supprimer</button></div>`).join('') || '<p class="help">Aucune leçon. Ajoute-en une ou corrige une réponse dans le chat.</p>';
   }
+  if (tab === 'projects') {
+    projects = await api('workspaces');
+    $('wList').innerHTML = projects.map((w) => `<div class="item"><div><b>${esc(w.name)}</b> <span class="tag">${{ git: 'Git', empty: 'Nouveau', folder: 'Dossier' }[w.type]}</span>
+        ${w.publicUrl ? `<span class="tag">🌍 en ligne</span>` : ''}
+        <div class="meta">${esc(w.repoUrl || w.folderPath || '')} ${w.branch ? '· ' + esc(w.branch) : ''}</div>
+        <div class="meta"><a href="${w.previewUrl}" target="_blank">Aperçu ↗</a>${w.publicUrl ? ` · <a href="${w.publicUrl}" target="_blank">Site public ↗</a>` : ''}</div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+        ${w.type === 'git' ? `<button class="btn ghost small" onclick="syncWs('${w.id}', this)">Synchroniser</button>` : ''}
+        ${w.publicUrl ? `<button class="btn ghost small" onclick="api('workspaces/${w.id}','PUT',{published:false}).then(()=>load('projects'))">Dépublier</button>` : ''}
+        <button class="btn ghost small" onclick="editWs('${w.id}')">Modifier</button>
+        <button class="btn ghost small" onclick="del('workspaces','${w.id}')">Supprimer</button></div></div>`).join('') || '<p class="help">Aucun projet.</p>';
+  }
+  if (tab === 'agents') {
+    if (!toolList.length) toolList = await api('tools');
+    agents = await api('agents');
+    if (!$('aTools').children.length) {
+      $('aTools').innerHTML = toolList.map((t) => `<label title="${esc(t.description)}"><input type="checkbox" value="${t.name}"> ${t.name}${t.kind === 'write' || t.kind === 'exec' ? ' ⚠' : ''}</label>`).join('');
+    }
+    $('aList').innerHTML = agents.map((a) => `<div class="item"><div><b>${esc(a.name)}</b> ${a.model ? `<span class="tag">${esc(a.model)}</span>` : ''}
+        <div class="meta">${esc(a.description)}</div><div class="meta">Outils : ${a.tools?.length ? a.tools.map(esc).join(', ') : 'tous'}</div></div>
+      <div style="display:flex;gap:6px"><button class="btn ghost small" onclick="editAgent('${a.id}')">Modifier</button>
+      <button class="btn ghost small" onclick="del('agents','${a.id}')">Supprimer</button></div></div>`).join('');
+  }
   if (tab === 'tasks') {
     const list = await api('tasks');
     const order = { haute: 0, normale: 1, basse: 2 };
@@ -155,7 +228,55 @@ async function load(tab) {
        <button class="btn ghost small" onclick="del('conversations','${x.id}')">Supprimer</button></div></div>`).join('') || '<p class="help">Aucune conversation.</p>';
   }
 }
-window.del = async (res, id) => { if (confirm('Supprimer ?')) { await api(`${res}/${id}`, 'DELETE'); load(res === 'conversations' ? 'convs' : res); } };
+window.del = async (res, id) => { if (confirm('Supprimer ?')) { await api(`${res}/${id}`, 'DELETE'); load({ conversations: 'convs', workspaces: 'projects' }[res] || res); } };
+
+// ----- Projets -----
+let projects = [], agents = [], toolList = [];
+function wsTypeUi() {
+  const t = $('wType').value;
+  document.querySelectorAll('.t-git').forEach((e) => (e.style.display = t === 'git' ? '' : 'none'));
+  document.querySelectorAll('.t-folder').forEach((e) => (e.style.display = t === 'folder' ? '' : 'none'));
+}
+$('wType').onchange = wsTypeUi; wsTypeUi();
+const wFields = { wName: 'name', wRepo: 'repoUrl', wBranch: 'branch', wToken: 'token', wFolder: 'folderPath', wPreview: 'previewDir', wHook: 'deployHook', wCmd: 'deployCommand', wSecrets: 'secrets' };
+function resetWs() { $('wsForm').reset(); $('wId').value = ''; $('wType').disabled = false; $('wSave').textContent = 'Ajouter le projet'; $('wCancel').hidden = true; wsTypeUi(); }
+window.editWs = (id) => {
+  const w = projects.find((x) => x.id === id);
+  for (const [el, k] of Object.entries(wFields)) $(el).value = w[k] || '';
+  $('wId').value = id; $('wType').value = w.type; $('wType').disabled = true;
+  $('wSave').textContent = 'Enregistrer'; $('wCancel').hidden = false; wsTypeUi(); $('wsForm').scrollIntoView({ behavior: 'smooth' });
+};
+$('wCancel').onclick = resetWs;
+$('wsForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const data = { type: $('wType').value };
+  for (const [el, k] of Object.entries(wFields)) data[k] = $(el).value.trim();
+  $('wSave').disabled = true; $('wMsg').textContent = $('wId').value ? 'Enregistrement…' : 'Création (clonage du dépôt si besoin)…';
+  try {
+    const r = await api('workspaces' + ($('wId').value ? '/' + $('wId').value : ''), $('wId').value ? 'PUT' : 'POST', data);
+    $('wMsg').textContent = r.error ? '⚠️ ' + r.error : '✓ Fait'; if (!r.error) resetWs();
+  } catch { /* 401 */ }
+  $('wSave').disabled = false; load('projects');
+};
+window.syncWs = async (id, btn) => { btn.textContent = '…'; const r = await api(`workspaces/${id}/sync`, 'POST'); alert(r.output || r.error); load('projects'); };
+
+// ----- Agents -----
+function resetAgent() { $('agForm').reset(); $('aId').value = ''; $('aSave').textContent = "Créer l'agent"; $('aCancel').hidden = true; }
+window.editAgent = (id) => {
+  const a = agents.find((x) => x.id === id);
+  $('aId').value = id; $('aName').value = a.name; $('aModel').value = a.model || ''; $('aDesc').value = a.description || ''; $('aInstr').value = a.instructions;
+  $('aTools').querySelectorAll('input').forEach((c) => (c.checked = (a.tools || []).includes(c.value)));
+  $('aSave').textContent = 'Enregistrer'; $('aCancel').hidden = false; $('agForm').scrollIntoView({ behavior: 'smooth' });
+};
+$('aCancel').onclick = resetAgent;
+$('agForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const tools = [...$('aTools').querySelectorAll('input:checked')].map((c) => c.value);
+  const data = { name: $('aName').value, model: $('aModel').value, description: $('aDesc').value, instructions: $('aInstr').value, tools };
+  const r = await api('agents' + ($('aId').value ? '/' + $('aId').value : ''), $('aId').value ? 'PUT' : 'POST', data);
+  if (r.error) return alert(r.error);
+  resetAgent(); load('agents');
+};
 window.openConv = (id) => {
   const c = JSON.parse(localStorage.getItem('convs') || '[]');
   if (!c.find((x) => x.id === id)) localStorage.setItem('convs', JSON.stringify([{ id, title: 'Conversation ' + id }, ...c]));
@@ -181,7 +302,7 @@ $('addT').onclick = async () => { if ($('tTitle').value) { await api('tasks', 'P
 $('exp').onclick = async () => { const r = await fetch('/api/admin/export', { headers: H() }); const t = await r.text(); if (!t) return alert('Pas encore de réponses notées 👍 ou corrigées.'); download('dataset.jsonl', t, 'application/jsonl'); };
 $('bak').onclick = async () => download(`sauvegarde-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(await api('backup'), null, 2));
 $('rest').onchange = async (e) => { if (confirm('Remplacer les données actuelles ?')) { await api('restore', 'POST', JSON.parse(await e.target.files[0].text())); alert('Restauré ✓'); load('dash'); } };
-$('logout').onclick = () => { localStorage.removeItem('token'); location.reload(); };
+$('logout').onclick = async () => { await fetch('/api/logout'); localStorage.removeItem('token'); location.reload(); };
 $('loginForm').onsubmit = async (e) => {
   e.preventDefault();
   const r = await fetch('/api/login', { method: 'POST', headers: H(), body: JSON.stringify({ password: $('pwd').value }) });

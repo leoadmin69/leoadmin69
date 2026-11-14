@@ -3,12 +3,8 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { load, save, newId, now } from './lib/store.js';
-import { search, chunk } from './lib/retrieval.js';
-import { TOOL_DEFS, runTool } from './lib/tools.js';
-import { streamChat, llmInfo } from './lib/llm.js';
 
-// --- Lecture du fichier .env (sans dépendance) ---
+// --- Lecture du fichier .env (avant de charger le reste) ---
 try {
   for (const line of fs.readFileSync('.env', 'utf8').split('\n')) {
     const m = line.match(/^\s*([A-Z_]+)\s*=\s*(.*)\s*$/);
@@ -16,56 +12,54 @@ try {
   }
 } catch { /* pas de .env : variables du serveur d'hébergement */ }
 
+const { load, save, newId, now } = await import('./lib/store.js');
+const { chunk } = await import('./lib/retrieval.js');
+const { llmInfo } = await import('./lib/llm.js');
+const { runAgent, findAgent, ALL_TOOLS } = await import('./lib/agent.js');
+const ws = await import('./lib/workspace.js');
+
 const PORT = Number(process.env.PORT || 3000);
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const PUBLIC_CHAT = process.env.PUBLIC_CHAT === 'true';
-const MAX_TOOL_ROUNDS = 5;
-if (!ADMIN_PASSWORD) console.warn('⚠️  ADMIN_PASSWORD non défini : l\'administration est désactivée.');
+if (!ADMIN_PASSWORD) console.warn("⚠️  ADMIN_PASSWORD non défini : l'administration est désactivée.");
 
 const adminToken = () => crypto.createHash('sha256').update('mon-ia:' + ADMIN_PASSWORD).digest('hex');
-const isAdmin = (req) => !!ADMIN_PASSWORD && req.headers['x-admin-token'] === adminToken();
+const cookie = (req, name) => (req.headers.cookie || '').split(';').map((c) => c.trim().split('=')).find(([k]) => k === name)?.[1];
+const isAdmin = (req) => !!ADMIN_PASSWORD && (req.headers['x-admin-token'] === adminToken() || cookie(req, 'ia_admin') === adminToken());
 
 // --- Utilitaires HTTP ---
-const json = (res, code, data) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(data)); };
+const json = (res, code, data, headers = {}) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', ...headers }); res.end(JSON.stringify(data)); };
 async function body(req) {
   let raw = '';
-  for await (const c of req) { raw += c; if (raw.length > 5e6) throw new Error('Trop volumineux'); }
+  for await (const c of req) { raw += c; if (raw.length > 10e6) throw new Error('Trop volumineux'); }
   return raw ? JSON.parse(raw) : {};
 }
-const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.png': 'image/png' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript',
+  '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+  '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.woff': 'font/woff', '.txt': 'text/plain; charset=utf-8', '.pdf': 'application/pdf', '.mp4': 'video/mp4' };
+function sendFile(res, full) {
+  res.writeHead(200, { 'Content-Type': MIME[path.extname(full).toLowerCase()] || 'application/octet-stream' });
+  fs.createReadStream(full).pipe(res);
+}
 function serveStatic(res, file) {
-  const p = path.join(path.resolve('public'), path.normalize(file).replace(/^(\.\.[/\\])+/, ''));
-  if (!p.startsWith(path.resolve('public')) || !fs.existsSync(p) || fs.statSync(p).isDirectory()) return json(res, 404, { error: 'Introuvable' });
-  res.writeHead(200, { 'Content-Type': MIME[path.extname(p)] || 'application/octet-stream' });
-  fs.createReadStream(p).pipe(res);
+  const base = path.resolve('public');
+  const p = path.resolve(base, file.replace(/^\/+/, ''));
+  if (!p.startsWith(base + path.sep) || !fs.existsSync(p) || fs.statSync(p).isDirectory()) return json(res, 404, { error: 'Introuvable' });
+  sendFile(res, p);
 }
 
-// --- Construction du « cerveau » : personnalité + leçons + connaissances pertinentes ---
-function systemPrompt(userMessage, admin) {
-  const persona = load('persona');
-  const lessons = load('lessons');
-  const knowledge = search(load('knowledge'), userMessage, 4);
-  const parts = [persona.instructions];
-  parts.push(`Date du jour : ${new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.`);
-  if (lessons.length) {
-    parts.push("## Ce que ton admin t'a appris (à respecter en priorité)\n" + lessons.slice(-60).map((l) => `- ${l.text}`).join('\n'));
-  }
-  if (knowledge.length) {
-    parts.push('## Connaissances pertinentes de ta base (utilise-les si elles répondent à la question)\n' +
-      knowledge.map((k) => `### ${k.title}\n${k.content}`).join('\n\n'));
-  }
-  parts.push("## Outils\nTu peux chercher sur le web, lire une page, chercher dans ta base, et gérer une liste de tâches. " +
-    'Utilise-les seulement quand c\'est utile. Cite tes sources (liens) quand tu utilises le web.');
-  parts.push(admin ? "L'utilisateur actuel est ton ADMIN. S'il te demande de retenir quelque chose, utilise l'outil remember."
-    : "L'utilisateur actuel n'est pas l'admin : ne modifie pas ta mémoire durable.");
-  return parts.join('\n\n');
-}
+// Les tokens et secrets des projets ne sont jamais renvoyés au navigateur.
+const MASK = '••••••';
+const maskWs = (w) => ({ ...w, token: w.token ? MASK : '', secrets: (w.secrets || '').replace(/=(.+)/g, '=' + MASK), previewUrl: ws.previewUrl(w), publicUrl: w.published ? ws.publicUrl(w) : null });
+
+// --- Validations en attente (mode « Demander ») ---
+const pending = new Map(); // id -> { resolve, perm }
 
 // --- Chat en streaming (Server-Sent Events) ---
 async function handleChat(req, res) {
   const admin = isAdmin(req);
   if (!PUBLIC_CHAT && !admin) return json(res, 401, { error: 'Connexion requise' });
-  const { conversationId, message } = await body(req);
+  const { conversationId, message, agentId, workspaceId, mode } = await body(req);
   if (!message?.trim()) return json(res, 400, { error: 'Message vide' });
 
   const convs = load('conversations');
@@ -75,39 +69,46 @@ async function handleChat(req, res) {
     convs.unshift(conv);
   }
   conv.messages.push({ role: 'user', content: message });
+  const agent = findAgent(agentId);
+  const workspace = admin && workspaceId ? ws.getWorkspace(workspaceId) : null;
+  Object.assign(conv, { agentId: agent?.id || null, workspaceId: workspace?.id || null });
 
-  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-  const send = (o) => res.write(`data: ${JSON.stringify(o)}\n\n`);
-  send({ type: 'start', conversationId: conv.id });
+  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+  const abort = new AbortController();
+  const myApprovals = new Set();
+  res.on('close', () => {
+    abort.abort();
+    for (const id of myApprovals) { pending.get(id)?.resolve(false); pending.delete(id); }
+  });
+  const emit = (o) => { if (!res.writableEnded && !abort.signal.aborted) res.write(`data: ${JSON.stringify(o)}\n\n`); };
+  const ping = setInterval(() => emit({ type: 'ping' }), 15000);
+  emit({ type: 'start', conversationId: conv.id });
 
-  const history = conv.messages.slice(-20).map(({ role, content }) => ({ role, content }));
-  const messages = [{ role: 'system', content: systemPrompt(message, admin) }, ...history];
-  const tools = TOOL_DEFS.filter((t) => admin || t.function.name !== 'remember');
-  let answer = '';
+  const perm = { mode: admin ? (['ask', 'auto', 'read'].includes(mode) ? mode : 'ask') : 'read' };
+  const approve = (call) => new Promise((resolve) => {
+    const id = newId();
+    myApprovals.add(id);
+    pending.set(id, { resolve: (v) => { myApprovals.delete(id); resolve(v); }, perm });
+    emit({ type: 'approval', id, ...call });
+    setTimeout(() => { if (pending.has(id)) { pending.get(id).resolve(false); pending.delete(id); } }, 30 * 60e3);
+  });
+
+  // Historique : on rappelle au modèle les actions faites aux tours précédents.
+  const history = conv.messages.slice(-24).map(({ role, content, steps }) => ({
+    role, content: steps?.length ? `${content}\n\n[Actions effectuées : ${steps.join(', ')}]` : content,
+  }));
+  let result = { content: '', steps: [] };
   try {
-    for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
-      const out = await streamChat({
-        messages, tools: round < MAX_TOOL_ROUNDS ? tools : null,
-        temperature: load('persona').temperature, onToken: (t) => send({ type: 'token', text: t }),
-      });
-      answer += out.content;
-      if (!out.toolCalls.length) break;
-      messages.push({ role: 'assistant', content: out.content || null, tool_calls: out.toolCalls });
-      for (const call of out.toolCalls) {
-        let args = {};
-        try { args = JSON.parse(call.function.arguments || '{}'); } catch { /* arguments invalides */ }
-        send({ type: 'tool', name: call.function.name, args });
-        const result = await runTool(call.function.name, args, { isAdmin: admin });
-        messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result).slice(0, 8000) });
-      }
-    }
+    result = await runAgent({ agent, history, ctx: { admin, workspace, perm, emit, approve, signal: abort.signal, depth: 0 } });
   } catch (e) {
-    send({ type: 'error', message: e.message });
+    if (!abort.signal.aborted) emit({ type: 'error', message: e.message });
   }
-  conv.messages.push({ role: 'assistant', content: answer });
+  clearInterval(ping);
+  const stopped = abort.signal.aborted ? '\n\n_(interrompu)_' : '';
+  conv.messages.push({ role: 'assistant', content: (result.content || '') + stopped, steps: result.steps });
   conv.updatedAt = now();
   save('conversations');
-  send({ type: 'done', conversationId: conv.id, index: conv.messages.length - 1 });
+  emit({ type: 'done', conversationId: conv.id, index: conv.messages.length - 1 });
   res.end();
 }
 
@@ -117,6 +118,7 @@ function crud(name, method, id, data) {
   if (method === 'GET') return list;
   if (method === 'DELETE') { save(name, list.filter((x) => x.id !== id)); return { ok: true }; }
   if (method === 'PUT') { const it = list.find((x) => x.id === id); if (it) { Object.assign(it, data, { id }); save(name); } return it || { error: 'Introuvable' }; }
+  if (method === 'POST') { const it = { ...data, id: newId(), createdAt: now() }; list.push(it); save(name); return it; }
 }
 
 // Export au format « fine-tuning » (JSONL OpenAI/Unsloth) : la vraie voie pour entraîner un modèle.
@@ -126,15 +128,80 @@ function exportDataset() {
   for (const c of load('conversations')) {
     for (let i = 1; i < c.messages.length; i++) {
       const m = c.messages[i];
-      if (m.role !== 'assistant') continue;
-      const good = m.feedback?.rating === 'up' || m.feedback?.correction;
-      if (!good) continue;
-      const answer = m.feedback?.correction || m.content;
+      if (m.role !== 'assistant' || !(m.feedback?.rating === 'up' || m.feedback?.correction)) continue;
       const prev = c.messages.slice(Math.max(0, i - 6), i).map(({ role, content }) => ({ role, content }));
-      lines.push(JSON.stringify({ messages: [{ role: 'system', content: persona.instructions }, ...prev, { role: 'assistant', content: answer }] }));
+      lines.push(JSON.stringify({ messages: [{ role: 'system', content: persona.instructions }, ...prev, { role: 'assistant', content: m.feedback?.correction || m.content }] }));
     }
   }
   return lines.join('\n');
+}
+
+async function adminApi(req, res, p, m) {
+  const [, , , resource, id, action] = p.split('/');
+  const data = ['POST', 'PUT'].includes(m) ? await body(req) : {};
+
+  if (resource === 'persona') {
+    if (m === 'PUT') save('persona', { ...load('persona'), ...data });
+    return json(res, 200, load('persona'));
+  }
+  if (resource === 'knowledge' && m === 'POST') {
+    // Un long document est découpé en plusieurs fiches pour une meilleure recherche.
+    const pieces = chunk(data.content || '');
+    const list = load('knowledge');
+    pieces.forEach((content, i) => list.push({ id: newId(), title: pieces.length > 1 ? `${data.title} (${i + 1}/${pieces.length})` : data.title, content, tags: data.tags || '', createdAt: now() }));
+    save('knowledge');
+    return json(res, 200, { added: pieces.length });
+  }
+  if (resource === 'lessons' && m === 'POST') return json(res, 200, crud('lessons', 'POST', null, { text: data.text, source: 'admin' }));
+  if (resource === 'tasks' && m === 'POST') return json(res, 200, crud('tasks', 'POST', null, { title: data.title, due: data.due || null, priority: data.priority || 'normale', done: false }));
+  if (resource === 'tools') return json(res, 200, ALL_TOOLS.map((t) => ({ name: t.name, kind: t.kind, group: t.group, description: t.def.function.description })));
+
+  if (resource === 'agents') {
+    if (m === 'POST' || m === 'PUT') {
+      if (!data.name || !data.instructions) return json(res, 400, { error: 'Nom et instructions requis' });
+      const clean = { name: data.name, description: data.description || '', instructions: data.instructions, tools: Array.isArray(data.tools) ? data.tools : [], model: data.model || '' };
+      return json(res, 200, crud('agents', m, id, clean));
+    }
+    return json(res, 200, crud('agents', m, id));
+  }
+
+  if (resource === 'workspaces') {
+    if (m === 'GET') return json(res, 200, load('workspaces').map(maskWs));
+    if (m === 'POST' && !id) return json(res, 200, maskWs(await ws.createWorkspace(data)));
+    const w = ws.getWorkspace(id);
+    if (!w) return json(res, 404, { error: 'Projet introuvable' });
+    if (m === 'POST' && action === 'sync') return json(res, 200, await ws.syncWorkspace(w));
+    if (m === 'DELETE') { ws.deleteWorkspace(id); return json(res, 200, { ok: true }); }
+    if (m === 'PUT') {
+      for (const k of ['name', 'repoUrl', 'branch', 'previewDir', 'deployHook', 'deployCommand', 'published']) if (k in data) w[k] = data[k];
+      if (data.token && data.token !== MASK) w.token = data.token;
+      if ('secrets' in data) {
+        // Les valeurs masquées gardent leur ancienne valeur.
+        const old = Object.fromEntries((w.secrets || '').split('\n').map((l) => [l.split('=')[0].trim(), l]));
+        w.secrets = data.secrets.split('\n').map((l) => (l.includes(MASK) ? old[l.split('=')[0].trim()] || '' : l)).filter(Boolean).join('\n');
+      }
+      save('workspaces');
+      return json(res, 200, maskWs(w));
+    }
+  }
+
+  if (['knowledge', 'lessons', 'tasks', 'conversations'].includes(resource)) {
+    if (resource === 'conversations' && m === 'GET') {
+      return json(res, 200, load('conversations').map(({ id: cid, title, updatedAt, messages }) => ({ id: cid, title, updatedAt, count: messages.length, feedback: messages.filter((x) => x.feedback).length })));
+    }
+    return json(res, 200, crud(resource, m, id, data));
+  }
+  if (resource === 'export') {
+    res.writeHead(200, { 'Content-Type': 'application/jsonl', 'Content-Disposition': 'attachment; filename="dataset.jsonl"' });
+    return res.end(exportDataset());
+  }
+  const NAMES = ['persona', 'knowledge', 'lessons', 'tasks', 'conversations', 'agents'];
+  if (resource === 'backup') return json(res, 200, Object.fromEntries(NAMES.map((n) => [n, load(n)])));
+  if (resource === 'restore' && m === 'POST') {
+    for (const n of NAMES) if (data[n]) save(n, data[n]);
+    return json(res, 200, { ok: true });
+  }
+  json(res, 404, { error: 'Route inconnue' });
 }
 
 const server = http.createServer(async (req, res) => {
@@ -142,19 +209,53 @@ const server = http.createServer(async (req, res) => {
   const p = url.pathname;
   const m = req.method;
   try {
-    // Pages
+    // Sites publiés (publics) et aperçus (admin) des projets
+    const site = p.match(/^\/(s|preview)\/([\w-]+)(\/.*)?$/);
+    if (site && m === 'GET') {
+      const [, kind, key, rest] = site;
+      if (!rest) { res.writeHead(301, { Location: p + '/' }); return res.end(); }
+      const w = kind === 's' ? load('workspaces').find((x) => x.slug === key && x.published) : isAdmin(req) && ws.getWorkspace(key);
+      if (!w) return json(res, kind === 's' ? 404 : 401, { error: kind === 's' ? 'Site introuvable' : 'Connexion admin requise' });
+      const f = ws.staticFile(w, rest);
+      if (!f) { res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); return res.end('<h1>404</h1><p>Page introuvable.</p>'); }
+      return sendFile(res, f);
+    }
+
+    // Pages de l'application
     if (m === 'GET' && p === '/') return serveStatic(res, 'index.html');
     if (m === 'GET' && p === '/admin') return serveStatic(res, 'admin.html');
-    if (m === 'GET' && !p.startsWith('/api/')) return serveStatic(res, p.slice(1));
+    if (m === 'GET' && !p.startsWith('/api/')) return serveStatic(res, p);
 
     // API publique
-    if (p === '/api/status') return json(res, 200, { name: load('persona').name, llm: llmInfo(), publicChat: PUBLIC_CHAT, admin: isAdmin(req) });
+    if (p === '/api/status') {
+      const admin = isAdmin(req);
+      // Le cookie permet d'ouvrir les aperçus de sites dans un nouvel onglet.
+      const setCookie = admin && !cookie(req, 'ia_admin') ? { 'Set-Cookie': `ia_admin=${adminToken()}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000` } : {};
+      return json(res, 200, {
+        name: load('persona').name, llm: llmInfo(), publicChat: PUBLIC_CHAT, admin,
+        agents: load('agents').map(({ id, name, description }) => ({ id, name, description })),
+        workspaces: admin ? load('workspaces').map((w) => ({ id: w.id, name: w.name, previewUrl: ws.previewUrl(w), publicUrl: w.published ? ws.publicUrl(w) : null })) : [],
+      }, setCookie);
+    }
     if (p === '/api/login' && m === 'POST') {
       const { password } = await body(req);
-      if (ADMIN_PASSWORD && password === ADMIN_PASSWORD) return json(res, 200, { token: adminToken() });
+      if (ADMIN_PASSWORD && password === ADMIN_PASSWORD) {
+        return json(res, 200, { token: adminToken() }, { 'Set-Cookie': `ia_admin=${adminToken()}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000` });
+      }
       return json(res, 401, { error: 'Mot de passe incorrect' });
     }
+    if (p === '/api/logout') return json(res, 200, { ok: true }, { 'Set-Cookie': 'ia_admin=; Path=/; Max-Age=0' });
     if (p === '/api/chat' && m === 'POST') return handleChat(req, res);
+    if (p === '/api/approve' && m === 'POST') {
+      if (!isAdmin(req)) return json(res, 401, { error: 'Admin uniquement' });
+      const { id, allow, always } = await body(req);
+      const it = pending.get(id);
+      if (!it) return json(res, 404, { error: 'Demande expirée' });
+      if (always) it.perm.mode = 'auto';
+      pending.delete(id);
+      it.resolve(!!allow);
+      return json(res, 200, { ok: true });
+    }
 
     const convMatch = p.match(/^\/api\/conversations\/([\w-]+)$/);
     if (convMatch && m === 'GET') {
@@ -167,61 +268,20 @@ const server = http.createServer(async (req, res) => {
       const c = load('conversations').find((x) => x.id === conversationId);
       const msg = c?.messages[index];
       if (!msg || msg.role !== 'assistant') return json(res, 404, { error: 'Message introuvable' });
-      msg.feedback = { rating, correction: isAdmin(req) ? correction || undefined : undefined, at: now() };
+      const admin = isAdmin(req);
+      msg.feedback = { rating, correction: admin ? correction || undefined : undefined, at: now() };
       // Une correction de l'admin devient une leçon permanente.
-      if (isAdmin(req) && correction?.trim()) {
+      if (admin && correction?.trim()) {
         const question = c.messages[index - 1]?.content?.slice(0, 200) || '';
-        load('lessons').push({ id: newId(), text: `Quand on te demande « ${question} », la bonne réponse est : ${correction.trim()}`, source: 'correction', createdAt: now() });
-        save('lessons');
+        crud('lessons', 'POST', null, { text: `Quand on te demande « ${question} », la bonne réponse est : ${correction.trim()}`, source: 'correction' });
       }
       save('conversations');
       return json(res, 200, { ok: true });
     }
 
-    // API admin
     if (p.startsWith('/api/admin/')) {
       if (!isAdmin(req)) return json(res, 401, { error: 'Admin uniquement' });
-      const [, , , resource, id] = p.split('/');
-      const data = ['POST', 'PUT'].includes(m) ? await body(req) : {};
-
-      if (resource === 'persona') {
-        if (m === 'PUT') { save('persona', { ...load('persona'), ...data }); }
-        return json(res, 200, load('persona'));
-      }
-      if (resource === 'knowledge' && m === 'POST') {
-        // Un long document est découpé en plusieurs fiches pour une meilleure recherche.
-        const pieces = chunk(data.content || '');
-        const list = load('knowledge');
-        pieces.forEach((content, i) => list.push({ id: newId(), title: pieces.length > 1 ? `${data.title} (${i + 1}/${pieces.length})` : data.title, content, tags: data.tags || '', createdAt: now() }));
-        save('knowledge');
-        return json(res, 200, { added: pieces.length });
-      }
-      if (resource === 'lessons' && m === 'POST') {
-        load('lessons').push({ id: newId(), text: data.text, source: 'admin', createdAt: now() }); save('lessons');
-        return json(res, 200, { ok: true });
-      }
-      if (resource === 'tasks' && m === 'POST') {
-        load('tasks').push({ id: newId(), title: data.title, due: data.due || null, priority: data.priority || 'normale', done: false, createdAt: now() }); save('tasks');
-        return json(res, 200, { ok: true });
-      }
-      if (['knowledge', 'lessons', 'tasks', 'conversations'].includes(resource)) {
-        if (resource === 'conversations' && m === 'GET') {
-          return json(res, 200, load('conversations').map(({ id, title, updatedAt, messages }) => ({ id, title, updatedAt, count: messages.length,
-            feedback: messages.filter((x) => x.feedback).length })));
-        }
-        return json(res, 200, crud(resource, m, id, data));
-      }
-      if (resource === 'export') {
-        res.writeHead(200, { 'Content-Type': 'application/jsonl', 'Content-Disposition': 'attachment; filename="dataset.jsonl"' });
-        return res.end(exportDataset());
-      }
-      if (resource === 'backup') {
-        return json(res, 200, Object.fromEntries(['persona', 'knowledge', 'lessons', 'tasks', 'conversations'].map((n) => [n, load(n)])));
-      }
-      if (resource === 'restore' && m === 'POST') {
-        for (const n of ['persona', 'knowledge', 'lessons', 'tasks', 'conversations']) if (data[n]) save(n, data[n]);
-        return json(res, 200, { ok: true });
-      }
+      return await adminApi(req, res, p, m);
     }
     json(res, 404, { error: 'Route inconnue' });
   } catch (e) {

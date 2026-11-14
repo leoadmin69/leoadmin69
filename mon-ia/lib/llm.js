@@ -14,20 +14,28 @@ export const llmInfo = () => { const c = cfg(); return { base: c.base, model: c.
  * onToken(text) est appelé pour chaque morceau de texte.
  * Retourne { content, toolCalls }.
  */
-export async function streamChat({ messages, tools, temperature = 0.6, onToken }) {
+export async function streamChat({ messages, tools, temperature = 0.6, onToken, model, signal }) {
   const c = cfg();
-  const body = { model: c.model, messages, temperature, stream: true };
+  const body = { model: model || c.model, messages, temperature, stream: true };
   if (tools?.length) { body.tools = tools; body.tool_choice = 'auto'; }
 
-  let res = await fetch(`${c.base}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${c.key}` },
-    body: JSON.stringify(body),
-  });
+  let res;
+  // Les offres gratuites limitent le débit : on attend et on réessaie automatiquement.
+  for (let attempt = 0; ; attempt++) {
+    res = await fetch(`${c.base}/chat/completions`, {
+      method: 'POST', signal,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${c.key}` },
+      body: JSON.stringify(body),
+    });
+    if (![429, 502, 503].includes(res.status) || attempt >= 4) break;
+    const wait = Math.min(Number(res.headers.get('retry-after')) || 3 * 2 ** attempt, 40);
+    await res.text();
+    await new Promise((r) => setTimeout(r, wait * 1000));
+  }
   // Certains modèles gratuits ne supportent pas les outils : on réessaie sans.
   if (!res.ok && tools?.length) {
     const txt = await res.text();
-    if (/tool|function/i.test(txt)) return streamChat({ messages, tools: null, temperature, onToken });
+    if (res.status === 400 && /tool|function/i.test(txt) && /support/i.test(txt)) return streamChat({ messages, tools: null, temperature, onToken, model, signal });
     throw new Error(`API ${res.status} : ${txt.slice(0, 300)}`);
   }
   if (!res.ok) throw new Error(`API ${res.status} : ${(await res.text()).slice(0, 300)}`);

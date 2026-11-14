@@ -1,52 +1,99 @@
-# ✦ Mon IA — ton assistant personnel, hébergé gratuitement, que tu entraînes toi-même
+# ✦ Mon IA : ton assistant et agent de code personnel, hébergé gratuitement, que tu entraînes toi-même
 
-Une IA avec sa propre interface de chat (style Claude/ChatGPT) et un **panneau d'admin** pour lui apprendre des choses.
-Elle sait **coder**, **s'informer** (recherche web, lecture de pages) et **organiser** (liste de tâches, plannings).
+Une IA avec sa propre interface de chat et un **panneau d'admin**. Comme un agent de code, elle peut :
 
-- Zéro dépendance : juste Node.js ≥ 18.
-- Fonctionne avec n'importe quel modèle open-source via une API **compatible OpenAI** (Groq, OpenRouter, Gemini, Ollama…).
-- Tu changes de modèle en changeant 3 variables : ton IA (sa mémoire, sa personnalité, ses leçons) reste la même.
+- 🛠 **travailler sur tes sites** : lire le code, chercher, modifier des fichiers, lancer des commandes (`npm run build`, tests…), faire des commits et push Git ;
+- 🌍 **mettre en ligne** : hébergement intégré (`/s/ton-site/`), deploy hook (Render, Netlify, Vercel) ou commande personnalisée ;
+- 🤖 **créer des agents IA** : agents spécialisés avec leurs propres instructions, outils et modèle. L'IA principale peut leur **déléguer** du travail, et en créer elle-même quand tu le lui demandes ;
+- 🔎 **s'informer** sur le web, 🗒 **organiser** (plans, tâches), 🧠 **apprendre** de toi (connaissances, leçons, corrections) ;
+- 🔐 **demander ta permission** avant chaque modification (ou tout faire seule en mode Auto, ou rester en lecture seule).
+
+Zéro dépendance : juste Node.js ≥ 18 (+ `git` pour les projets Git).
 
 ---
 
-## 1. Ce qu'il faut savoir (honnêtement)
-
-Créer *de zéro* un modèle du niveau de Claude coûte des centaines de millions d'euros de calcul. Personne ne le fait seul.
-Ce que font les vrais projets indépendants, et ce que fait celui-ci :
+## 1. Comment ça marche
 
 | Couche | Ce que c'est | Qui la contrôle |
 |---|---|---|
-| **Le cerveau brut** | Un modèle open-source (Llama 3.3, Qwen 2.5, Mistral, Gemma…) | Libre, gratuit, interchangeable |
-| **La personnalité** | Nom, ton, règles | **Toi** (admin → Personnalité) |
-| **La mémoire** | Tes documents, tes infos, tes FAQ | **Toi** (admin → Connaissances) |
-| **Les leçons** | Règles et corrections apprises au fil du temps | **Toi** (corrections 👎/✎ dans le chat, « retiens que… ») |
-| **Les outils** | Web, lecture de pages, tâches, mémoire | Le code (`lib/tools.js`), extensible |
-| **L'entraînement profond** | Fine-tuning du modèle sur *tes* conversations | **Toi**, gratuitement sur Google Colab (étape 5) |
+| **Le cerveau** | Un modèle open-source ou gratuit (Gemini, Llama, Qwen, Mistral…) | Interchangeable : 3 variables dans `.env` |
+| **Le moteur d'agent** | La boucle « réfléchir → utiliser un outil → observer → recommencer » (`lib/agent.js`) | Le code, à toi |
+| **Les outils** | Fichiers, commandes, Git, déploiement, web, tâches, agents | Le code (`lib/tools.js`, `lib/workspace.js`) |
+| **Les agents** | IA spécialisées (Développeur web, Chercheur, Organisateur, + les tiens) | **Toi** (Admin → Agents) |
+| **La personnalité, la mémoire, les leçons** | Qui elle est, ce qu'elle sait, ce qu'elle a appris | **Toi** |
+| **L'entraînement profond** | Fine-tuning sur tes conversations | **Toi** (étape 6) |
 
-Rien n'appartient à Anthropic ni à OpenAI : tout est à toi, et tu peux même tout faire tourner sur ton PC (Ollama).
+Construire de zéro un modèle du niveau de Claude coûte des centaines de millions d'euros. Ici, on fait comme tous les projets indépendants : un bon modèle libre ou gratuit comme cerveau, et tout le reste t'appartient.
 
----
+## 2. Lancer sur ton ordinateur
 
-## 2. Lancer sur ton ordinateur (5 minutes)
-
-1. Installe [Node.js](https://nodejs.org) (version 18 ou plus).
-2. Crée une clé gratuite sur **[console.groq.com/keys](https://console.groq.com/keys)** (gratuit, très rapide).
+1. Installe [Node.js](https://nodejs.org) (≥ 18) et [Git](https://git-scm.com).
+2. Crée une clé **gratuite** :
+   - **Google Gemini** ([aistudio.google.com/apikey](https://aistudio.google.com/apikey)) : **recommandé pour travailler sur des sites** (énorme contexte, bon en code, appels d'outils fiables) ;
+   - ou Groq / OpenRouter (voir `.env.example`).
 3. Dans ce dossier :
    ```bash
-   cp .env.example .env      # puis ouvre .env et colle ta clé dans LLM_API_KEY, change ADMIN_PASSWORD
+   cp .env.example .env      # colle ta clé dans LLM_API_KEY et change ADMIN_PASSWORD
    npm start
    ```
 4. Ouvre **http://localhost:3000** (chat) et **http://localhost:3000/admin** (administration).
 
-**100 % hors-ligne et privé ?** Installe [Ollama](https://ollama.com), lance `ollama pull qwen2.5:7b`, puis dans `.env` :
-`LLM_BASE_URL=http://localhost:11434/v1`, `LLM_API_KEY=ollama`, `LLM_MODEL=qwen2.5:7b`.
+**100 % local et privé :** [Ollama](https://ollama.com) + `ollama pull qwen2.5-coder:14b`, puis
+`LLM_BASE_URL=http://localhost:11434/v1`, `LLM_API_KEY=ollama`, `LLM_MODEL=qwen2.5-coder:14b`.
+En local, tu peux aussi donner accès à un **dossier de ton PC** (type « Dossier »).
 
-## 3. Mettre en ligne gratuitement
+## 3. Lui donner accès à un site
 
-### Option A — Hugging Face Spaces (recommandé, gratuit, toujours en ligne)
-1. Crée un compte sur [huggingface.co](https://huggingface.co) → **New Space** → SDK : **Docker** → Blank.
-2. Envoie le contenu de ce dossier `mon-ia/` dans le Space (glisser-déposer dans l'onglet *Files*, ou `git push`).
-3. Ajoute en haut du `README.md` du Space :
+Admin → **Projets** → ajoute un projet :
+
+| Type | Quand l'utiliser |
+|---|---|
+| **Dépôt Git** | Ton site est sur GitHub/GitLab. Donne l'URL et un **jeton d'accès** (GitHub → Settings → Developer settings → *Fine-grained tokens* → seulement ce dépôt, permission *Contents : Read and write*). |
+| **Nouveau site vide** | Tu veux qu'elle crée un site de zéro. |
+| **Dossier** | L'IA tourne sur ton PC et tu veux qu'elle modifie un dossier local. |
+
+Ensuite, dans le chat, choisis le projet (📁), l'agent (🤖) et le mode (🔐), puis parle-lui normalement :
+
+> *« Analyse le site et propose 5 améliorations »*
+> *« Ajoute une page Contact avec un formulaire, dans le même style que l'accueil »*
+> *« Le menu ne marche pas sur mobile, corrige-le »*
+> *« Enregistre et envoie sur GitHub »* · *« Mets le site en ligne »*
+
+Tu vois chaque action en direct (fichiers lus, modifications avec le diff, commandes et leur résultat) et un **plan** qui se coche au fur et à mesure.
+Bouton **■** pour l'arrêter à tout moment. Lien **Aperçu du site ↗** pour voir le résultat avant de publier.
+
+### Modes de permission
+
+| Mode | Comportement |
+|---|---|
+| **Demander** (par défaut) | Elle lit librement, mais te demande **Autoriser / Refuser** avant chaque écriture, commande, commit ou déploiement. |
+| **Auto** | Elle fait tout seule (pratique une fois en confiance). |
+| **Lecture seule** | Elle ne peut rien modifier, elle propose seulement. |
+
+### Mettre en ligne
+
+L'outil `deploy` choisit automatiquement :
+1. la **commande de déploiement** du projet si tu en as mis une (ex. `npx vercel deploy --prod --yes --token $VERCEL_TOKEN`, avec `VERCEL_TOKEN` dans les *Secrets du projet*) ;
+2. sinon le **deploy hook** (URL fournie par Render, Netlify ou Vercel) ;
+3. sinon l'**hébergement intégré** : le site est servi publiquement par ton IA à l'adresse `/s/nom-du-site/`, gratuitement.
+
+Si ton dépôt GitHub est déjà relié à Vercel, Netlify ou GitHub Pages, un simple `git_commit_push` suffit : le site se met à jour tout seul.
+
+## 4. Les agents
+
+Admin → **Agents** (ou demande-le dans le chat : *« Crée un agent Rédacteur SEO qui optimise les textes et les balises meta »*).
+Un agent, c'est : un nom, des instructions, une liste d'outils autorisés, et éventuellement un modèle différent (ex. un modèle spécialisé code pour le Développeur).
+
+- **Utilisation directe** : choisis-le dans le menu 🤖 du chat.
+- **Délégation** : l'IA principale peut appeler un agent (`call_agent`), qui travaille seul puis lui rend son résultat. Exemple : *« Demande au Chercheur les tendances design 2026, puis fais travailler le Développeur web pour les appliquer au site »*.
+
+Agents fournis : **Développeur web**, **Chercheur**, **Organisateur**.
+
+## 5. Mettre ton IA en ligne gratuitement
+
+### Hugging Face Spaces (recommandé)
+1. [huggingface.co](https://huggingface.co) → **New Space** → SDK **Docker** → Blank.
+2. Envoie le contenu de `mon-ia/` dans le Space, et ajoute en haut de son `README.md` :
    ```yaml
    ---
    title: Mon IA
@@ -54,50 +101,46 @@ Rien n'appartient à Anthropic ni à OpenAI : tout est à toi, et tu peux même 
    app_port: 7860
    ---
    ```
-4. **Settings → Variables and secrets** : ajoute les secrets `LLM_API_KEY`, `ADMIN_PASSWORD`, et les variables `LLM_BASE_URL`, `LLM_MODEL`.
-5. ⚠️ Le disque gratuit est effacé à chaque redémarrage : fais **Admin → Données → Télécharger** régulièrement, et **Restaurer** après un redémarrage
-   (ou active le *Persistent storage* du Space et mets `DATA_DIR=/data`).
+3. **Settings → Variables and secrets** : secrets `LLM_API_KEY` et `ADMIN_PASSWORD`, variables `LLM_BASE_URL` et `LLM_MODEL`.
+4. ⚠️ Le disque gratuit est effacé à chaque redémarrage : fais **Admin → Données → Télécharger** régulièrement.
+   Les projets Git se re-clonent facilement. Pour les sites créés de zéro, demande-lui de les pousser sur un dépôt GitHub.
 
-### Option B — Render.com
-New → **Web Service** → connecte ton dépôt GitHub → *Root directory* : `mon-ia` → *Runtime* : Docker → ajoute les mêmes variables d'environnement.
-(Le plan gratuit s'endort après 15 min d'inactivité ; le premier message prend ~30 s.)
+### Render.com
+New → **Web Service** → ton dépôt GitHub → *Root directory* `mon-ia` → Runtime **Docker** → mêmes variables. (Le plan gratuit s'endort après 15 min.)
 
-### Sécurité
-- Par défaut, le chat est **privé** : il faut le mot de passe admin. Pour l'ouvrir au public, mets `PUBLIC_CHAT=true`
-  (les visiteurs pourront discuter mais pas modifier sa mémoire). Attention, ils consommeront ton quota gratuit.
-- Choisis un `ADMIN_PASSWORD` long. Ne mets jamais ta clé API dans le code ni sur GitHub (le `.env` est ignoré par git).
+### Sécurité, important
+- Avec un projet ouvert, l'IA peut **exécuter des commandes** sur le serveur. C'est réservé à l'**admin** : les visiteurs (`PUBLIC_CHAT=true`) n'ont jamais accès aux projets, aux commandes ni à la mémoire.
+- Choisis un `ADMIN_PASSWORD` long et unique. Utilise des jetons GitHub **limités à un seul dépôt**.
+- Les commandes lancées par l'IA ne voient pas ta clé de modèle ni ton mot de passe admin. Les *Secrets du projet* leur sont accessibles, mais sont masqués (`••••`) dans tout ce que l'IA lit.
+- L'IA ne peut pas sortir du dossier du projet ni toucher au dossier `.git` directement.
+- Garde le mode **Demander** tant que tu ne connais pas bien le comportement du modèle.
 
-## 4. L'entraîner au quotidien (en tant qu'admin)
+## 6. L'entraîner
 
 | Tu veux… | Fais ça |
 |---|---|
 | Changer son nom, son caractère | Admin → **Personnalité** |
-| Lui apprendre ton activité, tes docs, tes cours | Admin → **Connaissances** (colle du texte ou importe des fichiers .txt/.md/.csv) |
-| Lui imposer une règle | Admin → **Leçons**, ou dans le chat : *« Retiens que je préfère le code en TypeScript »* |
-| Corriger une mauvaise réponse | Sous la réponse : **👎** ou **✎ Corriger** → écris la bonne réponse → elle devient une leçon |
-| Valider une bonne réponse | **👍** → elle rejoint le dataset d'entraînement |
-| Gérer tes tâches | Dans le chat : *« ajoute … à mes tâches pour vendredi »*, *« qu'est-ce que j'ai à faire ? »*, ou Admin → **Tâches** |
+| Lui apprendre ton activité, tes docs | Admin → **Connaissances** (texte ou fichiers) |
+| Lui imposer une règle | Admin → **Leçons**, ou dans le chat : *« Retiens que je veux toujours du code commenté »* |
+| Corriger une réponse | **👎** ou **✎ Corriger** sous la réponse → elle devient une leçon |
+| Valider une réponse | **👍** → elle rejoint le dataset d'entraînement |
 
-## 5. Aller plus loin : un vrai fine-tuning (gratuit)
+**Fine-tuning (gratuit)** : après environ 200 réponses validées ou corrigées, Admin → **Données → Exporter** (`dataset.jsonl`), puis entraîne un modèle avec un notebook **Unsloth** sur Google Colab (GPU gratuit). Exporte-le en GGUF, charge-le dans Ollama, et mets `LLM_MODEL=ton-modele`. Ton IA tourne alors sur ton propre modèle.
 
-Quand tu as accumulé ~200+ réponses notées 👍 ou corrigées :
-1. Admin → **Données → Exporter** → tu obtiens `dataset.jsonl` (format standard `messages`).
-2. Ouvre un notebook gratuit **Unsloth** sur Google Colab (GPU T4 gratuit) — cherche « Unsloth Llama 3.2 3B conversational notebook ».
-3. Remplace leur dataset par le tien, lance l'entraînement (~20-60 min).
-4. Exporte le modèle en **GGUF**, charge-le dans **Ollama** (`ollama create mon-ia -f Modelfile`),
-   puis mets `LLM_MODEL=mon-ia` dans `.env`. Ton IA tourne alors sur **ton propre modèle**, entraîné par toi.
-
-## 6. Structure du code
+## 7. Structure du code
 
 ```
-server.js          Serveur HTTP : chat en streaming, API admin, export
-lib/llm.js         Connexion au modèle (API compatible OpenAI, streaming + outils)
-lib/tools.js       Outils : web_search, read_page, search_knowledge, tâches, remember
-lib/retrieval.js   Recherche dans la mémoire (BM25, gère les accents)
-lib/store.js       Stockage JSON dans data/
-public/index.html  Interface de chat
-public/admin.html  Panneau d'administration
+server.js            Serveur HTTP : chat en streaming, validations, API admin, aperçus et sites publiés
+lib/agent.js         Moteur d'agent : boucle d'outils, permissions, plan, délégation, création d'agents
+lib/workspace.js     Projets et outils de code : fichiers, recherche, commandes, Git, déploiement
+lib/tools.js         Outils de base : web, lecture de pages, mémoire, tâches
+lib/llm.js           Connexion au modèle (API compatible OpenAI, streaming, outils, réessais)
+lib/retrieval.js     Recherche dans la mémoire (BM25)
+lib/store.js         Stockage JSON dans data/ (+ agents par défaut)
+public/index.html    Interface de chat
+public/admin.html    Panneau d'administration
 ```
 
-**Ajouter un outil** (ex. météo, envoi d'e-mail, calendrier) : ajoute une fonction dans `lib/tools.js`,
-déclare-la dans `TOOL_DEFS` et dans `IMPL`. L'IA saura l'utiliser toute seule.
+**Ajouter un outil** (e-mail, calendrier, base de données…) : crée-le avec `defineTool(...)` (dans `lib/tools.js` ou un nouveau fichier),
+indique son `kind` (`read`, `safe`, `write` ou `exec` : les deux derniers demandent ta permission) et ajoute-le à `ALL_TOOLS` dans `lib/agent.js`.
+Tous les agents pourront l'utiliser, et tu pourras l'activer agent par agent.

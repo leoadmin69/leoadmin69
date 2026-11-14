@@ -23,9 +23,19 @@
     <div class="thread" id="thread"><div class="inner" id="inner"></div></div>
     <div class="composer">
       <form class="box" id="form">
-        <textarea id="input" rows="1" placeholder="Écris ton message…  (Entrée pour envoyer, Maj+Entrée pour une ligne)"></textarea>
-        <button class="btn" id="send">➤</button>
+        <textarea id="input" rows="1" placeholder="Écris ton message…"></textarea>
+        <button class="btn" id="send" title="Envoyer">➤</button>
       </form>
+      <div class="toolbar" id="toolbar">
+        <label title="Qui répond">🤖 <select id="agentSel"></select></label>
+        <label title="Projet auquel l'IA a accès" class="admin-only">📁 <select id="wsSel"></select></label>
+        <label title="Permissions" class="admin-only">🔐 <select id="modeSel">
+          <option value="ask">Demander avant de modifier</option>
+          <option value="auto">Auto (tout autoriser)</option>
+          <option value="read">Lecture seule</option>
+        </select></label>
+        <a id="previewLink" class="admin-only" target="_blank" hidden>Aperçu du site ↗</a>
+      </div>
       <div class="hint" id="hint"></div>
     </div>
   </main>
@@ -48,8 +58,11 @@ let token = localStorage.getItem('token') || '';
 let status = {};
 let convId = null;
 let busy = false;
-const myConvs = () => JSON.parse(localStorage.getItem('convs') || '[]');
+let controller = null;
+const pref = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch { return null; } };
+const myConvs = () => JSON.parse(pref('convs') || '[]');
 const headers = () => ({ 'Content-Type': 'application/json', 'x-admin-token': token });
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 marked.setOptions({ breaks: true });
 function md(text) {
@@ -58,7 +71,7 @@ function md(text) {
   div.querySelectorAll('pre code').forEach((el) => {
     hljs.highlightElement(el);
     const b = document.createElement('button');
-    b.className = 'copy'; b.textContent = 'Copier';
+    b.className = 'copy'; b.type = 'button'; b.textContent = 'Copier';
     b.onclick = () => { navigator.clipboard.writeText(el.innerText); b.textContent = 'Copié ✓'; setTimeout(() => (b.textContent = 'Copier'), 1500); };
     el.parentElement.appendChild(b);
   });
@@ -70,10 +83,25 @@ async function init() {
   document.querySelectorAll('.ai-name').forEach((e) => (e.textContent = status.name));
   document.title = status.name;
   $('who').textContent = status.admin ? '👑 Admin' : 'Invité';
+  document.querySelectorAll('.admin-only').forEach((e) => (e.style.display = status.admin ? '' : 'none'));
   $('hint').textContent = `${status.name} peut se tromper. Modèle : ${status.llm.model}` + (status.llm.configured ? '' : ' — ⚠️ clé API manquante');
+  $('agentSel').innerHTML = `<option value="">${esc(status.name)} (générale)</option>` + status.agents.map((a) => `<option value="${a.id}" title="${esc(a.description)}">${esc(a.name)}</option>`).join('');
+  $('wsSel').innerHTML = '<option value="">Aucun projet</option>' + status.workspaces.map((w) => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
+  $('agentSel').value = pref('agent') || ''; $('wsSel').value = pref('ws') || ''; $('modeSel').value = pref('mode') || 'ask';
+  if ($('agentSel').selectedIndex < 0) $('agentSel').value = '';
+  if ($('wsSel').selectedIndex < 0) $('wsSel').value = '';
+  updatePreview();
   if (!status.publicChat && !status.admin) $('login').classList.add('open');
   renderConvs(); empty();
 }
+function updatePreview() {
+  const w = status.workspaces?.find((x) => x.id === $('wsSel').value);
+  $('previewLink').hidden = !w;
+  if (w) { $('previewLink').href = w.previewUrl; $('previewLink').textContent = w.publicUrl ? 'Aperçu ↗ · en ligne' : 'Aperçu du site ↗'; }
+}
+$('agentSel').onchange = () => pref('agent', $('agentSel').value);
+$('wsSel').onchange = () => { pref('ws', $('wsSel').value); updatePreview(); };
+$('modeSel').onchange = () => pref('mode', $('modeSel').value);
 
 function renderConvs() {
   $('convs').innerHTML = '';
@@ -88,14 +116,12 @@ function renderConvs() {
 
 function empty() {
   convId = null; renderConvs();
+  const chips = status.admin
+    ? ['Analyse mon projet et propose 5 améliorations', 'Crée une page « Contact » avec un formulaire moderne', "Crée un agent « Rédacteur SEO » qui optimise les textes d'un site", 'Mets le site en ligne']
+    : ['Écris une fonction Python qui trie une liste de dictionnaires par date', "Quelles sont les dernières nouvelles sur l'intelligence artificielle ?", 'Organise ma semaine : 3 projets, 2 rendez-vous et du sport'];
   $('inner').innerHTML = `<div class="empty"><div class="logo" style="margin:auto;width:48px;height:48px;font-size:24px">✦</div>
-    <h1>Bonjour, je suis ${status.name}</h1><div class="help">Code, informations, organisation… que puis-je faire pour toi ?</div>
-    <div class="chips">
-      <button>Écris une fonction Python qui trie une liste de dictionnaires par date</button>
-      <button>Quelles sont les dernières nouvelles sur l'intelligence artificielle ?</button>
-      <button>Organise ma semaine : 3 projets, 2 rendez-vous et du sport</button>
-      <button>Ajoute « appeler le fournisseur » à mes tâches pour demain</button>
-    </div></div>`;
+    <h1>Bonjour, je suis ${esc(status.name)}</h1><div class="help">Code, sites, agents, recherches, organisation… que puis-je faire pour toi ?</div>
+    <div class="chips">${chips.map((c) => `<button type="button">${esc(c)}</button>`).join('')}</div></div>`;
   $('inner').querySelectorAll('.chips button').forEach((b) => (b.onclick = () => { $('input').value = b.textContent; send(); }));
 }
 
@@ -105,39 +131,118 @@ async function openConv(id) {
   const c = await r.json();
   convId = id; renderConvs(); side.classList.remove('open');
   $('inner').innerHTML = '';
-  c.messages.forEach((m, i) => addMsg(m.role, m.content, i, m.feedback));
+  c.messages.forEach((m, i) => {
+    if (m.role === 'user') return addUser(m.content);
+    const a = addAssistant();
+    if (m.steps?.length) {
+      const d = document.createElement('details'); d.className = 'steps';
+      d.innerHTML = `<summary>${m.steps.length} action(s) effectuée(s)</summary><div>${m.steps.map(esc).join('<br>')}</div>`;
+      a.flow.appendChild(d);
+    }
+    a.text(m.content);
+    addActions(a.el, i, m.feedback, m.content);
+  });
   scroll();
 }
 
-function addMsg(role, content, index, feedback) {
+function addUser(content) {
   const el = document.createElement('div');
-  el.className = 'msg ' + role;
-  const tools = document.createElement('div');
-  const bubble = document.createElement('div');
-  bubble.className = 'bubble';
-  if (role === 'user') bubble.textContent = content; else bubble.appendChild(md(content));
-  el.append(tools, bubble);
+  el.className = 'msg user';
+  el.innerHTML = `<div class="bubble"></div>`;
+  el.firstChild.textContent = content;
   $('inner').appendChild(el);
-  if (role === 'assistant' && index != null) addActions(el, index, feedback, content);
-  return { el, bubble, tools };
+}
+
+// Un message de l'IA = une suite de blocs : texte, actions (outils), plan, demandes de validation.
+function addAssistant() {
+  const el = document.createElement('div');
+  el.className = 'msg assistant';
+  const flow = document.createElement('div');
+  flow.className = 'bubble flow';
+  el.appendChild(flow);
+  $('inner').appendChild(el);
+  let seg = null, segText = '', planEl = null;
+  const tools = {};
+  return {
+    el, flow,
+    token(t) {
+      if (!seg) { seg = document.createElement('div'); seg.className = 'seg'; flow.appendChild(seg); segText = ''; }
+      segText += t; seg.replaceChildren(md(segText));
+    },
+    text(t) { seg = null; this.token(t); },
+    tool(e) {
+      if (e.name === 'update_plan') return; // affiché comme une liste à cocher
+      seg = null;
+      const d = document.createElement('details');
+      d.className = 'action running';
+      d.innerHTML = `<summary><span class="dot"></span><b>${esc(e.agent ? `[${e.agent}] ` : '')}${esc(label(e.name))}</b> <code>${esc(argSummary(e.name, e.args))}</code></summary><pre class="out">${esc(argDetail(e.name, e.args))}</pre>`;
+      flow.appendChild(d); tools[e.id] = d;
+    },
+    toolResult(e) {
+      const d = tools[e.id]; if (!d) return;
+      d.classList.remove('running'); d.classList.add(e.ok ? 'ok' : 'fail');
+      d.querySelector('.out').textContent += (d.querySelector('.out').textContent ? '\n\n── Résultat ──\n' : '') + e.output;
+    },
+    plan(steps) {
+      if (!planEl) { planEl = document.createElement('div'); planEl.className = 'plan'; flow.appendChild(planEl); }
+      seg = null;
+      planEl.innerHTML = '<b>Plan</b>' + steps.map((s) => `<div class="step ${s.status}">${s.status === 'done' ? '☑' : s.status === 'doing' ? '▶' : '☐'} ${esc(s.text)}</div>`).join('');
+    },
+    approval(e) {
+      seg = null;
+      const box = document.createElement('div');
+      box.className = 'approval';
+      box.innerHTML = `<div><b>🔐 ${esc(e.agent ? `[${e.agent}] ` : '')}Autoriser : ${esc(label(e.name))} ?</b></div>
+        <pre class="out">${esc(argDetail(e.name, e.args, true))}</pre>
+        <div class="row" style="flex-wrap:wrap"><button type="button" class="btn small" data-a="1">Autoriser</button>
+        <button type="button" class="btn ghost small" data-a="always">Tout autoriser pour cette réponse</button>
+        <button type="button" class="btn ghost small" data-a="0">Refuser</button></div>`;
+      box.querySelectorAll('button').forEach((b) => (b.onclick = async () => {
+        const allow = b.dataset.a !== '0';
+        await fetch('/api/approve', { method: 'POST', headers: headers(), body: JSON.stringify({ id: e.id, allow, always: b.dataset.a === 'always' }) });
+        box.innerHTML = allow ? '✅ Autorisé' : '⛔ Refusé'; box.classList.add('done');
+      }));
+      flow.appendChild(box); scroll();
+    },
+  };
+}
+
+const LABELS = { web_search: '🔎 Recherche web', read_page: '📄 Lecture de page', search_knowledge: '🧠 Mémoire', add_task: '✅ Ajout de tâche', list_tasks: '📋 Tâches',
+  complete_task: '✔️ Tâche terminée', remember: '💾 Mémorisation', list_files: '📂 Fichiers', read_file: '👁 Lecture', search_code: '🔍 Recherche dans le code',
+  write_file: '📝 Écriture', edit_file: '✏️ Modification', delete_file: '🗑 Suppression', run_command: '⌨️ Commande', git_status: '🌿 Git status', git_diff: '🌿 Git diff',
+  git_commit_push: '🚀 Commit + push', deploy: '🌍 Mise en ligne', update_plan: '🗒 Plan', call_agent: '🤖 Délégation', create_agent: '✨ Création d\'agent' };
+const label = (n) => LABELS[n] || n;
+function argSummary(name, a) {
+  if (name === 'call_agent') return `${a.agent} : ${String(a.task || '').slice(0, 60)}`;
+  if (name === 'update_plan') return '';
+  return String(a.path || a.query || a.command || a.title || a.name || a.url || a.message || a.pattern || a.build_command || '').slice(0, 90);
+}
+function argDetail(name, a, full) {
+  if (name === 'edit_file') return `${a.path}\n${String(a.old_string).split('\n').map((l) => '- ' + l).join('\n')}\n${String(a.new_string).split('\n').map((l) => '+ ' + l).join('\n')}`;
+  if (name === 'write_file') { const lines = String(a.content || '').split('\n'); return `${a.path} (${lines.length} lignes)\n` + (full ? lines.slice(0, 60).join('\n') + (lines.length > 60 ? '\n…' : '') : ''); }
+  if (name === 'run_command') return '$ ' + a.command;
+  if (name === 'create_agent') return `${a.name} — ${a.description || ''}\nOutils : ${(a.tools || []).join(', ') || 'tous'}\n\n${a.instructions}`;
+  if (name === 'call_agent') return a.task;
+  if (name === 'update_plan') return '';
+  return full ? JSON.stringify(a, null, 2) : '';
 }
 
 function addActions(el, index, feedback, content) {
   const bar = document.createElement('div');
   bar.className = 'actions';
-  const up = Object.assign(document.createElement('button'), { textContent: '👍', title: 'Bonne réponse' });
-  const down = Object.assign(document.createElement('button'), { textContent: '👎', title: 'Mauvaise réponse' });
-  const copy = Object.assign(document.createElement('button'), { textContent: 'Copier' });
+  const up = Object.assign(document.createElement('button'), { textContent: '👍', title: 'Bonne réponse', type: 'button' });
+  const down = Object.assign(document.createElement('button'), { textContent: '👎', title: 'Mauvaise réponse', type: 'button' });
+  const copy = Object.assign(document.createElement('button'), { textContent: 'Copier', type: 'button' });
   if (feedback?.rating === 'up') up.classList.add('on');
   if (feedback?.rating === 'down') down.classList.add('on');
   bar.append(up, down, copy);
   const corr = document.createElement('div');
   corr.className = 'correction';
   if (status.admin) {
-    const fix = Object.assign(document.createElement('button'), { textContent: '✎ Corriger (apprendre)' });
+    const fix = Object.assign(document.createElement('button'), { textContent: '✎ Corriger (apprendre)', type: 'button' });
     bar.appendChild(fix);
-    corr.innerHTML = `<textarea rows="4" placeholder="Écris la bonne réponse : ${status.name} la retiendra pour toujours."></textarea>
-      <div><button class="btn small">Enseigner cette correction</button></div>`;
+    corr.innerHTML = `<textarea rows="4" placeholder="Écris la bonne réponse : ${esc(status.name)} la retiendra pour toujours."></textarea>
+      <div><button type="button" class="btn small">Enseigner cette correction</button></div>`;
     corr.querySelector('textarea').value = feedback?.correction || '';
     fix.onclick = () => corr.classList.toggle('open');
     corr.querySelector('button').onclick = async () => {
@@ -152,66 +257,75 @@ function addActions(el, index, feedback, content) {
 }
 
 const rate = (index, rating, correction) => fetch('/api/feedback', { method: 'POST', headers: headers(), body: JSON.stringify({ conversationId: convId, index, rating, correction }) });
+const nearBottom = () => $('thread').scrollHeight - $('thread').scrollTop - $('thread').clientHeight < 150;
 const scroll = () => ($('thread').scrollTop = $('thread').scrollHeight);
-const TOOL_LABEL = { web_search: '🔎 Recherche web', read_page: '📄 Lecture', search_knowledge: '🧠 Mémoire', add_task: '✅ Tâche ajoutée', list_tasks: '📋 Tâches', complete_task: '✔️ Tâche terminée', remember: '💾 Mémorisé' };
 
 async function send() {
   const text = $('input').value.trim();
   if (!text || busy) return;
   if (!convId) $('inner').innerHTML = '';
-  busy = true; $('send').disabled = true; $('input').value = ''; autosize();
-  addMsg('user', text);
-  const a = addMsg('assistant', '');
-  a.bubble.classList.add('cursor');
+  busy = true; setBusy(true); $('input').value = ''; autosize();
+  addUser(text);
+  const a = addAssistant();
+  a.el.classList.add('cursor');
   scroll();
   let full = '';
+  let done = null;
+  controller = new AbortController();
   try {
-    const res = await fetch('/api/chat', { method: 'POST', headers: headers(), body: JSON.stringify({ conversationId: convId, message: text }) });
+    const res = await fetch('/api/chat', {
+      method: 'POST', headers: headers(), signal: controller.signal,
+      body: JSON.stringify({ conversationId: convId, message: text, agentId: $('agentSel').value, workspaceId: $('wsSel').value, mode: $('modeSel').value }),
+    });
     if (!res.ok) throw new Error((await res.json()).error);
     const reader = res.body.getReader();
     const dec = new TextDecoder();
     let buf = '';
     while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
+      const { value, done: end } = await reader.read();
+      if (end) break;
       buf += dec.decode(value, { stream: true });
       const events = buf.split('\n\n'); buf = events.pop();
       for (const ev of events) {
         if (!ev.startsWith('data:')) continue;
         const e = JSON.parse(ev.slice(5));
+        const stick = nearBottom();
         if (e.type === 'start' && !convId) {
           convId = e.conversationId;
-          localStorage.setItem('convs', JSON.stringify([{ id: convId, title: text.slice(0, 60) }, ...myConvs()]));
+          pref('convs', JSON.stringify([{ id: convId, title: text.slice(0, 60) }, ...myConvs()]));
           renderConvs();
         }
-        if (e.type === 'token') { full += e.text; a.bubble.replaceChildren(md(full)); scroll(); }
-        if (e.type === 'tool') {
-          const t = document.createElement('span'); t.className = 'tool';
-          t.textContent = (TOOL_LABEL[e.name] || e.name) + (e.args.query ? ` : ${e.args.query}` : e.args.title ? ` : ${e.args.title}` : '');
-          a.tools.appendChild(t);
-        }
-        if (e.type === 'error') { full += `\n\n> ⚠️ Erreur : ${e.message}`; a.bubble.replaceChildren(md(full)); }
-        if (e.type === 'done') addActions(a.el, e.index, null, full);
+        if (e.type === 'token') { full += e.text; a.token(e.text); }
+        if (e.type === 'tool') a.tool(e);
+        if (e.type === 'tool_result') a.toolResult(e);
+        if (e.type === 'plan') a.plan(e.steps);
+        if (e.type === 'approval') a.approval(e);
+        if (e.type === 'error') a.text(`> ⚠️ Erreur : ${e.message}`);
+        if (e.type === 'done') done = e;
+        if (stick) scroll();
       }
     }
   } catch (err) {
-    a.bubble.replaceChildren(md('⚠️ ' + err.message));
+    a.text(err.name === 'AbortError' ? '_(interrompu)_' : '⚠️ ' + err.message);
   }
-  a.bubble.classList.remove('cursor');
-  busy = false; $('send').disabled = false; $('input').focus();
+  a.el.classList.remove('cursor');
+  a.flow.querySelectorAll('.action.running').forEach((d) => d.classList.remove('running'));
+  if (done) addActions(a.el, done.index, null, full);
+  busy = false; setBusy(false); $('input').focus();
 }
+function setBusy(on) { $('send').textContent = on ? '■' : '➤'; $('send').title = on ? 'Arrêter' : 'Envoyer'; }
 
 function autosize() { const i = $('input'); i.style.height = 'auto'; i.style.height = Math.min(i.scrollHeight, 200) + 'px'; }
 $('input').addEventListener('input', autosize);
 $('input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
-$('form').onsubmit = (e) => { e.preventDefault(); send(); };
+$('form').onsubmit = (e) => { e.preventDefault(); if (busy) controller?.abort(); else send(); };
 $('newChat').onclick = () => { empty(); side.classList.remove('open'); };
 $('loginForm').onsubmit = async (e) => {
   e.preventDefault();
   const r = await fetch('/api/login', { method: 'POST', headers: headers(), body: JSON.stringify({ password: $('pwd').value }) });
   const j = await r.json();
   if (!r.ok) return ($('loginErr').textContent = j.error);
-  token = j.token; localStorage.setItem('token', token); $('login').classList.remove('open'); init();
+  token = j.token; pref('token', token); $('login').classList.remove('open'); init();
 };
 init();
 </script>

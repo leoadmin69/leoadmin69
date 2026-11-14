@@ -73,28 +73,31 @@ function remember({ text }, ctx) {
   return { ok: true, saved: text };
 }
 
-const fn = (name, description, properties = {}, required = []) => ({
-  type: 'function',
-  function: { name, description, parameters: { type: 'object', properties, required } },
-});
-
-export const TOOL_DEFS = [
-  fn('web_search', "Chercher sur internet des informations récentes ou que tu ne connais pas.", { query: { type: 'string' } }, ['query']),
-  fn('read_page', "Lire le texte d'une page web (après une recherche).", { url: { type: 'string' } }, ['url']),
-  fn('search_knowledge', "Chercher dans la base de connaissances apprise par l'admin.", { query: { type: 'string' } }, ['query']),
-  fn('add_task', "Ajouter une tâche à la liste de l'utilisateur.", {
-    title: { type: 'string' }, due: { type: 'string', description: 'Date limite AAAA-MM-JJ (optionnel)' },
-    priority: { type: 'string', enum: ['basse', 'normale', 'haute'] },
-  }, ['title']),
-  fn('list_tasks', 'Lister les tâches.', { include_done: { type: 'boolean' } }),
-  fn('complete_task', 'Marquer une tâche comme terminée.', { id: { type: 'string' } }, ['id']),
-  fn('remember', "Mémoriser durablement une règle ou un fait quand l'admin te demande de retenir quelque chose.", { text: { type: 'string' } }, ['text']),
-];
-
-const IMPL = { web_search: webSearch, read_page: readPage, search_knowledge: searchKnowledge, add_task: addTask, list_tasks: listTasks, complete_task: completeTask, remember };
-
-export async function runTool(name, args, ctx) {
-  const f = IMPL[name];
-  if (!f) return { error: `Outil inconnu : ${name}` };
-  try { return await f(args || {}, ctx); } catch (e) { return { error: e.message }; }
+/**
+ * Déclare un outil.
+ * kind : 'read'  = lecture seule, toujours autorisé
+ *        'safe'  = modifie seulement des données internes (tâches, plan) : autorisé sans confirmation
+ *        'write' = modifie des fichiers / la configuration : confirmation en mode « Demander »
+ *        'exec'  = exécute une commande ou publie : confirmation en mode « Demander »
+ * group : 'basic' | 'code' (nécessite un projet ouvert) | 'agents'
+ */
+export function defineTool(name, description, properties, required, run, { kind = 'read', adminOnly = false, group = 'basic' } = {}) {
+  return {
+    name, kind, adminOnly, group, run,
+    def: { type: 'function', function: { name, description, parameters: { type: 'object', properties, required } } },
+  };
 }
+
+const S = { type: 'string' };
+export const BASIC_TOOLS = [
+  defineTool('web_search', 'Chercher sur internet des informations récentes ou que tu ne connais pas.', { query: S }, ['query'], webSearch),
+  defineTool('read_page', "Lire le texte d'une page web (après une recherche).", { url: S }, ['url'], readPage),
+  defineTool('search_knowledge', "Chercher dans la base de connaissances apprise par l'admin.", { query: S }, ['query'], searchKnowledge),
+  defineTool('add_task', "Ajouter une tâche à la liste de l'admin.", {
+    title: S, due: { type: 'string', description: 'Date limite AAAA-MM-JJ (optionnel)' },
+    priority: { type: 'string', enum: ['basse', 'normale', 'haute'] },
+  }, ['title'], addTask, { kind: 'safe', adminOnly: true }),
+  defineTool('list_tasks', 'Lister les tâches.', { include_done: { type: 'boolean' } }, [], listTasks, { adminOnly: true }),
+  defineTool('complete_task', 'Marquer une tâche comme terminée (id obtenu avec list_tasks).', { id: S }, ['id'], completeTask, { kind: 'safe', adminOnly: true }),
+  defineTool('remember', "Mémoriser durablement une règle ou un fait quand l'admin te demande de retenir quelque chose.", { text: S }, ['text'], remember, { kind: 'safe', adminOnly: true }),
+];

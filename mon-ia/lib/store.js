@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const DATA_DIR = process.env.DATA_DIR || path.resolve('data');
+export const DATA_DIR = path.resolve(process.env.DATA_DIR || 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const DEFAULTS = {
@@ -22,7 +22,35 @@ const DEFAULTS = {
   knowledge: [], // { id, title, content, tags, createdAt }
   lessons: [],   // { id, text, source, createdAt }  -> règles toujours appliquées
   tasks: [],     // { id, title, due, priority, done, createdAt }
-  conversations: [], // { id, title, messages:[{role,content,feedback?}], updatedAt }
+  conversations: [], // { id, title, messages:[{role,content,feedback?,steps?}], updatedAt }
+  workspaces: [], // projets (sites) auxquels l'IA a accès : voir lib/workspace.js
+  // Agents spécialisés. tools = [] signifie « tous les outils ».
+  agents: [
+    {
+      id: 'dev', name: 'Développeur web', description: 'Modifie, corrige et améliore le code d\'un projet.',
+      model: '', createdAt: '',
+      tools: ['list_files', 'read_file', 'search_code', 'write_file', 'edit_file', 'delete_file', 'run_command', 'git_status', 'git_diff', 'update_plan', 'web_search', 'read_page'],
+      instructions: [
+        'Tu es un développeur web senior, rigoureux et autonome.',
+        '1. Explore avant de modifier : list_files, search_code, read_file.',
+        '2. Pour une tâche de plus de 2 étapes, fais un plan avec update_plan et tiens-le à jour.',
+        '3. Fais des modifications minimales et ciblées avec edit_file (write_file seulement pour les nouveaux fichiers).',
+        '4. Vérifie ton travail : relis le fichier, lance le build ou les tests avec run_command quand le projet en a.',
+        '5. Ne mets jamais de mot de passe ou de clé API dans le code.',
+        '6. Termine par un résumé clair : fichiers modifiés et ce qui a changé.',
+      ].join('\n'),
+    },
+    {
+      id: 'research', name: 'Chercheur', description: 'Fait des recherches web approfondies et synthétise avec sources.',
+      model: '', createdAt: '', tools: ['web_search', 'read_page', 'search_knowledge', 'update_plan'],
+      instructions: 'Tu es un chercheur méthodique. Fais plusieurs recherches, lis les meilleures pages, recoupe les informations, puis rédige une synthèse structurée en citant chaque source (lien).',
+    },
+    {
+      id: 'organizer', name: 'Organisateur', description: 'Planifie, découpe les projets en étapes et gère les tâches.',
+      model: '', createdAt: '', tools: ['add_task', 'list_tasks', 'complete_task', 'update_plan', 'search_knowledge'],
+      instructions: 'Tu es un assistant d\'organisation. Découpe les objectifs en étapes concrètes, estime les durées, crée les tâches avec dates et priorités, et propose des plannings réalistes.',
+    },
+  ],
 };
 
 const cache = {};
