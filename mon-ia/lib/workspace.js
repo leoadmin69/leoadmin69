@@ -137,7 +137,7 @@ export function staticFile(ws, sub) {
 }
 
 // Résumé du projet injecté dans le prompt système.
-const top = (root) => { try { return fs.readdirSync(root).filter((n) => n !== '.git').slice(0, 40).join('  '); } catch { return '(indisponible)'; } };
+const rootListing = (root) => { try { return fs.readdirSync(root).filter((n) => n !== '.git').slice(0, 40).join('  '); } catch { return '(indisponible)'; } };
 
 export function describeWorkspace(ws) {
   const root = wsRoot(ws);
@@ -150,7 +150,7 @@ export function describeWorkspace(ws) {
       "Commits : message court en français, préfixé « Mon IA : » (ex. « Mon IA : change le texte d'accueil »), un seul commit par demande, sauf si l'admin demande autre chose.",
       "Règles : lis avant de modifier ; change peu à la fois ; vérifie la syntaxe (node --check) ; après un changement risqué, dis-le à l'admin et propose la solution de retour (git_diff / git revert).",
       "Jamais de secret (clé, jeton, mot de passe) dans le code ni dans les commits. Les modifications demandent toujours l'accord de l'admin, sauf s'il l'a autorisé pour toujours.",
-      `Racine du dépôt : ${top(root)}`,
+      `Racine du dépôt : ${rootListing(root)}`,
     ].join('\n');
   }
   let top = [];
