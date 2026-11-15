@@ -16,6 +16,22 @@ import { defineTool } from './tools.js';
 const DAILY_LIMIT = 10;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
+// Envoi par API HTTPS (port 443) : passe même quand l'hébergeur bloque les ports d'envoi (SMTP).
+// Recommandé sur Render. Nécessite un domaine vérifié chez Resend (fivepro.link l'est déjà pour Five).
+const resendReady = () => !!process.env.RESEND_API_KEY;
+async function sendViaResend({ to, subject, text }) {
+  const from = process.env.RESEND_FROM || process.env.SMTP_FROM || process.env.SMTP_USER;
+  const base = (process.env.RESEND_BASE || 'https://api.resend.com').replace(/\/$/, '');
+  const res = await fetch(`${base}/emails`, {
+    method: 'POST', signal: AbortSignal.timeout(30000),
+    headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from, to: [to], subject, text }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`Resend HTTP ${res.status} : ${data.message || JSON.stringify(data).slice(0, 200)}`);
+  return { messageId: data.id || '' };
+}
+
 const smtpReady = () => !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 const imapReady = () => !!(process.env.IMAP_HOST && process.env.IMAP_USER && process.env.IMAP_PASS);
 
@@ -34,7 +50,7 @@ function transport() {
 }
 
 export async function sendMail({ to, subject, text, prospect = false }) {
-  if (!smtpReady() && process.env.MAIL_TRANSPORT !== 'json') throw new Error("Envoi d'emails non configuré (SMTP_HOST, SMTP_USER, SMTP_PASS sur l'hébergeur).");
+  if (!smtpReady() && !resendReady() && process.env.MAIL_TRANSPORT !== 'json') throw new Error("Envoi d'emails non configuré : ajoute RESEND_API_KEY (recommandé) ou SMTP_HOST, SMTP_USER, SMTP_PASS sur l'hébergeur.");
   const target = String(to || '').trim().toLowerCase();
   if (!EMAIL.test(target)) throw new Error(`Adresse invalide : ${to}`);
   if (stopList().includes(target)) throw new Error(`${target} a demandé à ne plus être contacté : envoi refusé.`);
@@ -44,7 +60,7 @@ export async function sendMail({ to, subject, text, prospect = false }) {
   let body = String(text).trim();
   if (prospect && !/STOP/.test(body)) body += '\n\n—\nPour ne plus recevoir de message, répondez STOP.';
   const from = process.env.SMTP_FROM || process.env.SMTP_USER;
-  const info = await transport().sendMail({ from, to: target, subject: subject.trim(), text: body });
+  const info = resendReady() ? await sendViaResend({ to: target, subject: subject.trim(), text: body }) : await transport().sendMail({ from, to: target, subject: subject.trim(), text: body });
   const st = load('settings');
   st.mail ||= { stop: [], log: [] };
   st.mail.log = [{ id: newId(), to: target, subject: subject.trim(), at: now(), messageId: info.messageId || '' }, ...st.mail.log].slice(0, 500);

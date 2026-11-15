@@ -93,7 +93,8 @@ async function selfCheck() {
   out.push(!k?.url ? '⚠️ Maintien en éveil inactif : je peux être endormie par l\'hébergeur.' : k.lastError ? `❌ Maintien en éveil en échec : ${k.lastError}` : `✅ Maintien en éveil actif (dernier signal : ${k.lastOk || 'en attente'}).`);
   const mailSmtp = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
   const mailImap = !!(process.env.IMAP_HOST && process.env.IMAP_USER && process.env.IMAP_PASS);
-  out.push(`${mailSmtp ? '✅' : '⚠️'} Envoi d'emails (SMTP) : ${mailSmtp ? 'configuré' : 'non configuré (SMTP_HOST, SMTP_USER, SMTP_PASS manquent)'}.`);
+  const mailApi = !!process.env.RESEND_API_KEY;
+  out.push(`${mailApi || mailSmtp ? '✅' : '⚠️'} Envoi d'emails : ${mailApi ? 'par API Resend (recommandé)' : mailSmtp ? 'par SMTP (peut être bloqué par l\'hébergeur)' : 'non configuré (RESEND_API_KEY à ajouter)'}.`);
   out.push(`${mailImap ? '✅' : '⚠️'} Lecture de la boîte (IMAP) : ${mailImap ? 'configurée' : 'non configurée (IMAP_HOST, IMAP_USER, IMAP_PASS manquent)'}.`);
   out.push(`ℹ️ Version déployée : ${process.env.RENDER_GIT_COMMIT ? process.env.RENDER_GIT_COMMIT.slice(0, 7) : 'inconnue (non disponible sur cet hébergement)'}.`);
   const l = load('settings').learning || {};
