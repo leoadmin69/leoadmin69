@@ -124,7 +124,7 @@ async function init() {
   status = await (await fetch('/api/status', { headers: headers() })).json();
   document.querySelectorAll('.ai-name').forEach((e) => (e.textContent = status.name));
   document.title = status.name;
-  $('who').textContent = status.admin ? '👑 Admin' : '';
+  $('who').textContent = status.admin ? 'Admin' : '';
   document.querySelectorAll('.admin-only').forEach((e) => (e.style.display = status.admin ? '' : 'none'));
   const l = status.llm;
   $('hint').textContent = `${status.name} peut se tromper. ` + (l.configured ? `🧠 ${l.smart}` + (l.fast && l.fast !== l.smart ? ` · ⚡ ${l.fast}` : '') : '⚠️ Aucun modèle configuré (Admin → Modèles)');
