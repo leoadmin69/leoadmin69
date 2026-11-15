@@ -176,6 +176,15 @@ export function availableTools({ agent, ctx }) {
 // Actions à faible risque : Nova les fait sans demander. Tout ce qui touche à l'argent, aux secrets, à la mise en ligne
 // (envoi, fusion, déploiement), aux appareils ou à des tiers reste soumis à l'accord de l'admin.
 export const DEFAULT_ALWAYS = ['update_settings', 'edit_file', 'write_file', 'delete_file', 'backup_now', 'self_check', 'read_logs', 'manage_permissions', 'manage_mission', 'update_plan'];
+// Envoi explicitement demandé par l'admin dans SA message : adresse écrite + verbe d'envoi.
+// Le message de l'admin seul compte (jamais le contenu d'un email ou d'une page web).
+export const isExplicitMailRequest = (query, args) => {
+  const q = String(query || '');
+  if (!/\b(envoie|envoyer|envoi|écris|ecris|send)\b/i.test(q)) return false;
+  const addresses = (q.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g) || []).map((x) => x.toLowerCase());
+  return addresses.includes(String(args?.to || '').trim().toLowerCase());
+};
+
 export const isAlwaysAllowed = (name) => {
   const saved = load('settings').permissions?.always;
   return (saved || DEFAULT_ALWAYS).includes(name);
@@ -188,6 +197,7 @@ const PRINCIPLES = `## Principes (toujours)
 - Va à l'essentiel. Structure (titres, listes, tableaux) seulement quand ça aide la lecture. Le code que tu donnes est complet et fonctionnel, dans des blocs \`\`\`langage.
 - Sois honnête sur tes limites et tes échecs : si une commande échoue ou qu'un test rate, dis-le et explique, ne prétends jamais que ça marche.
 - Ne fais pas ce qu'on ne t'a pas demandé (pas de modifications « bonus » non sollicitées), mais signale ce qui te paraît important.
+- Si l'admin donne lui-même une action complète (par exemple : envoyer un email à une adresse précise, avec objet et texte), exécute l'outil TOUT DE SUITE. Ne demande JAMAIS en texte « veux-tu que j'envoie ? » ou « confirme (oui/non) » : c'est l'outil qui gère l'autorisation, et l'admin a déjà donné son accord en le demandant.
 - Agis, ne demande pas. Quand l'admin te demande quelque chose, fais-le avec tes outils dans CE tour : cherche (search_code, list_files, gh_search_code, get_settings…), lis, modifie. Ne demande jamais une information que tu peux trouver toi-même (où est un fichier, quelle est la structure du projet, quel est un identifiant). Ne réponds jamais « dis-moi où… » ou « envoie-moi… » sans avoir d'abord cherché.
 - Ne demande l'accord que pour l'action sensible elle-même (publier, envoyer, fusionner, déployer, dépenser, toucher un appareil ou un secret). Le reste, tu le fais.
 - Ne dis jamais « je ne peux pas accéder » sans avoir essayé. Avant de conclure, enchaîne les alternatives : une autre source publique, une recherche web, l'outil adapté (read_page, search_code, read_document…), un fichier que l'admin peut joindre, ou un autre de tes outils.
@@ -429,7 +439,9 @@ export async function runAgent({ agent, history, ctx }) {
         if (sim) ctx.emit({ type: 'tool_result', id, ok: true, output: `🔮 Issues anticipées : ${sim.recommendation}. ${sim.reason || ''}\n` + (sim.outcomes || []).map((o) => `• ${Math.round((o.p || 0) * 100)} % ${o.name} (dommage : ${o.damage})`).join('\n') });
       }
       const always = []; // voir isAlwaysAllowed() ci-dessous
-      if (ctx.perm.mode !== 'auto' && ['write', 'exec'].includes(tool.kind) && !isAlwaysAllowed(tool.name)) {
+      const explicitMail = tool.name === 'send_email' && ctx.admin && !ctx.mission && !sub && isExplicitMailRequest(query, args);
+      if (explicitMail) ctx.emit({ type: 'notice', text: `Envoi demandé par toi à ${args.to} : pas de confirmation supplémentaire.` });
+      if (!explicitMail && ctx.perm.mode !== 'auto' && ['write', 'exec'].includes(tool.kind) && !isAlwaysAllowed(tool.name)) {
         const allowed = await ctx.approve({ name: tool.name, args, agent: ctx.agentName });
         if (!allowed) throw new Error("L'admin a refusé cette action. Ne la refais pas ; demande-lui comment il veut procéder.");
       }
