@@ -13,6 +13,8 @@
   },
   "license": "MIT",
   "dependencies": {
+    "imapflow": "^1.7.8",
+    "nodemailer": "^7.0.13",
     "pdfjs-dist": "^4.10.38"
   }
 }
