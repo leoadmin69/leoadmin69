@@ -1,0 +1,806 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Administration</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&display=swap">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#04060c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Nova">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="admin">
+  <header>
+    <div class="brand"><div class="logo">✦</div><span>Administration de <span id="aiName">l'IA</span></span></div>
+    <div style="display:flex;gap:8px"><a class="btn ghost" href="/">← Retour au chat</a><button class="btn ghost" id="logout">Déconnexion</button></div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="dash" class="on">Tableau de bord</button>
+    <button data-tab="models">Modèles</button>
+    <button data-tab="learning">Apprentissage</button>
+    <button data-tab="persona">Personnalité</button>
+    <button data-tab="knowledge">Connaissances</button>
+    <button data-tab="lessons">Leçons</button>
+    <button data-tab="projects">Projets</button>
+    <button data-tab="agents">Agents</button>
+    <button data-tab="missions">Missions</button>
+    <button data-tab="devices">Appareils</button>
+    <button data-tab="integrations">Intégrations</button>
+    <button data-tab="tasks">Tâches</button>
+    <button data-tab="convs">Conversations</button>
+    <button data-tab="data">Données</button>
+  </nav>
+
+  <section class="panel on" id="dash">
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))" id="stats"></div>
+    <h3>Comment ton IA apprend</h3>
+    <ol class="help">
+      <li><b>Personnalité</b> : qui elle est, son ton, ses règles. Appliquée à chaque message.</li>
+      <li><b>Connaissances</b> : colle des textes (docs, notes, FAQ, infos sur ton entreprise). Elle retrouve automatiquement les passages utiles.</li>
+      <li><b>Leçons</b> : règles courtes toujours respectées (« Ne jamais… », « Toujours… »). Dans le chat, dis-lui « retiens que… ».</li>
+      <li><b>Corrections</b> : dans le chat, clique 👎 ou ✎ sous une réponse et écris la bonne. Elle devient une leçon.</li>
+      <li><b>Entraînement profond</b> : onglet Données → exporte le dataset de tes bonnes réponses pour un vrai fine-tuning (voir README).</li>
+    </ol>
+  </section>
+
+  <section class="panel" id="models">
+    <p class="help">L'intelligence de ton IA vient surtout du modèle. Ajoute plusieurs fournisseurs gratuits, teste-les, puis choisis
+      lequel sert de cerveau <b>🧠 Puissant</b> (code, analyse, sites), lequel sert de <b>⚡ Rapide</b> (discussions simples), et l'ordre de <b>secours</b>
+      si l'un sature. Les listes de modèles gratuits changent souvent : vérifie-les sur le site du fournisseur.</p>
+    <div class="grid card" style="max-width:none">
+      <b>Rôles</b>
+      <div class="row">
+        <label>🧠 Puissant<select id="rSmart"></select></label>
+        <label>⚡ Rapide<select id="rFast"></select></label>
+        <label>👁 Vision (images)<select id="rVision"></select></label>
+      </div>
+      <div><span class="help">Secours (essayés dans l'ordre si le principal échoue) :</span><div class="checks" id="rFallbacks"></div></div>
+      <div><button class="btn" id="saveRoles">Enregistrer les rôles</button> <span class="help" id="rMsg"></span></div>
+    </div>
+    <form class="grid card" style="max-width:none;margin-top:14px" id="mForm">
+      <input type="hidden" id="mId">
+      <b id="mTitle">Ajouter un fournisseur</b>
+      <div class="row">
+        <label>Fournisseur<select id="mPreset">
+          <option value="">— choisir —</option>
+          <option value="https://generativelanguage.googleapis.com/v1beta/openai|Google Gemini|aistudio.google.com/apikey">Google Gemini (gratuit, grand contexte)</option>
+          <option value="https://api.groq.com/openai/v1|Groq|console.groq.com/keys">Groq (gratuit, très rapide)</option>
+          <option value="https://openrouter.ai/api/v1|OpenRouter|openrouter.ai/models?q=free">OpenRouter (nombreux modèles « :free »)</option>
+          <option value="https://api.mistral.ai/v1|Mistral|console.mistral.ai">Mistral (offre d'essai gratuite)</option>
+          <option value="https://api.deepseek.com/v1|DeepSeek|platform.deepseek.com/api_keys">DeepSeek (payant, très bon marché)</option>
+          <option value="https://api.x.ai/v1|xAI (Grok)|console.x.ai">xAI Grok (payant)</option>
+          <option value="https://api.together.xyz/v1|Together AI|api.together.ai/settings/api-keys">Together AI (crédit d'essai)</option>
+          <option value="https://api.cerebras.ai/v1|Cerebras|cloud.cerebras.ai">Cerebras (gratuit, très rapide)</option>
+          <option value="https://models.github.ai/inference|GitHub Models|github.com/marketplace/models">GitHub Models (ton compte GitHub, à tester)</option>
+          <option value="https://router.huggingface.co/v1|Hugging Face|huggingface.co/settings/tokens">Hugging Face (crédit gratuit, des dizaines de modèles)</option>
+          <option value="http://localhost:11434/v1|Ollama (local)|ollama.com/library">Ollama sur ton PC (100 % privé)</option>
+        </select></label>
+        <label>Nom<input id="mName" placeholder="ex : Gemini Flash"></label>
+      </div>
+      <label>URL de l'API (compatible OpenAI)<input id="mBase" required placeholder="https://…/v1"></label>
+      <div class="row">
+        <label>Clé API<input id="mKey" type="password" autocomplete="off" placeholder="colle ta clé"></label>
+        <label>Modèle<input id="mModel" required placeholder="nom exact du modèle"></label>
+      </div>
+      <span class="help" id="mHelp"></span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn" id="mSave">Ajouter</button>
+        <button type="button" class="btn ghost" id="mTest">Tester la connexion</button>
+        <button type="button" class="btn ghost" id="mCancel" hidden>Annuler</button>
+        <span class="help" id="mMsg"></span>
+      </div>
+    </form>
+    <div class="grid" id="mList" style="margin-top:14px"></div>
+  </section>
+
+  <section class="panel" id="learning">
+    <p class="help">Chaque jour, ton IA fait son bilan, <b>choisit librement</b> ce qu'elle veut apprendre, étudie des sources (web, projets open source,
+      articles scientifiques, avis d'autres IA), retient ce qui est vérifié et écrit son journal. Elle est libre intellectuellement, mais
+      <b>ne change jamais seule ses règles, sa personnalité, ses agents ou ses missions</b> : elle te le propose ici, et c'est toi qui valides.
+      Une session d'apprentissage ne peut rien exécuter (ni code, ni matériel, ni publication).</p>
+    <div class="card grid" style="max-width:none">
+      <div class="row" style="align-items:flex-end">
+        <label style="flex:0 0 auto;display:flex;gap:8px;align-items:center;white-space:nowrap"><input type="checkbox" id="lEnabled" style="width:auto"> Activer l'auto-apprentissage</label>
+        <label>Rythme<select id="lEvery">
+          <option value="daily">Une session par jour</option><option value="360">Toutes les 6 heures</option><option value="180">Toutes les 3 heures</option>
+          <option value="60">Toutes les heures</option><option value="30">En continu (toutes les 30 min)</option></select></label>
+        <label id="lTimeLbl">Heure de la session<input type="time" id="lTime" value="03:00"></label>
+        <label style="flex:0 0 auto;display:flex;gap:8px;align-items:center;white-space:nowrap"><input type="checkbox" id="lNotify" style="width:auto" checked> M'envoyer le compte rendu</label>
+      </div>
+      <span class="help">⚠️ Chaque session consomme le quota gratuit de ton modèle (plusieurs dizaines d'appels). En rythme rapide, branche plusieurs modèles
+        dans l'onglet Modèles (avec des secours) pour que Nova puisse toujours te répondre, et décoche le compte rendu pour ne pas être inondé de notifications.</span>
+      <label>Autonomie de développement<select id="lAutonomy">
+        <option value="propose">Elle propose, je valide chaque évolution</option>
+        <option value="autonome">Autonome : elle fait évoluer seule ses règles de travail, sa personnalité et ses agents de réflexion (je suis notifié et je peux annuler)</option>
+      </select></label>
+      <span class="help">Dans les deux cas : apprendre, explorer et se forger des avis est entièrement libre. Et dans les deux cas, tout ce qui <b>exécute</b>
+        (code, commandes, publication, matériel, nouvelles missions) reste soumis à tes autorisations. En mode autonome, une page web piégée pourrait influencer
+        ses règles de travail : elles restent toujours en dessous des tiennes, et annulables en un clic.</span>
+      <label>Centres d'intérêt suggérés (optionnel : elle reste libre d'explorer autre chose)
+        <textarea id="lInterests" rows="2" placeholder="développement web, beach tennis, domotique, culture tunisienne et expressions de Bizerte, IA open source…"></textarea></label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" class="btn" id="lSave">Enregistrer</button>
+        <button type="button" class="btn ghost" id="lRun">▶ Lancer une session maintenant</button><span class="help" id="lMsg"></span></div>
+    </div>
+    <h3>Propositions d'amélioration <span class="help" id="pCount"></span></h3>
+    <div class="grid" id="pList"></div>
+    <h3>Journal d'apprentissage</h3>
+    <div class="grid" id="jList"></div>
+  </section>
+
+  <section class="panel" id="persona">
+    <div class="grid">
+      <label>Nom<input id="pName"></label>
+      <label>Instructions (sa « personnalité »)<textarea id="pInstr" rows="14"></textarea></label>
+      <label>Créativité (température : 0 = précise, 1 = créative)<input id="pTemp" type="number" min="0" max="1.5" step="0.1"></label>
+      <div><button class="btn" id="savePersona">Enregistrer</button> <span class="help" id="pSaved"></span></div>
+    </div>
+  </section>
+
+  <section class="panel" id="knowledge">
+    <div class="grid">
+      <div class="row"><input id="kTitle" placeholder="Titre (ex : Horaires de la boutique)"><input id="kTags" placeholder="Mots-clés (optionnel)"></div>
+      <textarea id="kContent" rows="7" placeholder="Colle ici le texte à apprendre. Les longs documents sont découpés automatiquement."></textarea>
+      <div class="row" style="align-items:center">
+        <div><button class="btn" id="addK">Apprendre</button></div>
+        <label class="help" style="flex:2">ou importer un fichier texte (.txt, .md, .csv, .json) : <input type="file" id="kFile" accept=".txt,.md,.csv,.json,.html" multiple></label>
+      </div>
+      <input id="kFilter" placeholder="Filtrer…">
+      <div class="grid" id="kList"></div>
+    </div>
+  </section>
+
+  <section class="panel" id="lessons">
+    <div class="grid">
+      <div class="row"><input id="lText" placeholder="Ex : Toujours répondre en tutoyant. / Mon entreprise s'appelle …"><div style="flex:0"><button class="btn" id="addL">Ajouter</button></div></div>
+      <div class="grid" id="lList"></div>
+    </div>
+  </section>
+
+  <section class="panel" id="projects">
+    <p class="help">Donne à ton IA l'accès à un site : elle pourra lire, modifier le code, lancer des commandes, faire des commits et le mettre en ligne.
+      Choisis ensuite le projet dans le chat (menu 📁).</p>
+    <form class="grid card" style="max-width:none" id="wsForm">
+      <input type="hidden" id="wId">
+      <div class="row">
+        <label>Nom<input id="wName" placeholder="Mon site" required></label>
+        <label>Type<select id="wType">
+          <option value="git">Dépôt Git (GitHub, GitLab…)</option>
+          <option value="empty">Nouveau site vide</option>
+          <option value="folder">Dossier sur ce serveur / ce PC</option>
+        </select></label>
+      </div>
+      <div class="row t-git">
+        <label>URL du dépôt (https)<input id="wRepo" placeholder="https://github.com/moi/mon-site.git"></label>
+        <label>Branche<input id="wBranch" placeholder="main"></label>
+      </div>
+      <label class="t-git">Jeton d'accès (GitHub : Settings → Developer settings → Fine-grained token, permission « Contents : Read and write »)
+        <input id="wToken" type="password" placeholder="github_pat_…" autocomplete="off"></label>
+      <label class="t-folder">Chemin du dossier<input id="wFolder" placeholder="/home/moi/mon-site"></label>
+      <div class="row">
+        <label>Dossier servi pour l'aperçu / la publication<input id="wPreview" placeholder=". (ou dist, build, public…)"></label>
+        <label>Deploy hook (optionnel)<input id="wHook" placeholder="https://api.render.com/deploy/… ou Netlify/Vercel"></label>
+      </div>
+      <label>Commande de déploiement (optionnel)<input id="wCmd" placeholder="ex : npx vercel deploy --prod --yes --token $VERCEL_TOKEN"></label>
+      <label>Secrets du projet, un par ligne (accessibles aux commandes, jamais montrés à l'IA)
+        <textarea id="wSecrets" rows="2" placeholder="VERCEL_TOKEN=xxxx&#10;NETLIFY_AUTH_TOKEN=xxxx"></textarea></label>
+      <div class="row" style="align-items:center"><div style="flex:0;display:flex;gap:8px"><button class="btn" id="wSave">Ajouter le projet</button>
+        <button type="button" class="btn ghost" id="wCancel" hidden>Annuler</button></div><span class="help" id="wMsg"></span></div>
+    </form>
+    <div class="grid" id="wList" style="margin-top:14px"></div>
+  </section>
+
+  <section class="panel" id="agents">
+    <p class="help">Les agents sont des IA spécialisées avec leurs propres instructions et outils. Choisis-les dans le chat (menu 🤖),
+      ou laisse ton IA principale leur déléguer du travail. Tu peux aussi lui demander : « crée un agent qui… ».</p>
+    <form class="grid card" style="max-width:none" id="agForm">
+      <input type="hidden" id="aId">
+      <div class="row"><label>Nom<input id="aName" required placeholder="Rédacteur SEO"></label>
+        <label>Modèle (vide = par défaut)<input id="aModel" placeholder="ex : qwen/qwen3-coder:free"></label></div>
+      <label>Description courte<input id="aDesc" placeholder="Optimise les textes d'un site pour Google"></label>
+      <label>Instructions<textarea id="aInstr" rows="7" required placeholder="Tu es un expert… Ta méthode : 1. … 2. …"></textarea></label>
+      <div><b style="font-size:14px">Outils autorisés</b> <span class="help">(aucun coché = tous)</span><div class="checks" id="aTools"></div></div>
+      <div style="display:flex;gap:8px"><button class="btn" id="aSave">Créer l'agent</button><button type="button" class="btn ghost" id="aCancel" hidden>Annuler</button></div>
+    </form>
+    <div class="grid" id="aList" style="margin-top:14px"></div>
+  </section>
+
+  <section class="panel" id="missions">
+    <p class="help">Des tâches que ton IA exécute <b>seule pendant ton absence</b> (veille, rapports, surveillance d'un site, rappels…).
+      Le compte rendu t'arrive en notification (configure-les dans Intégrations). Tu peux aussi dire dans le chat : « chaque matin à 8h, fais… ».</p>
+    <form class="grid card" style="max-width:none" id="msForm">
+      <input type="hidden" id="msId">
+      <label>Titre<input id="msTitle" required placeholder="Rapport du matin"></label>
+      <label>Instructions (complètes : l'IA ne se souvient pas de vos conversations)<textarea id="msInstr" rows="5" required
+        placeholder="Cherche les dernières actualités sur le beach tennis en Tunisie, résume les 5 plus importantes avec les liens."></textarea></label>
+      <div class="row">
+        <label>Quand<select id="msType">
+          <option value="daily">Chaque jour</option><option value="weekly">Chaque semaine</option><option value="interval">Toutes les N minutes</option>
+          <option value="once">Une seule fois</option><option value="manual">Manuellement / déclenchée par un autre système</option>
+        </select></label>
+        <label class="sch-daily sch-weekly">Heure<input id="msTime" type="time" value="08:00"></label>
+        <label class="sch-weekly">Jour<select id="msDay"><option value="1">Lundi</option><option value="2">Mardi</option><option value="3">Mercredi</option>
+          <option value="4">Jeudi</option><option value="5">Vendredi</option><option value="6">Samedi</option><option value="0">Dimanche</option></select></label>
+        <label class="sch-interval">Minutes<input id="msMinutes" type="number" min="5" value="60"></label>
+        <label class="sch-once">Date et heure<input id="msAt" type="datetime-local"></label>
+      </div>
+      <div class="row">
+        <label>Agent<select id="msAgent"></select></label>
+        <label>Projet<select id="msWs"></select></label>
+        <label>Permissions<select id="msMode"><option value="auto">Peut agir (modifier, publier…)</option><option value="read">Lecture seule</option></select></label>
+        <label>Me notifier<select id="msNotify"><option value="always">Toujours</option><option value="errors">Seulement en cas d'erreur</option><option value="never">Jamais</option></select></label>
+      </div>
+      <div style="display:flex;gap:8px"><button class="btn" id="msSave">Créer la mission</button><button type="button" class="btn ghost" id="msCancel" hidden>Annuler</button></div>
+    </form>
+    <div class="grid" id="msList" style="margin-top:14px"></div>
+  </section>
+
+  <section class="panel" id="devices">
+    <p class="help">Donne à ton IA le contrôle de matériel : lumières, prises, relais, capteurs, Raspberry Pi… Elle ne peut utiliser
+      <b>que</b> les actions que tu déclares ici, avec la permission que tu choisis pour chaque appareil.
+      ⚠️ Pour joindre des appareils de ta maison, l'IA doit tourner chez toi (PC, Raspberry Pi) ou passer par une adresse Home Assistant accessible depuis internet.</p>
+    <form class="grid card" style="max-width:none" id="dvForm">
+      <input type="hidden" id="dvId">
+      <div class="row">
+        <label>Nom<input id="dvName" required placeholder="Salon"></label>
+        <label>Type<select id="dvType">
+          <option value="homeassistant">Home Assistant (recommandé)</option><option value="http">Appareil web (ESP32, Shelly, Tasmota…)</option>
+          <option value="command">Commande locale (Raspberry Pi, GPIO…)</option>
+          <option value="remote">Appareil distant : PC, Raspberry Pi, serveur… (agent à installer)</option></select></label>
+        <label>Permission<select id="dvPerm">
+          <option value="ask">🔐 Me demander à chaque fois</option><option value="auto">✅ Libre</option><option value="off">⛔ Désactivé</option></select></label>
+      </div>
+      <label>Description (aide l'IA à comprendre)<input id="dvDesc" placeholder="Lumières et chauffage du salon"></label>
+      <div class="dvt-homeassistant grid">
+        <div class="row"><label>Adresse de Home Assistant<input id="dvHaUrl" placeholder="http://homeassistant.local:8123"></label>
+          <label>Jeton longue durée (Profil → Sécurité)<input id="dvHaToken" type="password" autocomplete="off"></label></div>
+        <label>Entités autorisées (séparées par des virgules)<input id="dvEntities" placeholder="light.salon, switch.prise_tv, sensor.temperature_salon, climate.salon"></label>
+      </div>
+      <div class="dvt-remote help">Après l'ajout, une commande à lancer sur l'appareil s'affichera. L'appareil se connecte lui-même à ton IA :
+        il reste joignable où que tu sois, sans ouvrir de port chez toi.
+        <label style="display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="dvShell" style="width:auto">
+          Autoriser aussi les commandes libres (l'IA peut lancer n'importe quelle commande sur cet appareil : à réserver à un appareil de confiance, avec la permission « me demander »)</label></div>
+      <div class="dvt-http dvt-command dvt-remote">
+        <b style="font-size:14px">Actions</b> <span class="help">· dans l'URL, le corps ou la commande, la valeur demandée s'écrit <code>{{value}}</code> (commande : variable <code>$VALUE</code>)</span>
+        <div id="dvActions" class="grid" style="margin-top:8px"></div>
+        <button type="button" class="btn ghost small" id="dvAddAction" style="margin-top:8px">+ Ajouter une action</button>
+      </div>
+      <div style="display:flex;gap:8px"><button class="btn" id="dvSave">Ajouter l'appareil</button><button type="button" class="btn ghost" id="dvCancel" hidden>Annuler</button></div>
+    </form>
+    <div id="dvToken" style="margin-top:14px"></div>
+    <div class="grid" id="dvList" style="margin-top:14px"></div>
+  </section>
+
+  <section class="panel" id="integrations">
+    <div class="grid">
+      <div class="card grid" style="max-width:none">
+        <b>🔔 Notifications (missions, alertes, demandes d'autorisation)</b>
+        <span class="help">Le plus simple : installe l'appli gratuite <a href="https://ntfy.sh" target="_blank">ntfy</a> sur ton téléphone et abonne-toi
+          à un sujet au nom long et secret (ex : <code>mon-ia-3k9x7q2</code>). Ou utilise un bot Telegram (crée-le avec @BotFather).</span>
+        <div class="row"><label>Sujet ntfy<input id="nTopic" placeholder="mon-ia-3k9x7q2"></label><label>Serveur ntfy<input id="nServer" placeholder="https://ntfy.sh"></label></div>
+        <div class="row"><label>Jeton du bot Telegram<input id="nTgToken" type="password" autocomplete="off"></label><label>ID de ta conversation Telegram<input id="nTgChat" placeholder="rempli tout seul avec le bouton ci-dessous"></label></div>
+        <div><button type="button" class="btn ghost small" id="nTgDetect">Trouver mon ID Telegram</button>
+          <span class="help">Colle d'abord le jeton, puis envoie « bonjour » à ton bot dans Telegram, et clique ici.</span></div>
+        <label>Webhook (autre système, reçoit un JSON)<input id="nWebhook" placeholder="https://…"></label>
+        <div style="display:flex;gap:8px;align-items:center"><button type="button" class="btn" id="nSave">Enregistrer</button>
+          <button type="button" class="btn ghost" id="nTest">Envoyer un test</button><span class="help" id="nMsg"></span></div>
+      </div>
+      <div class="card grid" style="max-width:none">
+        <b>🎙 Voix</b>
+        <span class="help">La voix fonctionne dans le navigateur (Chrome, Edge). Pour les navigateurs sans reconnaissance vocale, ou une meilleure transcription
+          (notamment en tunisien), active la transcription serveur avec un modèle Whisper, par exemple chez Groq (offre gratuite).</span>
+        <div class="row"><label>Fournisseur de transcription<select id="vProv"></select></label><label>Modèle<input id="vModel" placeholder="whisper-large-v3"></label></div>
+        <div style="display:flex;gap:8px;align-items:center"><button type="button" class="btn" id="vSave">Enregistrer</button><span class="help" id="vMsg"></span></div>
+      </div>
+      <div class="card grid" style="max-width:none">
+        <b>🐙 GitHub</b>
+        <span class="help">Donne à Nova l'accès à tes dépôts : lecture, écriture, branches, pull requests, fusion et déploiement. Chaque écriture ou fusion te demande ton accord.
+          Crée le jeton sur GitHub → Settings → Developer settings → Fine-grained tokens, en choisissant <b>seulement les dépôts voulus</b>, avec « Contents », « Pull requests » et « Metadata » en Read and write.</span>
+        <div class="row"><label>Jeton GitHub<input id="ghToken" type="password" autocomplete="off" placeholder="github_pat_…"></label>
+          <label>Dépôts autorisés (optionnel, séparés par des virgules)<input id="ghRepos" placeholder="leoadmin69/Cinq, leoadmin69/leoadmin69"></label></div>
+        <div style="display:flex;gap:8px;align-items:center"><button type="button" class="btn" id="ghSave">Enregistrer</button><span class="help" id="ghMsg"></span></div>
+      </div>
+      <div class="card grid" style="max-width:none">
+        <b>⚛️ Quantique</b>
+        <span class="help">Le simulateur quantique intégré fonctionne sans rien configurer. Pour lancer des circuits sur de <b>vrais ordinateurs quantiques IBM</b> :
+          crée un compte gratuit sur <a href="https://quantum.cloud.ibm.com" target="_blank">quantum.cloud.ibm.com</a>, copie ta clé API ici, et installe Qiskit sur le serveur
+          (<code>pip install qiskit qiskit-ibm-runtime</code>). L'offre gratuite donne quelques minutes de calcul par mois.</span>
+        <div class="row"><label>Clé API IBM Quantum<input id="qToken" type="password" autocomplete="off"></label>
+          <label>Instance (optionnel)<input id="qInstance" placeholder="CRN de l'instance"></label>
+          <label>Python (optionnel)<input id="qPython" placeholder="python3 ou chemin d'un venv"></label></div>
+        <div style="display:flex;gap:8px;align-items:center"><button type="button" class="btn" id="qSave">Enregistrer</button><span class="help" id="qMsg"></span></div>
+      </div>
+      <div class="card grid" style="max-width:none">
+        <b>🔑 Clés d'intégration</b>
+        <span class="help">Pour que d'autres systèmes (site, appli, Zapier, Make, n8n, Home Assistant, un autre serveur…) parlent à ton IA ou lancent ses missions.</span>
+        <div class="row" style="align-items:flex-end"><label>Nom<input id="kName" placeholder="Site Beach Tennis"></label>
+          <div class="checks" style="flex:1"><label><input type="checkbox" id="kChat" checked> discuter (chat)</label><label><input type="checkbox" id="kMissions"> lancer des missions</label></div>
+          <div style="flex:0"><button type="button" class="btn" id="kCreate">Créer</button></div></div>
+        <div id="kNew"></div>
+        <div class="grid" id="kList"></div>
+      </div>
+      <div class="card grid" style="max-width:none">
+        <b>🧩 Intégrer ton IA</b>
+        <span class="help">Bulle de discussion sur n'importe quel site : colle ce code avant <code>&lt;/body&gt;</code> (avec une clé « discuter »).</span>
+        <pre class="out" id="snipWidget"></pre>
+        <span class="help">Depuis un autre programme :</span>
+        <pre class="out" id="snipApi"></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="tasks">
+    <div class="grid">
+      <div class="row"><input id="tTitle" placeholder="Nouvelle tâche"><input id="tDue" type="date" style="flex:0 0 170px">
+        <select id="tPrio" style="flex:0 0 130px"><option>basse</option><option selected>normale</option><option>haute</option></select>
+        <div style="flex:0"><button class="btn" id="addT">Ajouter</button></div></div>
+      <div class="grid" id="tList"></div>
+    </div>
+  </section>
+
+  <section class="panel" id="convs"><div class="grid" id="cList"></div></section>
+
+  <section class="panel" id="data">
+    <div class="grid">
+      <div class="item"><div><b>Dataset d'entraînement (JSONL)</b><p class="help">Toutes les réponses notées 👍 ou corrigées, au format standard pour fine-tuner un modèle open-source (Unsloth / Colab gratuit).</p></div><button class="btn" id="exp">Exporter</button></div>
+      <div class="item" style="flex-direction:column;align-items:stretch"><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div><b>♻️ Sauvegarde automatique</b> <span class="tag" id="abTag"></span><p class="help" id="abInfo"></p></div>
+        <div><button class="btn" id="abRun">Sauvegarder maintenant</button></div></div>
+        <details class="steps" id="abHelp"><summary>Comment l'activer</summary><div style="font-family:inherit;color:var(--text);line-height:1.7">
+          1. Sur GitHub, crée un dépôt <b>privé</b> vide, par exemple <code>nova-memoire</code>.<br>
+          2. Crée un jeton : GitHub → Settings → Developer settings → Fine-grained tokens → « Only select repositories » : ce dépôt → permission « Contents : Read and write ».<br>
+          3. Chez ton hébergeur, ajoute deux variables d'environnement : <code>BACKUP_GITHUB_REPO</code> = <code>ton-pseudo/nova-memoire</code> et <code>BACKUP_GITHUB_TOKEN</code> = le jeton.<br>
+          4. Redémarre. La mémoire est alors enregistrée toute seule (chiffrée avec ton mot de passe admin) et rechargée à chaque redémarrage.<br>
+          ⚠️ Si tu changes <code>ADMIN_PASSWORD</code>, les anciennes sauvegardes ne pourront plus être relues.</div></details></div>
+      <div class="item"><div><b>Sauvegarde complète</b><p class="help">Les hébergeurs gratuits effacent parfois le disque : télécharge régulièrement une sauvegarde.</p></div><button class="btn" id="bak">Télécharger</button></div>
+      <div class="item"><div><b>Restaurer</b><p class="help">Recharge une sauvegarde .json (remplace les données actuelles).</p></div><input type="file" id="rest" accept=".json" style="max-width:240px"></div>
+    </div>
+  </section>
+</div>
+
+<div class="modal" id="login">
+  <form class="card" id="loginForm">
+    <h3 style="margin:0">Connexion admin</h3>
+    <input type="password" id="pwd" placeholder="Mot de passe admin" autocomplete="current-password">
+    <span class="err" id="loginErr"></span>
+    <button class="btn">Entrer</button>
+  </form>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let token = localStorage.getItem('token') || '';
+const H = () => ({ 'Content-Type': 'application/json', 'x-admin-token': token });
+const api = async (path, method = 'GET', body) => {
+  const r = await fetch('/api/admin/' + path, { method, headers: H(), body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 401) { $('login').classList.add('open'); throw new Error('401'); }
+  return r.json();
+};
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const date = (d) => d ? new Date(d).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '';
+function download(name, text, type = 'application/json') {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click();
+}
+
+document.querySelectorAll('#tabs button').forEach((b) => (b.onclick = () => {
+  document.querySelectorAll('#tabs button, .panel').forEach((x) => x.classList.remove('on'));
+  b.classList.add('on'); $(b.dataset.tab).classList.add('on'); load(b.dataset.tab);
+}));
+
+async function load(tab) {
+  if (tab === 'dash') {
+    const [k, l, t, c] = await Promise.all(['knowledge', 'lessons', 'tasks', 'conversations'].map((n) => api(n)));
+    const st = await (await fetch('/api/status', { headers: H() })).json();
+    $('stats').innerHTML = [['Fiches de connaissances', k.length], ['Leçons', l.length], ['Tâches ouvertes', t.filter((x) => !x.done).length], ['Conversations', c.length], ['Retours reçus', c.reduce((s, x) => s + x.feedback, 0)]]
+      .map(([n, v]) => `<div class="stat"><b>${v}</b><span class="help">${n}</span></div>`).join('') +
+      `<div class="stat"><b style="font-size:15px">🧠 ${esc(st.llm.smart || '—')}<br>⚡ ${esc(st.llm.fast || '—')}</b><span class="help">${st.llm.configured ? 'Modèles connectés' : '⚠️ Aucun modèle : onglet Modèles'}</span></div>` +
+      `<div class="stat"><b style="font-size:15px">${st.keepAwake?.active ? (st.keepAwake.lastError ? '⚠️ Éveil en échec' : '☀️ Toujours éveillée') : '🌙 Peut s\'endormir'}</b><span class="help">${st.keepAwake?.active ? (st.keepAwake.lastError ? esc(st.keepAwake.lastError) : st.keepAwake.lastOk ? 'Dernier signal : ' + date(st.keepAwake.lastOk) : 'Premier signal en cours…') : 'Maintien en éveil inactif (voir README)'}</span></div>`;
+  }
+  if (tab === 'models') {
+    models = await api('models');
+    const opts = (sel) => '<option value="">(automatique)</option>' + models.providers.map((p) => `<option value="${p.id}" ${sel === p.id ? 'selected' : ''}>${esc(p.name)} — ${esc(p.model)}</option>`).join('');
+    $('rSmart').innerHTML = opts(models.roles.smart); $('rFast').innerHTML = opts(models.roles.fast); $('rVision').innerHTML = opts(models.roles.vision);
+    $('rFallbacks').innerHTML = models.providers.map((p) => `<label><input type="checkbox" value="${p.id}" ${(models.roles.fallbacks || []).includes(p.id) ? 'checked' : ''}> ${esc(p.name)}</label>`).join('') || '<span class="help">—</span>';
+    $('mList').innerHTML = models.providers.map((p) => `<div class="item"><div><b>${esc(p.name)}</b> <span class="tag">${esc(p.model)}</span>
+        ${models.roles.smart === p.id ? '<span class="tag">🧠 puissant</span>' : ''}${models.roles.fast === p.id ? ' <span class="tag">⚡ rapide</span>' : ''}
+        <div class="meta">${esc(p.baseUrl)} · clé ${p.apiKey ? 'enregistrée' : 'absente'}${p.fromEnv ? ' · depuis .env' : ''}</div><div class="meta" id="t-${p.id}"></div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button class="btn ghost small" onclick="testModel('${p.id}')">Tester</button>
+        ${p.fromEnv ? '' : `<button class="btn ghost small" onclick="editModel('${p.id}')">Modifier</button><button class="btn ghost small" onclick="delModel('${p.id}')">Supprimer</button>`}</div></div>`).join('')
+      || '<p class="help">Aucun fournisseur. Commence par Google Gemini ou OpenRouter : clé gratuite en 1 minute.</p>';
+  }
+  if (tab === 'learning') {
+    const [st, props, journal, ms] = await Promise.all([api('settings'), api('proposals'), api('journal'), api('missions')]);
+    const l = st.learning || {};
+    $('lEnabled').checked = !!l.enabled; $('lTime').value = l.time || '03:00'; $('lInterests').value = l.interests || ''; $('lNotify').checked = l.notify !== false; $('lAutonomy').value = l.autonomy || 'propose'; $('lEvery').value = String(l.every || 'daily'); $('lTimeLbl').style.display = $('lEvery').value === 'daily' ? '' : 'none';
+    const lm = ms.find((x) => x.id === 'auto-learning');
+    const last = lm?.runs?.[0];
+    $('lMsg').textContent = lm?.running ? '⏳ Session en cours…' : last ? `Dernière session : ${date(last.startedAt)} (${last.status === 'ok' ? 'réussie' : 'erreur'})` : '';
+    const TYPES = { lesson: '📏 Règle', persona: '🎭 Personnalité', agent: '🤖 Nouvel agent', mission: '⏰ Mission' };
+    const pend = props.filter((x) => x.status === 'pending');
+    $('pCount').textContent = pend.length ? `(${pend.length} en attente)` : '';
+    $('pList').innerHTML = props.slice(0, 30).map((x) => `<div class="item" style="flex-direction:column;align-items:stretch">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><span class="tag">${TYPES[x.type]}</span> <b>${esc(x.title)}</b>
+        <div class="meta">${date(x.createdAt)} · ${{ pending: '⏳ en attente', approved: '✅ validée', rejected: '❌ refusée', auto: '🧠 appliquée en autonomie', reverted: '↩️ annulée' }[x.status]}</div></div>
+        ${['auto', 'approved'].includes(x.status) ? `<div><button class="btn ghost small" onclick="decide('${x.id}','revert')">Annuler ce changement</button></div>` : ''}
+        ${x.status === 'pending' ? `<div style="display:flex;gap:6px"><button class="btn small" onclick="decide('${x.id}','approve')">Valider</button><button class="btn ghost small" onclick="decide('${x.id}','reject')">Refuser</button></div>` : ''}</div>
+      <p><b>Pourquoi :</b> ${esc(x.reason)}</p><pre class="out" style="border:1px solid var(--border);border-radius:8px;margin-top:6px">${esc(x.content)}</pre></div>`).join('')
+      || '<p class="help">Aucune proposition pour l\'instant.</p>';
+    $('jList').innerHTML = journal.map((j) => `<div class="item"><div><div class="meta">${date(j.createdAt)}</div><p>${esc(j.text)}</p></div></div>`).join('')
+      || '<p class="help">Le journal se remplira après la première session.</p>';
+    if (lm?.running) setTimeout(() => $('learning').classList.contains('on') && load('learning'), 5000);
+  }
+  if (tab === 'persona') {
+    const p = await api('persona');
+    $('pName').value = p.name; $('pInstr').value = p.instructions; $('pTemp').value = p.temperature;
+  }
+  if (tab === 'knowledge') {
+    const list = await api('knowledge'); const f = $('kFilter').value.toLowerCase();
+    $('kList').innerHTML = list.filter((x) => !f || (x.title + x.content).toLowerCase().includes(f)).reverse().map((x) =>
+      `<div class="item"><div><b>${esc(x.title)}</b> ${x.origin === 'auto' ? '<span class="tag">🧠 appris seule</span>' : ''} <span class="meta">${esc(x.tags)} · ${date(x.createdAt)}</span><p>${esc(x.content.slice(0, 400))}${x.content.length > 400 ? '…' : ''}</p>${x.sources?.length ? `<div class="meta">Sources : ${x.sources.filter((u) => /^https?:\/\//i.test(u)).map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(u.replace(/^https?:\/\//, '').slice(0, 50))}</a>`).join(' · ')}</div>` : ''}</div>
+       <button class="btn ghost small" onclick="del('knowledge','${x.id}')">Supprimer</button></div>`).join('') || '<p class="help">Aucune connaissance pour l\'instant.</p>';
+  }
+  if (tab === 'lessons') {
+    const list = await api('lessons');
+    $('lList').innerHTML = list.slice().reverse().map((x) =>
+      `<div class="item"><div><p style="margin:0">${esc(x.text)}</p><span class="meta">${esc(x.source)} · ${date(x.createdAt)}</span></div>
+       <button class="btn ghost small" onclick="del('lessons','${x.id}')">Supprimer</button></div>`).join('') || '<p class="help">Aucune leçon. Ajoute-en une ou corrige une réponse dans le chat.</p>';
+  }
+  if (tab === 'projects') {
+    projects = await api('workspaces');
+    $('wList').innerHTML = projects.map((w) => `<div class="item"><div><b>${esc(w.name)}</b> <span class="tag">${{ git: 'Git', empty: 'Nouveau', folder: 'Dossier' }[w.type]}</span>
+        ${w.publicUrl ? `<span class="tag">🌍 en ligne</span>` : ''}
+        <div class="meta">${esc(w.repoUrl || w.folderPath || '')} ${w.branch ? '· ' + esc(w.branch) : ''}</div>
+        <div class="meta"><a href="${w.previewUrl}" target="_blank">Aperçu ↗</a>${w.publicUrl ? ` · <a href="${w.publicUrl}" target="_blank">Site public ↗</a>` : ''}</div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+        ${w.type === 'git' ? `<button class="btn ghost small" onclick="syncWs('${w.id}', this)">Synchroniser</button>` : ''}
+        ${w.publicUrl ? `<button class="btn ghost small" onclick="api('workspaces/${w.id}','PUT',{published:false}).then(()=>load('projects'))">Dépublier</button>` : ''}
+        <button class="btn ghost small" onclick="editWs('${w.id}')">Modifier</button>
+        <button class="btn ghost small" onclick="del('workspaces','${w.id}')">Supprimer</button></div></div>`).join('') || '<p class="help">Aucun projet.</p>';
+  }
+  if (tab === 'agents') {
+    if (!toolList.length) toolList = await api('tools');
+    agents = await api('agents');
+    if (!$('aTools').children.length) {
+      $('aTools').innerHTML = toolList.map((t) => `<label title="${esc(t.description)}"><input type="checkbox" value="${t.name}"> ${t.name}${t.kind === 'write' || t.kind === 'exec' ? ' ⚠' : ''}</label>`).join('');
+    }
+    $('aList').innerHTML = agents.map((a) => `<div class="item"><div><b>${esc(a.name)}</b> ${a.model ? `<span class="tag">${esc(a.model)}</span>` : ''}
+        <div class="meta">${esc(a.description)}</div><div class="meta">Outils : ${a.tools?.length ? a.tools.map(esc).join(', ') : 'tous'}</div></div>
+      <div style="display:flex;gap:6px"><button class="btn ghost small" onclick="editAgent('${a.id}')">Modifier</button>
+      <button class="btn ghost small" onclick="del('agents','${a.id}')">Supprimer</button></div></div>`).join('');
+  }
+  if (tab === 'missions') {
+    const [list, ags, wss] = await Promise.all([api('missions'), api('agents'), api('workspaces')]);
+    missionsList = list;
+    $('msAgent').innerHTML = '<option value="">Nova (générale)</option>' + ags.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
+    $('msWs').innerHTML = '<option value="">Aucun projet</option>' + wss.map((w) => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
+    $('msList').innerHTML = list.map((m) => {
+      const last = m.runs?.[0];
+      return `<div class="item" style="flex-direction:column;align-items:stretch"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <div><b>${esc(m.title)}</b> <span class="tag">${esc(m.scheduleText)}</span> ${m.enabled ? '' : '<span class="tag">⏸ en pause</span>'} ${m.running ? '<span class="tag">⏳ en cours</span>' : ''}
+          <div class="meta">${m.nextRun ? 'Prochaine : ' + date(m.nextRun) + ' · ' : ''}${m.mode === 'read' ? 'lecture seule' : 'peut agir'} · id ${m.id}</div></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ghost small" onclick="runMission('${m.id}')">▶ Lancer</button>
+          <button class="btn ghost small" onclick="toggleMission('${m.id}', ${!m.enabled})">${m.enabled ? 'Pause' : 'Activer'}</button>
+          <button class="btn ghost small" onclick="editMission('${m.id}')">Modifier</button><button class="btn ghost small" onclick="del('missions','${m.id}')">Supprimer</button></div></div>
+        ${(m.runs || []).slice(0, 5).map((r) => `<details class="steps" style="margin-top:8px"><summary>${r.status === 'ok' ? '✅' : r.status === 'running' ? '⏳' : '⚠️'} ${date(r.startedAt)} · ${esc(r.trigger)}${r.model ? ' · ' + esc(r.model) : ''}</summary>
+          <div style="white-space:pre-wrap;font-family:inherit;color:var(--text)">${esc(r.output)}${r.steps?.length ? `<div class="meta" style="margin-top:6px">Actions : ${r.steps.map(esc).join(', ')}</div>` : ''}</div></details>`).join('')}
+      </div>`;
+    }).join('') || '<p class="help">Aucune mission.</p>';
+    if (list.some((m) => m.running)) setTimeout(() => $('missions').classList.contains('on') && load('missions'), 4000);
+  }
+  if (tab === 'devices') {
+    devicesList = await api('devices');
+    const perm = { ask: '🔐 demande', auto: '✅ libre', off: '⛔ désactivé' };
+    $('dvList').innerHTML = devicesList.map((d) => `<div class="item"><div><b>${esc(d.name)}</b> <span class="tag">${{ homeassistant: 'Home Assistant', http: 'Web', command: 'Commande', remote: 'Distant' }[d.type]}</span> <span class="tag">${perm[d.permission]}</span>
+        ${d.type === 'remote' ? `<span class="tag">${d.online ? '🟢 en ligne' + (d.info?.host ? ' · ' + esc(d.info.host) : '') : '⚪ hors ligne'}</span>${d.allowShell ? ' <span class="tag">commandes libres</span>' : ''}` : ''}
+        <div class="meta">${esc(d.description)}</div>
+        <div class="meta">${d.type === 'homeassistant' ? esc(d.entities) : (d.actions || []).map((a) => esc(a.name) + (a.read ? ' (lecture)' : '')).join(', ')}</div>
+        <div class="meta" id="dt-${d.id}"></div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button class="btn ghost small" onclick="testDevice('${d.id}')">Lire l'état</button>
+        ${d.type === 'remote' ? `<button class="btn ghost small" onclick="newDeviceToken('${d.id}')">Nouveau jeton</button>` : ''}
+        <button class="btn ghost small" onclick="editDevice('${d.id}')">Modifier</button><button class="btn ghost small" onclick="del('devices','${d.id}')">Supprimer</button></div></div>`).join('') || '<p class="help">Aucun appareil.</p>';
+  }
+  if (tab === 'integrations') {
+    const [st, keys, mods] = await Promise.all([api('settings'), api('apikeys'), api('models')]);
+    const n = st.notify || {};
+    $('nTopic').value = n.ntfyTopic || ''; $('nServer').value = n.ntfyServer || ''; $('nTgToken').value = n.telegramToken || ''; $('nTgChat').value = n.telegramChatId || ''; $('nWebhook').value = n.webhookUrl || '';
+    $('vProv').innerHTML = '<option value="">Désactivée (navigateur uniquement)</option>' + mods.providers.map((x) => `<option value="${x.id}" ${st.voice?.sttProvider === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+    $('vModel').value = st.voice?.sttModel || '';
+    $('ghToken').value = st.github?.token || ''; $('ghRepos').value = st.github?.allowRepos || '';
+    $('qToken').value = st.quantum?.ibmToken || ''; $('qInstance').value = st.quantum?.ibmInstance || ''; $('qPython').value = st.quantum?.python || '';
+    $('kList').innerHTML = keys.map((k) => `<div class="item"><div><b>${esc(k.name)}</b> <code>${esc(k.prefix)}…</code> <span class="tag">${k.scopes.join(' + ')}</span>
+      <div class="meta">créée ${date(k.createdAt)}${k.lastUsed ? ' · utilisée ' + date(k.lastUsed) : ''}</div></div>
+      <button class="btn ghost small" onclick="del('apikeys','${k.id}')">Révoquer</button></div>`).join('');
+    const o = location.origin;
+    $('snipWidget').textContent = `<script src="${o}/widget.js" data-key="nova_…" data-title="Assistant" defer><\/script>`;
+    $('snipApi').textContent = `# Discuter\ncurl ${o}/api/v1/chat -H "Authorization: Bearer nova_…" -H "Content-Type: application/json" \\\n  -d '{"message":"Bonjour !","lang":"fr"}'\n\n# Lancer une mission (avec des données) — l'id est dans l'onglet Missions\ncurl -X POST "${o}/api/v1/missions/ID_MISSION/run" -H "Authorization: Bearer nova_…" \\\n  -d '{"commande": 1234, "client": "Sami"}'`;
+  }
+  if (tab === 'data') {
+    const b = await api('autobackup');
+    $('abTag').textContent = !b.configured ? 'non configurée' : b.restoreFailed ? '⚠️ suspendue' : b.lastError ? '⚠️ erreur' : '✅ active';
+    $('abInfo').textContent = !b.configured ? "Ta mémoire n'est pas protégée contre un redémarrage de l'hébergeur."
+      : `Dépôt ${b.repo} · au plus toutes les ${b.minutes} min, et à l'arrêt du serveur. ` +
+        (b.lastBackupAt ? `Dernière sauvegarde : ${date(b.lastBackupAt)}. ` : 'Aucune sauvegarde pour le moment. ') +
+        (b.lastRestoreAt ? `Mémoire restaurée au démarrage (${date(b.lastRestoreAt)}). ` : '') + (b.lastError ? `Erreur : ${b.lastError}` : '');
+    $('abRun').disabled = !b.configured; $('abHelp').open = !b.configured;
+    $('abRun').onclick = async () => {
+      $('abRun').textContent = '…';
+      const force = b.restoreFailed && confirm("La restauration a échoué au démarrage. Forcer la sauvegarde remplacera l'ancienne par la mémoire actuelle. Continuer ?");
+      const r = await api('autobackup', 'POST', { force });
+      $('abRun').textContent = 'Sauvegarder maintenant';
+      if (r.error) alert(r.error);
+      load('data');
+    };
+  }
+  if (tab === 'tasks') {
+    const list = await api('tasks');
+    const order = { haute: 0, normale: 1, basse: 2 };
+    list.sort((a, b) => a.done - b.done || order[a.priority] - order[b.priority] || String(a.due || '9').localeCompare(String(b.due || '9')));
+    $('tList').innerHTML = list.map((x) =>
+      `<div class="item" style="${x.done ? 'opacity:.55' : ''}"><label style="display:flex;gap:10px;align-items:center;flex:1">
+        <input type="checkbox" style="width:auto" ${x.done ? 'checked' : ''} onchange="api('tasks/${x.id}','PUT',{done:this.checked}).then(()=>load('tasks'))">
+        <div><b style="${x.done ? 'text-decoration:line-through' : ''}">${esc(x.title)}</b><div class="meta">priorité ${esc(x.priority)}${x.due ? ' · pour le ' + esc(x.due) : ''} · id ${x.id}</div></div></label>
+        <button class="btn ghost small" onclick="del('tasks','${x.id}')">Supprimer</button></div>`).join('') || '<p class="help">Aucune tâche. Demande à ton IA « ajoute … à mes tâches ».</p>';
+  }
+  if (tab === 'convs') {
+    const list = await api('conversations');
+    $('cList').innerHTML = list.map((x) =>
+      `<div class="item"><div><b>${esc(x.title)}</b><div class="meta">${x.count} messages · ${x.feedback} retours · ${date(x.updatedAt)}</div></div>
+       <div class="row" style="flex:0;flex-wrap:nowrap"><button class="btn ghost small" onclick="openConv('${x.id}')">Ouvrir</button>
+       <button class="btn ghost small" onclick="del('conversations','${x.id}')">Supprimer</button></div></div>`).join('') || '<p class="help">Aucune conversation.</p>';
+  }
+}
+window.del = async (res, id) => { if (confirm('Supprimer ?')) { await api(`${res}/${id}`, 'DELETE'); load({ conversations: 'convs', workspaces: 'projects', apikeys: 'integrations' }[res] || res); } };
+
+// ----- Modèles -----
+let models = { providers: [], roles: {} };
+$('mPreset').onchange = () => {
+  const [base, name, help] = $('mPreset').value.split('|');
+  if (!base) return;
+  $('mBase').value = base; if (!$('mName').value) $('mName').value = name;
+  if (base.includes('11434')) $('mKey').value = 'ollama';
+  $('mHelp').innerHTML = `Clé et liste des modèles : <a href="https://${help}" target="_blank">${help}</a>`;
+};
+function resetModel() { $('mForm').reset(); $('mId').value = ''; $('mTitle').textContent = 'Ajouter un fournisseur'; $('mSave').textContent = 'Ajouter'; $('mCancel').hidden = true; $('mHelp').textContent = ''; }
+$('mCancel').onclick = resetModel;
+const mData = () => ({ id: $('mId').value || undefined, name: $('mName').value, baseUrl: $('mBase').value, apiKey: $('mKey').value, model: $('mModel').value });
+$('mForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const r = await api('models' + ($('mId').value ? '/' + $('mId').value : ''), $('mId').value ? 'PUT' : 'POST', mData());
+  if (r.error) return ($('mMsg').textContent = '⚠️ ' + r.error);
+  $('mMsg').textContent = '✓ Enregistré'; resetModel(); load('models');
+};
+$('mTest').onclick = async () => {
+  $('mMsg').textContent = 'Test en cours…';
+  const r = await api('models/test', 'POST', mData());
+  $('mMsg').textContent = r.ok ? `✅ Fonctionne (${r.ms} ms) : « ${r.reply} »` : '❌ ' + r.error;
+};
+window.testModel = async (id) => {
+  $('t-' + id).textContent = 'Test en cours…';
+  const r = await api('models/test', 'POST', { id });
+  $('t-' + id).textContent = r.ok ? `✅ Fonctionne (${r.ms} ms)` : '❌ ' + r.error;
+};
+window.editModel = (id) => {
+  const p = models.providers.find((x) => x.id === id);
+  $('mId').value = id; $('mName').value = p.name; $('mBase').value = p.baseUrl; $('mKey').value = p.apiKey; $('mModel').value = p.model;
+  $('mTitle').textContent = 'Modifier ' + p.name; $('mSave').textContent = 'Enregistrer'; $('mCancel').hidden = false;
+  $('mForm').scrollIntoView({ behavior: 'smooth' });
+};
+window.delModel = async (id) => { if (confirm('Supprimer ce fournisseur ?')) { await api('models/' + id, 'DELETE'); load('models'); } };
+$('saveRoles').onclick = async () => {
+  const fallbacks = [...$('rFallbacks').querySelectorAll('input:checked')].map((c) => c.value);
+  await api('models/roles', 'PUT', { smart: $('rSmart').value, fast: $('rFast').value, vision: $('rVision').value, fallbacks });
+  $('rMsg').textContent = '✓ Enregistré'; setTimeout(() => ($('rMsg').textContent = ''), 2000); load('models');
+};
+
+// ----- Apprentissage -----
+const learningData = () => ({ learning: { enabled: $('lEnabled').checked, time: $('lTime').value, interests: $('lInterests').value.trim(), notify: $('lNotify').checked, autonomy: $('lAutonomy').value, every: $('lEvery').value } });
+$('lEvery').onchange = () => ($('lTimeLbl').style.display = $('lEvery').value === 'daily' ? '' : 'none');
+$('lSave').onclick = async () => { await api('settings', 'PUT', learningData()); $('lMsg').textContent = '✓ Enregistré'; };
+$('lRun').onclick = async () => {
+  await api('settings', 'PUT', learningData());
+  await api('missions/auto-learning/run', 'POST');
+  $('lMsg').textContent = '⏳ Session lancée : le compte rendu arrivera ici et en notification.';
+  setTimeout(() => load('learning'), 3000);
+};
+window.decide = async (id, action) => {
+  const r = await api(`proposals/${id}/${action}`, 'POST');
+  if (r.error) alert(r.error);
+  load('learning');
+};
+
+// ----- Missions -----
+let missionsList = [], devicesList = [];
+function msTypeUi() { const t = $('msType').value; document.querySelectorAll('[class*="sch-"]').forEach((e) => (e.style.display = e.classList.contains('sch-' + t) ? '' : 'none')); }
+$('msType').onchange = msTypeUi; msTypeUi();
+function resetMission() { $('msForm').reset(); $('msId').value = ''; $('msSave').textContent = 'Créer la mission'; $('msCancel').hidden = true; msTypeUi(); }
+$('msCancel').onclick = resetMission;
+$('msForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const type = $('msType').value;
+  const schedule = { type, time: $('msTime').value, day: Number($('msDay').value), minutes: Number($('msMinutes').value), at: $('msAt').value };
+  const data = { title: $('msTitle').value, instructions: $('msInstr').value, schedule, agentId: $('msAgent').value, workspaceId: $('msWs').value, mode: $('msMode').value, notifyOn: $('msNotify').value };
+  const r = await api('missions' + ($('msId').value ? '/' + $('msId').value : ''), $('msId').value ? 'PUT' : 'POST', data);
+  if (r.error) return alert(r.error);
+  resetMission(); load('missions');
+};
+window.editMission = (id) => {
+  const m = missionsList.find((x) => x.id === id);
+  $('msId').value = id; $('msTitle').value = m.title; $('msInstr').value = m.instructions; $('msType').value = m.schedule?.type || 'manual';
+  $('msTime').value = m.schedule?.time || '08:00'; $('msDay').value = m.schedule?.day ?? 1; $('msMinutes').value = m.schedule?.minutes || 60; $('msAt').value = m.schedule?.at || '';
+  $('msAgent').value = m.agentId || ''; $('msWs').value = m.workspaceId || ''; $('msMode').value = m.mode; $('msNotify').value = m.notifyOn;
+  $('msSave').textContent = 'Enregistrer'; $('msCancel').hidden = false; msTypeUi(); $('msForm').scrollIntoView({ behavior: 'smooth' });
+};
+window.runMission = async (id) => { await api(`missions/${id}/run`, 'POST'); setTimeout(() => load('missions'), 800); };
+window.toggleMission = async (id, enabled) => { await api('missions/' + id, 'PUT', { ...missionsList.find((x) => x.id === id), enabled }); load('missions'); };
+
+// ----- Appareils -----
+function dvTypeUi() { const t = $('dvType').value; document.querySelectorAll('[class*="dvt-"]').forEach((e) => (e.style.display = e.classList.contains('dvt-' + t) ? '' : 'none')); renderActionRows(); }
+$('dvType').onchange = dvTypeUi;
+let actionRows = [];
+function renderActionRows() {
+  const cmd = ['command', 'remote'].includes($('dvType').value);
+  $('dvActions').innerHTML = actionRows.map((a, i) => `<div class="row" style="align-items:center;border:1px solid var(--border);border-radius:10px;padding:8px">
+    <input placeholder="nom (ex : allumer)" value="${esc(a.name)}" oninput="actionRows[${i}].name=this.value" style="flex:1">
+    ${cmd ? `<input placeholder="commande (ex : gpio write 17 1)" value="${esc(a.command)}" oninput="actionRows[${i}].command=this.value" style="flex:3">`
+      : `<select onchange="actionRows[${i}].method=this.value" style="flex:0 0 90px">${['GET', 'POST', 'PUT'].map((mt) => `<option ${a.method === mt ? 'selected' : ''}>${mt}</option>`).join('')}</select>
+      <input placeholder="http://192.168.1.50/relay/0?turn=on" value="${esc(a.url)}" oninput="actionRows[${i}].url=this.value" style="flex:3">
+      <input placeholder='corps JSON (optionnel)' value="${esc(a.body)}" oninput="actionRows[${i}].body=this.value" style="flex:2">`}
+    <input placeholder="description" value="${esc(a.description)}" oninput="actionRows[${i}].description=this.value" style="flex:2">
+    <label style="flex:0;display:flex;gap:4px;align-items:center;white-space:nowrap"><input type="checkbox" style="width:auto" ${a.read ? 'checked' : ''} onchange="actionRows[${i}].read=this.checked"> lecture</label>
+    <button type="button" class="btn ghost small" style="flex:0" onclick="actionRows.splice(${i},1);renderActionRows()">✕</button></div>`).join('');
+}
+$('dvAddAction').onclick = () => { actionRows.push({ name: '', method: 'GET', url: '', body: '', command: '', description: '', read: false }); renderActionRows(); };
+function resetDevice() { $('dvForm').reset(); $('dvId').value = ''; actionRows = []; $('dvSave').textContent = "Ajouter l'appareil"; $('dvCancel').hidden = true; dvTypeUi(); }
+$('dvCancel').onclick = resetDevice; dvTypeUi();
+$('dvForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const data = { name: $('dvName').value, description: $('dvDesc').value, type: $('dvType').value, permission: $('dvPerm').value,
+    haUrl: $('dvHaUrl').value, haToken: $('dvHaToken').value, entities: $('dvEntities').value, actions: actionRows, allowShell: $('dvShell').checked };
+  const r = await api('devices' + ($('dvId').value ? '/' + $('dvId').value : ''), $('dvId').value ? 'PUT' : 'POST', data);
+  if (r.error) return alert(r.error);
+  resetDevice(); load('devices');
+  if (r.token) showDeviceToken(r);
+};
+window.editDevice = (id) => {
+  const d = devicesList.find((x) => x.id === id);
+  $('dvId').value = id; $('dvName').value = d.name; $('dvDesc').value = d.description; $('dvType').value = d.type; $('dvPerm').value = d.permission;
+  $('dvHaUrl').value = d.haUrl || ''; $('dvHaToken').value = d.haToken || ''; $('dvEntities').value = d.entities || ''; $('dvShell').checked = !!d.allowShell;
+  actionRows = (d.actions || []).map((a) => ({ ...a })); dvTypeUi();
+  $('dvSave').textContent = 'Enregistrer'; $('dvCancel').hidden = false; $('dvForm').scrollIntoView({ behavior: 'smooth' });
+};
+function showDeviceToken(r) {
+  $('dvToken').innerHTML = `<div class="approval"><b>Sur l'appareil « ${esc(r.name)} », installe Node.js puis lance ces deux commandes (le jeton ne sera plus affiché) :</b>
+    <pre class="out">curl -O ${location.origin}/nova-agent.mjs\nnode nova-agent.mjs ${location.origin} ${esc(r.token)}</pre>
+    <span class="help">Pour qu'il reste actif en permanence, lance-le au démarrage de l'appareil (service systemd, pm2, tâche planifiée Windows).</span></div>`;
+  $('dvToken').scrollIntoView({ behavior: 'smooth' });
+}
+window.newDeviceToken = async (id) => {
+  if (!confirm("Créer un nouveau jeton ? L'ancien ne fonctionnera plus.")) return;
+  const d = devicesList.find((x) => x.id === id);
+  showDeviceToken(await api(`devices/${id}/token`, 'PUT', d));
+};
+window.testDevice = async (id) => { $('dt-' + id).textContent = 'Lecture…'; const r = await api(`devices/${id}/test`, 'POST'); $('dt-' + id).textContent = (r.ok ? '✅ ' : '❌ ') + r.output; };
+
+// ----- Intégrations -----
+const notifyData = () => ({ notify: { ntfyTopic: $('nTopic').value.trim(), ntfyServer: $('nServer').value.trim(), telegramToken: $('nTgToken').value.trim(), telegramChatId: $('nTgChat').value.trim(), webhookUrl: $('nWebhook').value.trim() } });
+$('nSave').onclick = async () => { await api('settings', 'PUT', notifyData()); $('nMsg').textContent = '✓ Enregistré'; };
+$('nTest').onclick = async () => {
+  await api('settings', 'PUT', notifyData());
+  const r = await api('settings/test-notify', 'POST');
+  $('nMsg').textContent = r.sent.length ? `✅ Envoyé via ${r.sent.join(', ')}` : '❌ ' + (r.errors.join(', ') || 'aucun canal configuré');
+};
+$('nTgDetect').onclick = async () => {
+  await api('settings', 'PUT', notifyData());
+  $('nMsg').textContent = 'Recherche…';
+  const r = await api('settings/telegram-detect', 'POST');
+  if (r.error) return ($('nMsg').textContent = '❌ ' + r.error);
+  $('nTgChat').value = r.chatId;
+  $('nMsg').textContent = `✅ Trouvé${r.name ? ' : ' + r.name : ''}. Clique « Envoyer un test ».`;
+};
+$('vSave').onclick = async () => { await api('settings', 'PUT', { voice: { sttProvider: $('vProv').value, sttModel: $('vModel').value.trim() } }); $('vMsg').textContent = '✓ Enregistré'; };
+$('ghSave').onclick = async () => {
+  const token = $('ghToken').value.trim();
+  await api('settings', 'PUT', { github: { token: token === '••••••' ? undefined : token, allowRepos: $('ghRepos').value.trim() } });
+  $('ghMsg').textContent = '✓ Enregistré. Nova peut maintenant accéder à GitHub.';
+};
+$('qSave').onclick = async () => { await api('settings', 'PUT', { quantum: { ibmToken: $('qToken').value.trim(), ibmInstance: $('qInstance').value.trim(), python: $('qPython').value.trim() } }); $('qMsg').textContent = '✓ Enregistré'; };
+$('kCreate').onclick = async () => {
+  const scopes = [$('kChat').checked && 'chat', $('kMissions').checked && 'missions'].filter(Boolean);
+  if (!scopes.length) return alert('Choisis au moins une permission');
+  const r = await api('apikeys', 'POST', { name: $('kName').value || 'Intégration', scopes });
+  $('kNew').innerHTML = `<div class="approval"><b>Copie cette clé maintenant, elle ne sera plus jamais affichée :</b><pre class="out">${esc(r.key)}</pre></div>`;
+  $('kName').value = ''; load('integrations');
+};
+
+// ----- Projets -----
+let projects = [], agents = [], toolList = [];
+function wsTypeUi() {
+  const t = $('wType').value;
+  document.querySelectorAll('.t-git').forEach((e) => (e.style.display = t === 'git' ? '' : 'none'));
+  document.querySelectorAll('.t-folder').forEach((e) => (e.style.display = t === 'folder' ? '' : 'none'));
+}
+$('wType').onchange = wsTypeUi; wsTypeUi();
+const wFields = { wName: 'name', wRepo: 'repoUrl', wBranch: 'branch', wToken: 'token', wFolder: 'folderPath', wPreview: 'previewDir', wHook: 'deployHook', wCmd: 'deployCommand', wSecrets: 'secrets' };
+function resetWs() { $('wsForm').reset(); $('wId').value = ''; $('wType').disabled = false; $('wSave').textContent = 'Ajouter le projet'; $('wCancel').hidden = true; wsTypeUi(); }
+window.editWs = (id) => {
+  const w = projects.find((x) => x.id === id);
+  for (const [el, k] of Object.entries(wFields)) $(el).value = w[k] || '';
+  $('wId').value = id; $('wType').value = w.type; $('wType').disabled = true;
+  $('wSave').textContent = 'Enregistrer'; $('wCancel').hidden = false; wsTypeUi(); $('wsForm').scrollIntoView({ behavior: 'smooth' });
+};
+$('wCancel').onclick = resetWs;
+$('wsForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const data = { type: $('wType').value };
+  for (const [el, k] of Object.entries(wFields)) data[k] = $(el).value.trim();
+  $('wSave').disabled = true; $('wMsg').textContent = $('wId').value ? 'Enregistrement…' : 'Création (clonage du dépôt si besoin)…';
+  try {
+    const r = await api('workspaces' + ($('wId').value ? '/' + $('wId').value : ''), $('wId').value ? 'PUT' : 'POST', data);
+    $('wMsg').textContent = r.error ? '⚠️ ' + r.error : '✓ Fait'; if (!r.error) resetWs();
+  } catch { /* 401 */ }
+  $('wSave').disabled = false; load('projects');
+};
+window.syncWs = async (id, btn) => { btn.textContent = '…'; const r = await api(`workspaces/${id}/sync`, 'POST'); alert(r.output || r.error); load('projects'); };
+
+// ----- Agents -----
+function resetAgent() { $('agForm').reset(); $('aId').value = ''; $('aSave').textContent = "Créer l'agent"; $('aCancel').hidden = true; }
+window.editAgent = (id) => {
+  const a = agents.find((x) => x.id === id);
+  $('aId').value = id; $('aName').value = a.name; $('aModel').value = a.model || ''; $('aDesc').value = a.description || ''; $('aInstr').value = a.instructions;
+  $('aTools').querySelectorAll('input').forEach((c) => (c.checked = (a.tools || []).includes(c.value)));
+  $('aSave').textContent = 'Enregistrer'; $('aCancel').hidden = false; $('agForm').scrollIntoView({ behavior: 'smooth' });
+};
+$('aCancel').onclick = resetAgent;
+$('agForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const tools = [...$('aTools').querySelectorAll('input:checked')].map((c) => c.value);
+  const data = { name: $('aName').value, model: $('aModel').value, description: $('aDesc').value, instructions: $('aInstr').value, tools };
+  const r = await api('agents' + ($('aId').value ? '/' + $('aId').value : ''), $('aId').value ? 'PUT' : 'POST', data);
+  if (r.error) return alert(r.error);
+  resetAgent(); load('agents');
+};
+window.openConv = (id) => { location.href = id === 'main' ? '/' : '/?c=' + encodeURIComponent(id); };
+
+$('savePersona').onclick = async () => {
+  await api('persona', 'PUT', { name: $('pName').value, instructions: $('pInstr').value, temperature: Number($('pTemp').value) });
+  $('pSaved').textContent = 'Enregistré ✓'; setTimeout(() => ($('pSaved').textContent = ''), 2000);
+};
+$('addK').onclick = async () => {
+  if (!$('kTitle').value || !$('kContent').value) return alert('Titre et contenu requis');
+  await api('knowledge', 'POST', { title: $('kTitle').value, tags: $('kTags').value, content: $('kContent').value });
+  $('kTitle').value = $('kTags').value = $('kContent').value = ''; load('knowledge');
+};
+$('kFile').onchange = async (e) => {
+  for (const f of e.target.files) await api('knowledge', 'POST', { title: f.name.replace(/\.\w+$/, ''), content: await f.text(), tags: 'fichier' });
+  e.target.value = ''; load('knowledge');
+};
+$('kFilter').oninput = () => load('knowledge');
+$('addL').onclick = async () => { if ($('lText').value) { await api('lessons', 'POST', { text: $('lText').value }); $('lText').value = ''; load('lessons'); } };
+$('addT').onclick = async () => { if ($('tTitle').value) { await api('tasks', 'POST', { title: $('tTitle').value, due: $('tDue').value, priority: $('tPrio').value }); $('tTitle').value = ''; load('tasks'); } };
+$('exp').onclick = async () => { const r = await fetch('/api/admin/export', { headers: H() }); const t = await r.text(); if (!t) return alert('Pas encore de réponses notées 👍 ou corrigées.'); download('dataset.jsonl', t, 'application/jsonl'); };
+$('bak').onclick = async () => download(`sauvegarde-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(await api('backup'), null, 2));
+$('rest').onchange = async (e) => { if (confirm('Remplacer les données actuelles ?')) { await api('restore', 'POST', JSON.parse(await e.target.files[0].text())); alert('Restauré ✓'); load('dash'); } };
+$('logout').onclick = async () => { await fetch('/api/logout'); localStorage.removeItem('token'); location.reload(); };
+$('loginForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const r = await fetch('/api/login', { method: 'POST', headers: H(), body: JSON.stringify({ password: $('pwd').value }) });
+  const j = await r.json();
+  if (!r.ok) return ($('loginErr').textContent = j.error);
+  token = j.token; localStorage.setItem('token', token); $('login').classList.remove('open'); init();
+};
+async function init() {
+  const st = await (await fetch('/api/status', { headers: H() })).json();
+  $('aiName').textContent = st.name;
+  if (!st.admin) return $('login').classList.add('open');
+  load('dash');
+}
+init();
+</script>
+</body>
+</html>

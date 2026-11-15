@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mon IA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&display=swap">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#04060c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Nova">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="/core3d.js"></script>
+</head>
+<body>
+<div class="app">
+  <main class="main">
+    <div class="topbar"><b class="ai-name">Mon IA</b><span class="who" id="who"></span><a href="/admin" class="admin-link" id="adminLink">Réglages ⚙</a></div>
+    <div class="core-mini" id="coreMini"></div>
+    <div class="thread" id="thread"><div class="inner" id="inner"></div></div>
+    <div class="composer">
+      <div class="attachments" id="attachments"></div>
+      <form class="box" id="form">
+        <button type="button" class="btn ghost mic" id="attachBtn" title="Joindre des fichiers (images, PDF, Word, Excel, code…)">📎</button>
+        <button type="button" class="btn ghost mic" id="shotBtn" title="Capture d'écran">📸</button>
+        <input type="file" id="fileInput" multiple hidden accept="image/*,.pdf,.docx,.pptx,.xlsx,.txt,.md,.csv,.json,.html,.css,.js,.ts,.py,.java,.c,.cpp,.cs,.go,.rs,.php,.rb,.sh,.sql,.yaml,.yml,.xml,.log">
+        <textarea id="input" rows="1" placeholder="Écris ton message…" title="Tu peux aussi coller une capture d'écran (Ctrl+V) ou glisser un fichier"></textarea>
+        <button type="button" class="btn ghost mic" id="mic" title="Parler (micro)">🎙</button>
+        <button class="btn" id="send" title="Envoyer">➤</button>
+      </form>
+      <div class="toolbar" id="toolbar">
+        <label title="Langue (texte et voix)">🌐 <select id="langSel">
+          <option value="auto">Auto</option><option value="fr">Français</option><option value="en">English</option><option value="tn">Tounsi</option>
+        </select></label>
+        <button type="button" class="chip-btn" id="ttsBtn" title="Lire les réponses à voix haute">🔈 Voix</button>
+        <button type="button" class="chip-btn" id="convBtn" title="Conversation vocale mains libres">🗣 Conversation</button>
+        <button type="button" class="chip-btn" id="voiceCfgBtn" title="Choisir les voix">⚙</button>
+        <label title="Qui répond" id="agentLbl">🤖 <select id="agentSel"></select></label>
+        <label title="Niveau d'intelligence" id="tierLbl">🧠 <select id="tierSel">
+          <option value="auto">Auto</option>
+          <option value="smart">Puissant</option>
+          <option value="deep" class="admin-only">Profond (multi-pistes)</option>
+          <option value="fast">Rapide</option>
+        </select></label>
+        <label title="Projet auquel l'IA a accès" class="admin-only">📁 <select id="wsSel"></select></label>
+        <label title="Permissions" class="admin-only">🔐 <select id="modeSel">
+          <option value="ask">Demander avant de modifier</option>
+          <option value="auto">Auto (tout autoriser)</option>
+          <option value="read">Lecture seule</option>
+        </select></label>
+        <a id="previewLink" class="admin-only" target="_blank" hidden>Aperçu du site ↗</a>
+      </div>
+      <div class="hint" id="hint"></div>
+    </div>
+  </main>
+</div>
+
+<div class="modal" id="voiceCfg">
+  <div class="card" style="max-width:460px">
+    <h3 style="margin:0">Voix</h3>
+    <span class="help">Choisis une voix pour chaque langue. Les voix disponibles dépendent de ton navigateur :
+      Microsoft Edge propose des voix naturelles, dont des voix arabes de Tunisie ; Chrome propose les voix Google.</span>
+    <label>Français<select id="vFr"></select></label>
+    <label>English<select id="vEn"></select></label>
+    <label>Tounsi<select id="vTn"></select></label>
+    <label>Vitesse <input type="range" id="vRate" min="0.7" max="1.4" step="0.05"></label>
+    <label>Reconnaissance vocale<select id="vStt">
+      <option value="auto">Automatique</option><option value="browser">Navigateur</option><option value="server">Serveur (Whisper)</option>
+    </select></label>
+    <div style="display:flex;gap:8px"><button type="button" class="btn" id="vTest">Tester</button><button type="button" class="btn ghost" id="vClose">Fermer</button></div>
+  </div>
+</div>
+
+<div class="modal" id="login">
+  <form class="card" id="loginForm">
+    <h3 style="margin:0">Connexion</h3>
+    <span class="help">Cette IA est privée. Entre le mot de passe admin.</span>
+    <input type="password" id="pwd" placeholder="Mot de passe" autocomplete="current-password">
+    <span class="err" id="loginErr"></span>
+    <button class="btn">Entrer</button>
+  </form>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let token = localStorage.getItem('token') || '';
+const params = new URLSearchParams(location.search);
+const EMBED = params.get('embed') === '1';
+const KEY = params.get('key') || '';
+if (EMBED) document.body.classList.add('embed');
+let status = {};
+let convId = null;
+let busy = false;
+let controller = null;
+const pref = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch { return null; } };
+// Une seule conversation continue : celle de l'admin est gardée sur le serveur (la même sur tous ses appareils),
+// celle d'un visiteur est retrouvée grâce à son navigateur. « ?c=… » ouvre une conversation précise (depuis l'admin).
+const headers = () => ({ 'Content-Type': 'application/json', 'x-admin-token': token, ...(KEY ? { 'x-api-key': KEY } : {}) });
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+marked.setOptions({ breaks: true });
+function md(text) {
+  const div = document.createElement('div');
+  div.innerHTML = DOMPurify.sanitize(marked.parse(text || ''));
+  div.querySelectorAll('pre code').forEach((el) => {
+    hljs.highlightElement(el);
+    const b = document.createElement('button');
+    b.className = 'copy'; b.type = 'button'; b.textContent = 'Copier';
+    b.onclick = () => { navigator.clipboard.writeText(el.innerText); b.textContent = 'Copié ✓'; setTimeout(() => (b.textContent = 'Copier'), 1500); };
+    el.parentElement.appendChild(b);
+  });
+  return div;
+}
+
+async function init() {
+  status = await (await fetch('/api/status', { headers: headers() })).json();
+  document.querySelectorAll('.ai-name').forEach((e) => (e.textContent = status.name));
+  document.title = status.name;
+  $('who').textContent = status.admin ? 'Admin' : '';
+  document.querySelectorAll('.admin-only').forEach((e) => (e.style.display = status.admin ? '' : 'none'));
+  const l = status.llm;
+  $('hint').textContent = `${status.name} peut se tromper. ` + (l.configured ? `🧠 ${l.smart}` + (l.fast && l.fast !== l.smart ? ` · ⚡ ${l.fast}` : '') : '⚠️ Aucun modèle configuré (Admin → Modèles)');
+  $('agentSel').innerHTML = `<option value="">${esc(status.name)} (générale)</option>` + status.agents.map((a) => `<option value="${a.id}" title="${esc(a.description)}">${esc(a.name)}</option>`).join('');
+  $('wsSel').innerHTML = '<option value="">Aucun projet</option>' + status.workspaces.map((w) => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
+  $('agentSel').value = pref('agent') || ''; $('tierSel').value = pref('tier') || 'auto'; $('wsSel').value = pref('ws') || ''; $('modeSel').value = pref('mode') || 'ask';
+  if ($('agentSel').selectedIndex < 0) $('agentSel').value = '';
+  if ($('wsSel').selectedIndex < 0) $('wsSel').value = '';
+  updatePreview();
+  if (!status.publicChat && !status.admin && !EMBED) $('login').classList.add('open');
+  $('langSel').value = pref('lang') || 'auto';
+  setTts(pref('tts') === '1');
+  $('adminLink').style.display = EMBED ? 'none' : '';
+  convId = params.get('c') || (status.admin ? 'main' : pref('conv')) || null;
+  if (!convId || !(await openConv(convId))) { if (!status.admin) convId = null; empty(); }
+}
+function updatePreview() {
+  const w = status.workspaces?.find((x) => x.id === $('wsSel').value);
+  $('previewLink').hidden = !w;
+  if (w) { $('previewLink').href = w.previewUrl; $('previewLink').textContent = w.publicUrl ? 'Aperçu ↗ · en ligne' : 'Aperçu du site ↗'; }
+}
+$('agentSel').onchange = () => pref('agent', $('agentSel').value);
+$('tierSel').onchange = () => pref('tier', $('tierSel').value);
+$('wsSel').onchange = () => { pref('ws', $('wsSel').value); updatePreview(); };
+$('modeSel').onchange = () => pref('mode', $('modeSel').value);
+
+let showingEmpty = false;
+function empty() {
+  showingEmpty = true;
+  const chips = status.admin
+    ? ['Analyse mon projet et propose 5 améliorations', 'Crée une page « Contact » avec un formulaire moderne', "Crée un agent « Rédacteur SEO » qui optimise les textes d'un site", 'Mets le site en ligne']
+    : ['Écris une fonction Python qui trie une liste de dictionnaires par date', "Quelles sont les dernières nouvelles sur l'intelligence artificielle ?", 'Organise ma semaine : 3 projets, 2 rendez-vous et du sport'];
+  $('inner').innerHTML = `<div class="empty"><div class="core-hero" id="coreHero"></div>
+    <div class="status-line">Système en ligne</div>
+    <h1>${esc(status.name)}</h1><div class="help">Test de déploiement Nova</div>
+    <div class="chips">${chips.map((c) => `<button type="button">${esc(c)}</button>`).join('')}</div></div>`;
+  $('inner').querySelectorAll('.chips button').forEach((b) => (b.onclick = () => { $('input').value = b.textContent; send(); }));
+  placeCore();
+}
+
+// Le noyau 3D : grand sur l'accueil, petit dans le coin pendant une conversation.
+function placeCore() {
+  const hero = $('coreHero');
+  (hero || $('coreMini')).appendChild(NovaCore.el);
+  $('coreMini').classList.toggle('show', !hero);
+}
+const coreState = (s) => window.NovaCore?.setState(s);
+
+async function openConv(id, all = false) {
+  const r = await fetch('/api/conversations/' + id + (all ? '?all=1' : ''), { headers: headers() });
+  if (!r.ok) return false;
+  const c = await r.json();
+  if (!c.messages.length) return false;
+  convId = id; showingEmpty = false;
+  $('inner').innerHTML = ''; placeCore();
+  if (c.offset > 0) {
+    const more = document.createElement('button');
+    more.type = 'button'; more.className = 'chip-btn older'; more.textContent = `↑ Afficher les ${c.offset} messages plus anciens`;
+    more.onclick = () => openConv(id, true);
+    $('inner').appendChild(more);
+  }
+  c.messages.forEach((m, k) => {
+    const i = k + c.offset; // position réelle du message dans la conversation
+    if (m.role === 'user') return addUser(m.content, m.files || []);
+    const a = addAssistant();
+    if (m.steps?.length) {
+      const d = document.createElement('details'); d.className = 'steps';
+      d.innerHTML = `<summary>${m.steps.length} action(s) effectuée(s)</summary><div>${m.steps.map(esc).join('<br>')}</div>`;
+      a.flow.appendChild(d);
+    }
+    a.text(m.content);
+    if (m.model) a.model({ name: m.model });
+    addActions(a.el, i, m.feedback, m.content);
+  });
+  scroll();
+  return true;
+}
+
+function addUser(content, files = []) {
+  const el = document.createElement('div');
+  el.className = 'msg user';
+  if (files.length) {
+    const box = document.createElement('div');
+    box.className = 'msg-files';
+    box.innerHTML = files.map((f) => f.kind === 'image'
+      ? `<a href="/api/uploads/${f.id}${KEY ? '?key=' + encodeURIComponent(KEY) : ''}" target="_blank"><img src="/api/uploads/${f.id}${KEY ? '?key=' + encodeURIComponent(KEY) : ''}" alt="${esc(f.name)}"></a>`
+      : `<span class="file-chip">${f.kind === 'pdf' ? '📕' : '📄'} ${esc(f.name)}</span>`).join('');
+    el.appendChild(box);
+  }
+  if (content) { const b = document.createElement('div'); b.className = 'bubble'; b.textContent = content; el.appendChild(b); }
+  $('inner').appendChild(el);
+}
+
+// Un message de l'IA = une suite de blocs : texte, actions (outils), plan, demandes de validation.
+function addAssistant() {
+  const el = document.createElement('div');
+  el.className = 'msg assistant';
+  const flow = document.createElement('div');
+  flow.className = 'bubble flow';
+  el.appendChild(flow);
+  $('inner').appendChild(el);
+  let seg = null, segText = '', planEl = null, modelEl = null;
+  const tools = {};
+  return {
+    el, flow,
+    token(t) {
+      if (!seg) { seg = document.createElement('div'); seg.className = 'seg'; flow.appendChild(seg); segText = ''; }
+      segText += t; seg.replaceChildren(md(segText));
+    },
+    text(t) { seg = null; this.token(t); },
+    tool(e) {
+      if (e.name === 'update_plan') return; // affiché comme une liste à cocher
+      seg = null;
+      const d = document.createElement('details');
+      d.className = 'action running';
+      d.innerHTML = `<summary><span class="dot"></span><b>${esc(e.agent ? `[${e.agent}] ` : '')}${esc(label(e.name))}</b> <code>${esc(argSummary(e.name, e.args))}</code></summary><pre class="out">${esc(argDetail(e.name, e.args))}</pre>`;
+      flow.appendChild(d); tools[e.id] = d;
+    },
+    model(e) {
+      if (e.agent) return;
+      if (!modelEl) { modelEl = document.createElement('div'); modelEl.className = 'model-tag'; el.prepend(modelEl); }
+      modelEl.textContent = ({ fast: '⚡ ', smart: '🧠 ', vision: '👁 ' }[e.tier] || '') + e.name;
+    },
+    notice(text) {
+      // Message d'attente discret (quota du modèle…), effacé dès que la réponse reprend.
+      let n = el.querySelector('.notice');
+      if (!text) return n?.remove();
+      if (!n) { n = document.createElement('div'); n.className = 'notice'; el.appendChild(n); }
+      n.textContent = '⏳ ' + text;
+    },
+    toolResult(e) {
+      const d = tools[e.id]; if (!d) return;
+      d.classList.remove('running'); d.classList.add(e.ok ? 'ok' : 'fail');
+      d.querySelector('.out').textContent += (d.querySelector('.out').textContent ? '\n\n── Résultat ──\n' : '') + e.output;
+    },
+    plan(steps) {
+      if (!planEl) { planEl = document.createElement('div'); planEl.className = 'plan'; flow.appendChild(planEl); }
+      seg = null;
+      planEl.innerHTML = '<b>Plan</b>' + steps.map((s) => `<div class="step ${s.status}">${s.status === 'done' ? '☑' : s.status === 'doing' ? '▶' : '☐'} ${esc(s.text)}</div>`).join('');
+    },
+    approval(e) {
+      seg = null;
+      const box = document.createElement('div');
+      box.className = 'approval';
+      box.innerHTML = `<div><b>🔐 ${esc(e.agent ? `[${e.agent}] ` : '')}Autoriser : ${esc(label(e.name))} ?</b></div>
+        <pre class="out">${esc(argDetail(e.name, e.args, true))}</pre>
+        <div class="row" style="flex-wrap:wrap"><button type="button" class="btn small" data-a="1">Autoriser</button>
+        ${e.name === 'control_device' ? '' : '<button type="button" class="btn ghost small" data-a="forever">Toujours autoriser cette action</button>'}
+        <button type="button" class="btn ghost small" data-a="always">Tout autoriser pour cette réponse</button>
+        <button type="button" class="btn ghost small" data-a="0">Refuser</button></div>`;
+      box.querySelectorAll('button').forEach((b) => (b.onclick = async () => {
+        const allow = b.dataset.a !== '0';
+        await fetch('/api/approve', { method: 'POST', headers: headers(), body: JSON.stringify({ id: e.id, allow, always: b.dataset.a === 'always', forever: b.dataset.a === 'forever' }) });
+        box.innerHTML = b.dataset.a === 'forever' ? '✅ Autorisé pour toujours (dis « retire cette autorisation » pour l\'annuler)' : allow ? '✅ Autorisé' : '⛔ Refusé'; box.classList.add('done');
+      }));
+      flow.appendChild(box); scroll();
+    },
+  };
+}
+
+const LABELS = { web_search: '🔎 Recherche web', read_page: '📄 Lecture de page', search_knowledge: '🧠 Mémoire', add_task: '✅ Ajout de tâche', list_tasks: '📋 Tâches',
+  complete_task: '✔️ Tâche terminée', explore_path: '🌌 Piste de réflexion', get_settings: '⚙️ Lecture de mes réglages', self_check: '🩺 Auto-diagnostic', read_logs: '📜 Lecture du journal',
+  update_settings: '⚙️ Modification de mes réglages', manage_model: '🧠 Gestion des modèles', create_integration_key: '🔑 Création d\'une clé', manage_device: '🏠 Gestion d\'un appareil',
+  manage_mission: '⏰ Gestion d\'une mission', manage_project: '📁 Gestion d\'un projet', backup_now: '♻️ Sauvegarde', manage_permissions: '🔐 Autorisations', load_tools: '🧰 Activation d\'outils', quantum_simulate: '⚛️ Simulation quantique', quantum_run_ibm: '⚛️ Ordinateur quantique IBM', quantum_ibm_result: '⚛️ Résultat IBM', read_document: '📕 Lecture du document', learn: '🧠 Apprentissage', ask_other_ai: '🤝 Avis d\'autres IA',
+  propose_improvement: '💡 Proposition', journal_entry: '📓 Journal', review_recent_activity: '🔁 Bilan', list_learned: '📚 Acquis',
+  schedule_mission: '⏰ Mission programmée', list_missions: '⏰ Missions', notify_admin: '🔔 Notification', list_devices: '🏠 Appareils', read_device: '🌡 Lecture appareil', control_device: '🎛 Contrôle appareil', remember: '💾 Mémorisation', list_files: '📂 Fichiers', read_file: '👁 Lecture', search_code: '🔍 Recherche dans le code',
+  write_file: '📝 Écriture', edit_file: '✏️ Modification', delete_file: '🗑 Suppression', run_command: '⌨️ Commande', git_status: '🌿 Git status', git_diff: '🌿 Git diff',
+  git_commit_push: '🚀 Commit + push', deploy: '🌍 Mise en ligne', update_plan: '🗒 Plan', think: '💭 Réflexion', call_agent: '🤖 Délégation', create_agent: '✨ Création d\'agent' };
+const label = (n) => LABELS[n] || n;
+function argSummary(name, a) {
+  if (name === 'call_agent') return `${a.agent} : ${String(a.task || '').slice(0, 60)}`;
+  if (name === 'update_plan' || name === 'think') return '';
+  return String(a.path || a.query || a.command || a.title || a.name || a.url || a.message || a.pattern || a.build_command || '').slice(0, 90);
+}
+function argDetail(name, a, full) {
+  if (name === 'edit_file') return `${a.path}\n${String(a.old_string).split('\n').map((l) => '- ' + l).join('\n')}\n${String(a.new_string).split('\n').map((l) => '+ ' + l).join('\n')}`;
+  if (name === 'write_file') { const lines = String(a.content || '').split('\n'); return `${a.path} (${lines.length} lignes)\n` + (full ? lines.slice(0, 60).join('\n') + (lines.length > 60 ? '\n…' : '') : ''); }
+  if (name === 'run_command') return '$ ' + a.command;
+  if (['update_settings', 'manage_model', 'manage_device', 'manage_project'].includes(name)) {
+    // Les secrets ne sont pas affichés en clair dans la carte d'autorisation.
+    return JSON.stringify(a, (k, v) => (/key|token|secret|password/i.test(k) && v ? '••••••' : v), 2);
+  }
+  if (name === 'create_agent') return `${a.name} — ${a.description || ''}\nOutils : ${(a.tools || []).join(', ') || 'tous'}\n\n${a.instructions}`;
+  if (name === 'call_agent') return a.task;
+  if (name === 'think') return a.thought;
+  if (name === 'update_plan') return '';
+  return full ? JSON.stringify(a, null, 2) : '';
+}
+
+function addActions(el, index, feedback, content) {
+  const bar = document.createElement('div');
+  bar.className = 'actions';
+  const up = Object.assign(document.createElement('button'), { textContent: '👍', title: 'Bonne réponse', type: 'button' });
+  const down = Object.assign(document.createElement('button'), { textContent: '👎', title: 'Mauvaise réponse', type: 'button' });
+  const copy = Object.assign(document.createElement('button'), { textContent: 'Copier', type: 'button' });
+  if (feedback?.rating === 'up') up.classList.add('on');
+  if (feedback?.rating === 'down') down.classList.add('on');
+  bar.append(up, down, copy);
+  const corr = document.createElement('div');
+  corr.className = 'correction';
+  if (status.admin) {
+    const fix = Object.assign(document.createElement('button'), { textContent: '✎ Corriger (apprendre)', type: 'button' });
+    bar.appendChild(fix);
+    corr.innerHTML = `<textarea rows="4" placeholder="Écris la bonne réponse : ${esc(status.name)} la retiendra pour toujours."></textarea>
+      <div><button type="button" class="btn small">Enseigner cette correction</button></div>`;
+    corr.querySelector('textarea').value = feedback?.correction || '';
+    fix.onclick = () => corr.classList.toggle('open');
+    corr.querySelector('button').onclick = async () => {
+      await rate(index, 'down', corr.querySelector('textarea').value);
+      corr.classList.remove('open'); fix.textContent = '✓ Leçon enregistrée';
+    };
+  }
+  up.onclick = () => { rate(index, 'up'); up.classList.add('on'); down.classList.remove('on'); };
+  down.onclick = () => { rate(index, 'down'); down.classList.add('on'); up.classList.remove('on'); if (status.admin) corr.classList.add('open'); };
+  copy.onclick = () => { navigator.clipboard.writeText(content); copy.textContent = 'Copié ✓'; };
+  el.append(bar, corr);
+}
+
+const rate = (index, rating, correction) => fetch('/api/feedback', { method: 'POST', headers: headers(), body: JSON.stringify({ conversationId: convId, index, rating, correction }) });
+const nearBottom = () => $('thread').scrollHeight - $('thread').scrollTop - $('thread').clientHeight < 150;
+const scroll = () => ($('thread').scrollTop = $('thread').scrollHeight);
+
+async function send(viaVoice = false) {
+  const text = $('input').value.trim();
+  if ((!text && !pending.length) || busy) return;
+  if (pending.some((f) => f.uploading)) return alert('Patiente, un fichier est encore en cours d\'envoi.');
+  const sentFiles = pending.splice(0);
+  renderPending();
+  if (showingEmpty) { $('inner').innerHTML = ''; showingEmpty = false; }
+  placeCore(); coreState('thinking');
+  busy = true; setBusy(true); $('input').value = ''; autosize();
+  addUser(text, sentFiles);
+  const a = addAssistant();
+  a.el.classList.add('cursor');
+  scroll();
+  let full = '';
+  let done = null;
+  controller = new AbortController();
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST', headers: headers(), signal: controller.signal,
+      body: JSON.stringify({ conversationId: convId, message: text, agentId: $('agentSel').value, workspaceId: $('wsSel').value, mode: $('modeSel').value, tier: $('tierSel').value, lang: $('langSel').value, voice: viaVoice || convMode, files: sentFiles.map((f) => f.id) }),
+    });
+    if (!res.ok) throw new Error((await res.json()).error);
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { value, done: end } = await reader.read();
+      if (end) break;
+      buf += dec.decode(value, { stream: true });
+      const events = buf.split('\n\n'); buf = events.pop();
+      for (const ev of events) {
+        if (!ev.startsWith('data:')) continue;
+        const e = JSON.parse(ev.slice(5));
+        const stick = nearBottom();
+        if (e.type === 'start') {
+          convId = e.conversationId;
+          if (!status.admin) pref('conv', convId); // le visiteur retrouvera sa conversation à sa prochaine visite
+        }
+        if (e.type === 'token') { full += e.text; a.token(e.text); a.notice(''); }
+        if (e.type === 'notice') a.notice(e.text);
+        if (e.type === 'tool') a.tool(e);
+        if (e.type === 'tool_result') a.toolResult(e);
+        if (e.type === 'plan') a.plan(e.steps);
+        if (e.type === 'model') a.model(e);
+        if (e.type === 'approval') a.approval(e);
+        if (e.type === 'error') a.text(`> ⚠️ Erreur : ${e.message}`);
+        if (e.type === 'done') done = e;
+        if (stick) scroll();
+      }
+    }
+  } catch (err) {
+    a.text(err.name === 'AbortError' ? '_(interrompu)_' : '⚠️ ' + err.message);
+  }
+  a.el.classList.remove('cursor'); a.notice('');
+  a.flow.querySelectorAll('.action.running').forEach((d) => d.classList.remove('running'));
+  if (done) addActions(a.el, done.index, null, full);
+  busy = false; setBusy(false); coreState('idle');
+  if (!convMode) $('input').focus();
+  if ((ttsOn || convMode) && full.trim()) speak(full, () => { if (convMode) listen(); });
+  else if (convMode) listen();
+}
+
+// ===================== Pièces jointes =====================
+const pending = [];
+function renderPending() {
+  $('attachments').innerHTML = pending.map((f, i) => `<span class="file-chip ${f.uploading ? 'loading' : ''}">
+    ${f.preview ? `<img src="${f.preview}" alt="">` : f.kind === 'pdf' ? '📕' : '📄'} ${esc(f.name)}${f.uploading ? ' …' : f.chars ? ` <small>(${Math.round(f.chars / 1000)}k car.)</small>` : ''}
+    <button type="button" onclick="pending.splice(${i},1);renderPending()" title="Retirer">✕</button></span>`).join('');
+}
+window.pending = pending; window.renderPending = renderPending;
+async function addFile(file) {
+  if (file.size > 20e6) return alert(`${file.name} : trop volumineux (20 Mo max).`);
+  const item = { name: file.name, uploading: true, kind: file.type.startsWith('image/') ? 'image' : /\.pdf$/i.test(file.name) ? 'pdf' : 'doc', preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : null };
+  pending.push(item); renderPending();
+  try {
+    const r = await fetch('/api/upload', { method: 'POST', headers: { ...headers(), 'Content-Type': file.type || 'application/octet-stream', 'x-file-name': encodeURIComponent(file.name) }, body: file });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error);
+    Object.assign(item, j, { uploading: false });
+  } catch (e) {
+    pending.splice(pending.indexOf(item), 1);
+    alert(`${file.name} : ${e.message}`);
+  }
+  renderPending();
+}
+$('attachBtn').onclick = () => $('fileInput').click();
+$('fileInput').onchange = (e) => { [...e.target.files].forEach(addFile); e.target.value = ''; };
+$('input').addEventListener('paste', (e) => {
+  const imgs = [...(e.clipboardData?.files || [])];
+  if (imgs.length) { e.preventDefault(); imgs.forEach((f, i) => addFile(new File([f], f.name && f.name !== 'image.png' ? f.name : `capture-${Date.now()}-${i}.png`, { type: f.type }))); }
+});
+['dragover', 'drop'].forEach((ev) => document.querySelector('.main').addEventListener(ev, (e) => {
+  e.preventDefault();
+  if (ev === 'drop') [...(e.dataTransfer?.files || [])].forEach(addFile);
+}));
+$('shotBtn').onclick = async () => {
+  // Capture d'écran : tu choisis l'écran, la fenêtre ou l'onglet à partager, une image est prise.
+  if (!navigator.mediaDevices?.getDisplayMedia) return alert('La capture d\'écran n\'est pas disponible ici. Fais une capture avec ton système puis colle-la (Ctrl+V).');
+  let stream;
+  try { stream = await navigator.mediaDevices.getDisplayMedia({ video: true }); } catch { return; }
+  const video = document.createElement('video');
+  video.srcObject = stream; video.muted = true; await video.play();
+  await new Promise((r) => setTimeout(r, 300));
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  stream.getTracks().forEach((t) => t.stop());
+  canvas.toBlob((b) => addFile(new File([b], `capture-ecran-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.png`, { type: 'image/png' })), 'image/png');
+};
+
+// ===================== Voix =====================
+const LANG_CODES = { fr: 'fr-FR', en: 'en-US', tn: 'ar-TN' };
+let ttsOn = false, convMode = false, listening = null;
+const vpref = () => { try { return JSON.parse(pref('voices') || '{}'); } catch { return {}; } };
+
+function detectLang(text) {
+  const forced = $('langSel').value;
+  if (forced !== 'auto') return forced;
+  if (/[\u0600-\u06FF]/.test(text)) return 'tn';
+  const count = (re) => (text.match(re) || []).length;
+  const en = count(/\b(the|and|is|are|you|to|of|it|that|for|with|this|what|how)\b/gi);
+  const fr = count(/\b(le|la|les|et|est|vous|tu|de|des|un|une|pour|avec|que|qui|pas)\b/gi);
+  const tn = count(/\b(chnowa|chnoua|kifech|barcha|behi|tawa|famma|mta3|yezzi|brabi|3aslema|ena|enti|nheb|mouch|bech|zeda|chwaya)\b/gi);
+  if (tn && tn * 2 >= Math.max(en, fr)) return 'tn-latin';
+  return en > fr ? 'en' : 'fr';
+}
+function pickVoice(lang) {
+  const voices = speechSynthesis.getVoices();
+  const chosen = vpref()[lang === 'tn-latin' ? 'tn' : lang];
+  const byName = voices.find((v) => v.name === chosen);
+  if (byName) return byName;
+  if (lang === 'tn-latin') lang = 'fr'; // derja en lettres latines : lue avec une voix française
+  const code = LANG_CODES[lang] || 'fr-FR';
+  const good = (v) => /natural|online|google|neural/i.test(v.name);
+  const exact = voices.filter((v) => v.lang.replace('_', '-').toLowerCase() === code.toLowerCase());
+  const family = voices.filter((v) => v.lang.toLowerCase().startsWith(code.slice(0, 2).toLowerCase()));
+  return exact.find(good) || exact[0] || family.find(good) || family[0] || null;
+}
+function speakable(md) {
+  return md.replace(/```[\s\S]*?```/g, ' (code affiché à l\'écran) ').replace(/`([^`]+)`/g, '$1')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/https?:\/\/\S+/g, 'lien')
+    .replace(/^[#>\-*+|]+\s*/gm, '').replace(/[*_~#|]/g, '').replace(/\n{2,}/g, '. ').trim();
+}
+function speak(text, onEnd) {
+  if (!('speechSynthesis' in window)) return onEnd?.();
+  speechSynthesis.cancel();
+  const lang = detectLang(text);
+  const voice = pickVoice(lang);
+  // Les longs textes sont découpés en phrases (certains navigateurs coupent au-delà de ~200 caractères).
+  const parts = speakable(text).match(/[^.!?؟\n]+[.!?؟]*\s*/g) || [];
+  const chunks = [];
+  for (const part of parts) { if (chunks.length && (chunks.at(-1) + part).length < 220) chunks[chunks.length - 1] += part; else chunks.push(part); }
+  if (!chunks.length) return onEnd?.();
+  chunks.forEach((c, i) => {
+    const u = new SpeechSynthesisUtterance(c);
+    if (voice) { u.voice = voice; u.lang = voice.lang; } else u.lang = LANG_CODES[lang] || 'fr-FR';
+    u.rate = Number(vpref().rate) || 1;
+    if (i === chunks.length - 1) { u.onend = u.onerror = () => { coreState(busy ? 'thinking' : 'idle'); onEnd?.(); }; }
+    if (i === 0) u.onstart = () => coreState('speaking');
+    speechSynthesis.speak(u);
+  });
+}
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+function sttMode() {
+  const m = vpref().stt || 'auto';
+  if (m === 'server' && status.serverStt) return 'server';
+  if (m === 'browser' && SR) return 'browser';
+  return SR ? 'browser' : status.serverStt ? 'server' : null;
+}
+function setMic(on) { $('mic').classList.toggle('on', on); $('mic').textContent = on ? '⏺' : '🎙'; coreState(on ? 'listening' : busy ? 'thinking' : 'idle'); }
+function listen() {
+  if (listening || busy) return;
+  const mode = sttMode();
+  if (!mode) { alert('La reconnaissance vocale n\'est pas disponible dans ce navigateur. Utilise Chrome ou Edge, ou configure la transcription serveur (Admin → Intégrations).'); setConv(false); return; }
+  speechSynthesis?.cancel();
+  return mode === 'browser' ? listenBrowser() : listenServer();
+}
+function stopListening() { listening?.stop(); }
+
+function listenBrowser() {
+  const rec = new SR();
+  const l = $('langSel').value;
+  rec.lang = LANG_CODES[l] || (navigator.language?.startsWith('en') ? 'en-US' : 'fr-FR');
+  rec.interimResults = true;
+  let finalText = '';
+  rec.onresult = (e) => {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) finalText += e.results[i][0].transcript; else interim += e.results[i][0].transcript;
+    }
+    $('input').value = (finalText + interim).trim(); autosize();
+  };
+  rec.onend = () => {
+    listening = null; setMic(false);
+    if (finalText.trim()) { $('input').value = finalText.trim(); send(true); }
+    else if (convMode) setTimeout(listen, 300);
+  };
+  rec.onerror = (e) => { if (e.error === 'not-allowed') { alert('Autorise le micro pour parler à l\'IA.'); setConv(false); } };
+  listening = rec; setMic(true); rec.start();
+}
+
+async function listenServer() {
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { alert('Autorise le micro pour parler à l\'IA.'); setConv(false); return; }
+  const recorder = new MediaRecorder(stream);
+  const chunks = [];
+  recorder.ondataavailable = (e) => chunks.push(e.data);
+  // Arrêt automatique après ~1,5 s de silence (une fois que tu as commencé à parler).
+  const ctx = new AudioContext();
+  const analyser = ctx.createAnalyser();
+  ctx.createMediaStreamSource(stream).connect(analyser);
+  const data = new Uint8Array(analyser.fftSize);
+  let spoke = false, silentSince = Date.now();
+  const timer = setInterval(() => {
+    analyser.getByteTimeDomainData(data);
+    const rms = Math.sqrt(data.reduce((s, v) => s + (v - 128) ** 2, 0) / data.length);
+    if (rms > 6) { spoke = true; silentSince = Date.now(); }
+    if ((spoke && Date.now() - silentSince > 1500) || Date.now() - silentSince > 15000) recorder.stop();
+  }, 100);
+  recorder.onstop = async () => {
+    clearInterval(timer); stream.getTracks().forEach((t) => t.stop()); ctx.close();
+    listening = null; setMic(false);
+    if (!spoke) { if (convMode) setTimeout(listen, 300); return; }
+    $('input').placeholder = 'Transcription…';
+    const blob = new Blob(chunks, { type: recorder.mimeType });
+    const r = await fetch('/api/transcribe?lang=' + $('langSel').value, { method: 'POST', headers: { ...headers(), 'Content-Type': blob.type }, body: blob });
+    const j = await r.json();
+    $('input').placeholder = 'Écris ton message…';
+    if (j.text?.trim()) { $('input').value = j.text.trim(); send(true); }
+    else if (j.error) alert(j.error);
+    else if (convMode) listen();
+  };
+  listening = recorder; setMic(true); recorder.start();
+}
+
+function setTts(on) { if (!on) coreState(busy ? 'thinking' : 'idle'); ttsOn = on; pref('tts', on ? '1' : '0'); $('ttsBtn').classList.toggle('on', on); $('ttsBtn').textContent = on ? '🔊 Voix' : '🔈 Voix'; if (!on) speechSynthesis?.cancel(); }
+function setConv(on) {
+  convMode = on; $('convBtn').classList.toggle('on', on);
+  if (on) { listen(); } else { stopListening(); speechSynthesis?.cancel(); }
+}
+$('ttsBtn').onclick = () => setTts(!ttsOn);
+$('convBtn').onclick = () => setConv(!convMode);
+$('mic').onclick = () => (listening ? stopListening() : listen());
+$('langSel').onchange = () => pref('lang', $('langSel').value);
+
+function fillVoices() {
+  const voices = speechSynthesis.getVoices();
+  const p = vpref();
+  const opts = (prefix, val) => '<option value="">(automatique)</option>' + voices
+    .filter((v) => v.lang.toLowerCase().startsWith(prefix)).map((v) => `<option ${v.name === val ? 'selected' : ''}>${esc(v.name)}</option>`).join('');
+  $('vFr').innerHTML = opts('fr', p.fr); $('vEn').innerHTML = opts('en', p.en); $('vTn').innerHTML = opts('ar', p.tn);
+  $('vRate').value = p.rate || 1; $('vStt').value = p.stt || 'auto';
+}
+const saveVoices = () => pref('voices', JSON.stringify({ fr: $('vFr').value, en: $('vEn').value, tn: $('vTn').value, rate: $('vRate').value, stt: $('vStt').value }));
+['vFr', 'vEn', 'vTn', 'vRate', 'vStt'].forEach((id) => ($(id).onchange = saveVoices));
+$('voiceCfgBtn').onclick = () => { fillVoices(); $('voiceCfg').classList.add('open'); };
+$('vClose').onclick = () => $('voiceCfg').classList.remove('open');
+$('vTest').onclick = () => {
+  const samples = { fr: 'Bonjour ! Je suis ton assistante. Comment puis-je t\'aider ?', en: "Hi there! I'm your assistant. How can I help you today?", tn: 'عسلامة! أنا المساعدة متاعك. شنوة نجم نعاونك؟' };
+  const l = $('langSel').value === 'auto' ? 'fr' : $('langSel').value;
+  speak(samples[l]);
+};
+if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = () => { if ($('voiceCfg').classList.contains('open')) fillVoices(); };
+function setBusy(on) { $('send').textContent = on ? '■' : '➤'; $('send').title = on ? 'Arrêter' : 'Envoyer'; }
+
+function autosize() { const i = $('input'); i.style.height = 'auto'; i.style.height = Math.min(i.scrollHeight, 200) + 'px'; }
+$('input').addEventListener('input', autosize);
+$('input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+$('form').onsubmit = (e) => { e.preventDefault(); if (busy) controller?.abort(); else send(); };
+$('loginForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const r = await fetch('/api/login', { method: 'POST', headers: headers(), body: JSON.stringify({ password: $('pwd').value }) });
+  const j = await r.json();
+  if (!r.ok) return ($('loginErr').textContent = j.error);
+  token = j.token; pref('token', token); $('login').classList.remove('open'); init();
+};
+init();
+</script>
+</body>
+</html>
