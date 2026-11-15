@@ -1,6 +1,13 @@
+import crypto from 'node:crypto';
 // Démarrage : crée les deux agents d'apprentissage et leurs sessions séparées, sans toucher à la conversation principale
 // ni au projet Bizerte beach tennis. Idempotent : ne recrée rien qui existe déjà.
 import { load, save, now } from './store.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+// Agents, tâches et faits migrés depuis le projet Five Pro (généré depuis le dépôt Cinq).
+const CINQ = JSON.parse(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'cinq-agents.json'), 'utf8'));
 
 const SESSIONS = [
   { id: 'session-modele', title: "Session : apprentissage du modèle d'IA" },
@@ -56,6 +63,26 @@ export function seedLearningSessions() {
   const knowledge = load('knowledge');
   for (const k of KNOWLEDGE) {
     if (!knowledge.some((x) => x.id === k.id)) knowledge.push({ ...k, tags: 'nova,historique', origin: 'seed', sources: [], createdAt: now() });
+  }
+  save('knowledge');
+
+  // Migration Five Pro : chaque élément n'est ajouté qu'une fois ; ce que l'admin a modifié est conservé.
+  const agents2 = load('agents');
+  for (const a of CINQ.agents) {
+    if (!agents2.some((x) => x.id === a.id)) agents2.push({ ...a, createdAt: now() });
+  }
+  save('agents');
+
+  const missions = load('missions');
+  for (const m of CINQ.missions) {
+    if (!missions.some((x) => x.id === m.id)) missions.push({ ...m, runs: [], createdAt: now(), nextRun: null });
+  }
+  save('missions');
+
+  const kb = load('knowledge');
+  for (const k of CINQ.knowledge) {
+    const id = 'cinq-' + crypto.createHash('sha1').update(k.title).digest('hex').slice(0, 16);
+    if (!kb.some((x) => x.id === id)) kb.push({ id, title: k.title, content: k.content, tags: 'five-pro,fiche', origin: 'cinq', sources: [], createdAt: now() });
   }
   save('knowledge');
 }
