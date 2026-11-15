@@ -91,6 +91,11 @@ async function selfCheck() {
     : b.restoreFailed ? `❌ Sauvegarde suspendue : ${b.lastError}` : b.lastError ? `⚠️ Sauvegarde : ${b.lastError}` : `✅ Sauvegarde active (dernière : ${b.lastBackupAt || 'pas encore'}).`);
   const k = runtime.keepAwake;
   out.push(!k?.url ? '⚠️ Maintien en éveil inactif : je peux être endormie par l\'hébergeur.' : k.lastError ? `❌ Maintien en éveil en échec : ${k.lastError}` : `✅ Maintien en éveil actif (dernier signal : ${k.lastOk || 'en attente'}).`);
+  const mailSmtp = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+  const mailImap = !!(process.env.IMAP_HOST && process.env.IMAP_USER && process.env.IMAP_PASS);
+  out.push(`${mailSmtp ? '✅' : '⚠️'} Envoi d'emails (SMTP) : ${mailSmtp ? 'configuré' : 'non configuré (SMTP_HOST, SMTP_USER, SMTP_PASS manquent)'}.`);
+  out.push(`${mailImap ? '✅' : '⚠️'} Lecture de la boîte (IMAP) : ${mailImap ? 'configurée' : 'non configurée (IMAP_HOST, IMAP_USER, IMAP_PASS manquent)'}.`);
+  out.push(`ℹ️ Version déployée : ${process.env.RENDER_GIT_COMMIT ? process.env.RENDER_GIT_COMMIT.slice(0, 7) : 'inconnue'}. Outils disponibles pour toi : ${(ctx => ctx)('').length >= 0 ? 'voir get_settings' : ''}`);
   const l = load('settings').learning || {};
   const lm = load('missions').find((m) => m.id === LEARNING_MISSION_ID);
   out.push(!l.enabled ? 'ℹ️ Auto-apprentissage désactivé.' : `✅ Auto-apprentissage actif (${describeSchedule(lm?.schedule)}). Dernière session : ${lm?.runs?.[0] ? `${lm.runs[0].status} le ${lm.runs[0].startedAt}` : 'aucune'}.`);
