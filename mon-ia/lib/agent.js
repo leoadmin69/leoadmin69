@@ -170,6 +170,14 @@ export function availableTools({ agent, ctx }) {
 }
 
 // Principes communs à toutes les IA de la plateforme (en plus de la personnalité réglée par l'admin).
+// Actions à faible risque : Nova les fait sans demander. Tout ce qui touche à l'argent, aux secrets, à la mise en ligne
+// (envoi, fusion, déploiement), aux appareils ou à des tiers reste soumis à l'accord de l'admin.
+export const DEFAULT_ALWAYS = ['update_settings', 'edit_file', 'write_file', 'delete_file', 'backup_now', 'self_check', 'read_logs', 'manage_permissions', 'manage_mission', 'update_plan'];
+export const isAlwaysAllowed = (name) => {
+  const saved = load('settings').permissions?.always;
+  return (saved || DEFAULT_ALWAYS).includes(name);
+};
+
 const PRINCIPLES = `## Principes (toujours)
 - Exactitude avant tout : n'invente jamais un fait, une source, un fichier, un résultat de commande ou de test. Si tu n'es pas sûr, vérifie avec un outil ou dis clairement que tu ne sais pas.
 - Comprends la vraie demande. S'il manque une information indispensable que tu ne peux pas deviner raisonnablement, pose UNE question précise. Sinon, agis avec des choix sensés et signale-les brièvement.
@@ -177,6 +185,8 @@ const PRINCIPLES = `## Principes (toujours)
 - Va à l'essentiel. Structure (titres, listes, tableaux) seulement quand ça aide la lecture. Le code que tu donnes est complet et fonctionnel, dans des blocs \`\`\`langage.
 - Sois honnête sur tes limites et tes échecs : si une commande échoue ou qu'un test rate, dis-le et explique, ne prétends jamais que ça marche.
 - Ne fais pas ce qu'on ne t'a pas demandé (pas de modifications « bonus » non sollicitées), mais signale ce qui te paraît important.
+- Agis, ne demande pas. Quand l'admin te demande quelque chose, fais-le avec tes outils dans CE tour : cherche (search_code, list_files, gh_search_code, get_settings…), lis, modifie. Ne demande jamais une information que tu peux trouver toi-même (où est un fichier, quelle est la structure du projet, quel est un identifiant). Ne réponds jamais « dis-moi où… » ou « envoie-moi… » sans avoir d'abord cherché.
+- Ne demande l'accord que pour l'action sensible elle-même (publier, envoyer, fusionner, déployer, dépenser, toucher un appareil ou un secret). Le reste, tu le fais.
 - Ne dis jamais « je ne peux pas accéder » sans avoir essayé. Avant de conclure, enchaîne les alternatives : une autre source publique, une recherche web, l'outil adapté (read_page, search_code, read_document…), un fichier que l'admin peut joindre, ou un autre de tes outils.
 - Quand une tâche exige une connexion (compte, jeton, page privée) : n'essaie jamais de contourner une authentification. Dis ce qui manque, en UNE phrase, et donne la marche exacte : « Exporte la conversation et joins le fichier » ou « Crée un jeton avec la permission X et colle-le dans une conversation avec l'outil de réglages (manage_*) ». Puis continue tout de suite le reste du travail qui ne dépend pas de ce point.
 - Tu fais tout ce que tes outils permettent. Tu ne te contentes pas d'expliquer ce que l'admin pourrait faire lui-même : tu le fais, en demandant seulement l'autorisation pour les actions sensibles.`;
@@ -415,8 +425,8 @@ export async function runAgent({ agent, history, ctx }) {
         const sim = await simulateOutcomes(`${tool.name} ${JSON.stringify(args).slice(0, 400)}`, query.slice(0, 500)).catch(() => null);
         if (sim) ctx.emit({ type: 'tool_result', id, ok: true, output: `🔮 Issues anticipées : ${sim.recommendation}. ${sim.reason || ''}\n` + (sim.outcomes || []).map((o) => `• ${Math.round((o.p || 0) * 100)} % ${o.name} (dommage : ${o.damage})`).join('\n') });
       }
-      const always = load('settings').permissions?.always || [];
-      if (ctx.perm.mode !== 'auto' && ['write', 'exec'].includes(tool.kind) && !always.includes(tool.name)) {
+      const always = []; // voir isAlwaysAllowed() ci-dessous
+      if (ctx.perm.mode !== 'auto' && ['write', 'exec'].includes(tool.kind) && !isAlwaysAllowed(tool.name)) {
         const allowed = await ctx.approve({ name: tool.name, args, agent: ctx.agentName });
         if (!allowed) throw new Error("L'admin a refusé cette action. Ne la refais pas ; demande-lui comment il veut procéder.");
       }
