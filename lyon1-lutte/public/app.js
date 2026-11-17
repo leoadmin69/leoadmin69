@@ -530,9 +530,10 @@ async function viewChat() {
     <div class="chat">
       <div class="chat-head"><h1 class="large-title" style="margin:8px 0 2px">Chat anonyme</h1></div>
       <div class="tabs-inline" id="chans">${chans.map((c) => `<button data-c="${esc(c.id)}" class="${c.id === state.chatChannel ? 'on' : ''}"># ${esc(c.name)}</button>`).join('')}</div>
-      <div class="notice">🕶️ Pas de compte, pas d’email. Tu es <b>${esc(nick())}</b> · <a href="#" id="renick">changer</a>. Ne donne jamais ton nom, ton numéro étudiant ni d’info qui t’identifie. ${ch ? esc(ch.description) : ''}</div>
+      <div class="notice">🕶️ Pas de compte, pas d’email. Tu es <b>${esc(nick())}</b> · <a href="#" id="renick">changer</a> · <a href="#" id="charte">📜 charte</a>. Ne donne jamais ton nom, ton numéro étudiant ni d’info qui t’identifie. ${ch ? esc(ch.description) : ''}</div>
       <div class="msgs" id="msgs"><div class="empty faint mono">chargement…</div></div>
-      <form class="composer" id="composer">
+      ${charterOk() ? '' : charterHtml(true)}
+      <form class="composer" id="composer" ${charterOk() ? '' : 'hidden'}>
         <textarea id="text" rows="1" maxlength="600" placeholder="Message dans #${esc(ch?.name || '')}" aria-label="Message"></textarea>
         <button type="submit" aria-label="Envoyer">${icon('send', 20)}</button>
       </form>
@@ -541,20 +542,40 @@ async function viewChat() {
   $('#renick').onclick = (e) => {
     e.preventDefault();
     sheet(`<h3>Ton pseudo</h3><form class="form" id="nf"><div class="field"><input type="text" id="nn" maxlength="24" value="${esc(nick())}"></div><p class="faint small">2 à 24 caractères. Évite ton vrai nom.</p><button class="btn">Valider</button></form>`, (root, close) => {
-      $('#nf', root).onsubmit = (ev) => { ev.preventDefault(); const v = $('#nn', root).value.trim(); if (v.length >= 2) { store.set('l1-nick', v); close(); render(true); } };
+      $('#nf', root).onsubmit = (ev) => { ev.preventDefault(); const v = $('#nn', root).value.trim(); if (findBannedLocal(v)) { toast('Ce pseudo contient un mot interdit par la charte.'); return; } if (v.length >= 2) { store.set('l1-nick', v); close(); render(true); } };
     });
   };
+  $('#charte').onclick = (e) => { e.preventDefault(); sheet(charterHtml(false)); };
+  if ($('#charter-ok')) {
+    $('#charter-chk').onchange = () => { $('#charter-ok').disabled = !$('#charter-chk').checked; };
+    $('#charter-ok').onclick = () => { store.set('l1-charte', CHARTER_V); $('#charter-gate').remove(); $('#composer').hidden = false; $('#text').focus(); toast('Bienvenue dans le chat ✊'); };
+  }
+  loadChatRules();
   const ta = $('#text');
-  ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 120) + 'px'; });
+  ta.addEventListener('input', () => {
+    ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
+    const bad = findBannedLocal(ta.value);
+    $('#composer').classList.toggle('banned', !!bad);
+    $('#composer').title = bad ? 'Ce message contient un mot interdit par la charte' : '';
+  });
   ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#composer').requestSubmit(); } });
   $('#composer').onsubmit = async (e) => {
     e.preventDefault();
     const text = ta.value.trim();
     if (!text) return;
+    if (!charterOk() && !state.me) return toast('Accepte d’abord la charte du chat.');
+    // Liste noire : le message est supprimé ici, il ne part jamais
+    const bad = findBannedLocal(text) || findBannedLocal(nick());
+    if (bad) {
+      ta.value = ''; ta.style.height = '';
+      const c = $('#composer'); c.classList.remove('banned', 'shake'); void c.offsetWidth; c.classList.add('shake');
+      toast('🚫 Message supprimé : il contient un mot ou une expression interdit·e par la charte du chat.');
+      return;
+    }
     const btn = $('#composer button');
     btn.disabled = true;
-    try { await api('/api/chat', { method: 'POST', body: { channel: state.chatChannel, nick: nick(), text } }); ta.value = ''; ta.style.height = ''; }
-    catch (err) { toast(err.message); }
+    try { await api('/api/chat', { method: 'POST', body: { channel: state.chatChannel, nick: nick(), text, charter: charterOk() } }); ta.value = ''; ta.style.height = ''; }
+    catch (err) { toast(err.message); if (/charte/.test(err.message) && /bloqué/.test(err.message)) ta.value = ''; }
     btn.disabled = false;
     ta.focus();
   };
@@ -1728,11 +1749,19 @@ function modContacts(el) {
 }
 
 async function modChat(el) {
-  const list = await api('/api/mod/chat/reported');
+  const [list, bl] = await Promise.all([api('/api/mod/chat/reported'), api('/api/mod/chat-banned')]);
   el.innerHTML = `
+    <form class="card form" id="blf" style="margin-bottom:14px">
+      <div class="kicker">🚫 Liste noire du chat</div>
+      <p class="muted small" style="margin:6px 0">${bl.base} mots et expressions interdits sont déjà intégrés (gros mots, insultes, propos racistes, sexistes, LGBTphobes, validistes, menaces). Les messages qui en contiennent sont supprimés sur le téléphone avant d’être envoyés, et refusés par le serveur. Les variantes (majuscules, accents, s4l0pe, connnnard, s.a.l.o.p.e) sont reconnues. Ajoute ici d’autres mots ou expressions, un par ligne (surnoms visant quelqu’un, nouvelles insultes…).</p>
+      <div class="field"><textarea name="words" rows="4" placeholder="un mot ou une expression par ligne">${esc(bl.extra.join('\n'))}</textarea></div>
+      <button class="btn small">Enregistrer la liste</button>
+    </form>`
+    + `
     <p class="muted small">Messages signalés ou masqués. Un message est masqué automatiquement après 3 signalements. Sur le chat public, tes messages s’affichent avec le badge de ton organisation.</p>
     <div class="list">${list.map((m) => `<div class="row"><div class="grow"><div class="title">${esc(m.nick)} <span class="faint small">#${esc(m.channel)} · ${esc(ago(m.at))}</span></div><div>${esc(m.text)}</div><div class="sub">${m.reports} signalement(s) ${m.hidden ? '· <b style="color:var(--red)">masqué</b>' : ''}</div></div>
       ${m.hidden ? `<button class="btn small ghost" data-restore="${esc(m.id)}">Rétablir</button>` : `<button class="btn small red" data-hide="${esc(m.id)}">Masquer</button>`}</div>`).join('') || '<div class="empty">Rien à modérer 👌</div>'}</div>`;
+  $('#blf').onsubmit = async (e) => { e.preventDefault(); const r = await act(() => api('/api/mod/chat-banned', { method: 'PUT', body: { words: e.target.words.value } }), 'Liste noire enregistrée.'); state.chatRules = null; e.target.words.value = r.extra.join('\n'); };
   el.onclick = async (e) => {
     const h = e.target.dataset.hide; const r = e.target.dataset.restore;
     if (h) { await act(() => api(`/api/mod/chat/${h}`, { method: 'DELETE' }), 'Masqué.'); render(true); }
@@ -2611,4 +2640,39 @@ async function modDroits(el) {
     await act(() => api('/api/mod/pages/droits', { method: 'PUT', body: { title: f.title.value, body: f.body.value, ...(v === '0' ? {} : { published: v === '1' }) } }), v === '1' ? 'Page publiée.' : v === '-1' ? 'Page dépubliée.' : 'Brouillon enregistré.');
     modDroits(el);
   };
+}
+
+// =====================================================================
+// Charte du chat + liste noire (vérifiée avant l'envoi)
+// =====================================================================
+const CHARTER_V = 1;
+const charterOk = () => store.get('l1-charte', 0) >= CHARTER_V;
+function charterHtml(gate) {
+  return `<div class="${gate ? 'card charter' : ''}" id="${gate ? 'charter-gate' : 'charter-read'}">
+    <div class="kicker">📜 Charte du chat · 30 secondes</div>
+    <ol class="charter-list">
+      <li><b>Respect.</b> Pas d’insultes ni de gros mots. Zéro propos raciste, sexiste, LGBTphobe ou validiste.</li>
+      <li><b>Personne n’est visé.</b> Pas de menace, pas de harcèlement, pas d’appel à la violence contre quelqu’un.</li>
+      <li><b>Anonymat.</b> Ne donne aucun nom, numéro étudiant, adresse ou photo : ni les tiens, ni ceux des autres.</li>
+      <li><b>Infos vérifiées.</b> Pas de fausses infos (lieu, horaire, annulation). Les infos sûres sont dans Bâtiments et Agenda.</li>
+      <li><b>Débattre, oui.</b> Le désaccord est bienvenu, l’attaque perso non. Pas de pub, pas de spam.</li>
+    </ol>
+    <p class="faint small">🚫 Les messages avec un mot interdit sont supprimés avant d’être envoyés. 3 signalements = message masqué. Les modos peuvent masquer tout message qui ne respecte pas la charte.</p>
+    ${gate ? `<label class="check"><input type="checkbox" id="charter-chk"> J’ai lu la charte et je m’engage à la respecter</label>
+    <button class="btn green" id="charter-ok" disabled style="margin-top:8px;width:100%">J’accepte et j’entre dans le chat</button>` : ''}
+  </div>`;
+}
+async function loadChatRules() {
+  if (state.chatRules) return;
+  try { state.chatRules = (await api('/api/chat-rules')).words; } catch { state.chatRules = []; }
+}
+// Même normalisation que le serveur (lib/moderation.js)
+const LEET_C = { 0: 'o', 1: 'i', 3: 'e', 4: 'a', 5: 's', 7: 't', 8: 'b', '@': 'a', $: 's', '€': 'e' };
+const normWord = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[0134578@$€]/g, (c) => LEET_C[c]).replace(/[^a-z]+/g, ' ').replace(/([a-z])\1+/g, '$1').trim();
+function findBannedLocal(text) {
+  const list = state.chatRules || [];
+  if (!list.length || !text) return null;
+  const n = ` ${normWord(text)} `;
+  const glued = ` ${n.replace(/\b([a-z]) (?=[a-z]\b)/g, '$1')} `;
+  return list.find((w) => n.includes(` ${w} `) || glued.includes(` ${w} `)) || null;
 }

@@ -13,6 +13,7 @@ import { mailEnabled, mailProvider, mailQuota, sendMany, renderEmail, SITE_URL, 
 import { aiEnabled, aiProviders, analyzePdf } from './lib/ai.js';
 import { registerCommunity, MAX_VIDEO_MB } from './lib/community.js';
 import { registerExtras } from './lib/extras.js';
+import { bannedList, findBanned, normalize as normalizeWord, BANNED_BASE } from './lib/moderation.js';
 import { telegramEnabled, telegramUrl, postTelegram, tgEsc } from './lib/telegram.js';
 import { DEFAULT_SITE, site, siteName, modSites, canSite, siteOf, migrateSites, effectiveBlocus, wantsSite, isAdmin } from './lib/sites.js';
 
@@ -184,9 +185,10 @@ app.get('/api/reports/:id', (req, res) => {
 
 // ---------- Chat anonyme ----------
 const NICK = /^[\p{L}\p{N} _-]{2,24}$/u;
-const BANNED = (process.env.CHAT_BANNED_WORDS || '').split(',').map((w) => w.trim().toLowerCase()).filter(Boolean);
 const publicMsg = (m) => ({ id: m.id, channel: m.channel, nick: m.nick, text: m.text, at: m.at, mod: m.mod || null });
 
+// Liste noire (déjà normalisée) envoyée à l'app : le message est bloqué sur le téléphone avant même d'être envoyé.
+app.get('/api/chat-rules', (req, res) => res.json({ words: bannedList() }));
 app.get('/api/chat/:channel', (req, res) => {
   const list = db.messages.filter((m) => m.channel === req.params.channel && !m.hidden).slice(-150).map(publicMsg);
   res.json(list);
@@ -198,9 +200,12 @@ app.post('/api/chat', (req, res) => {
   const text = clip(req.body.text, 600).replace(/\s{3,}/g, '  ');
   if (!NICK.test(nick)) return bad(res, 'Pseudo : 2 à 24 lettres, chiffres, espaces ou tirets.');
   if (!text) return bad(res, 'Message vide.');
+  const modNow = currentMod(req);
+  if (!modNow && req.body.charter !== true) return bad(res, 'Lis et accepte la charte du chat avant d’écrire.', 403);
+  if (findBanned(nick)) return bad(res, 'Ce pseudo contient un mot interdit par la charte.');
+  if (findBanned(text)) return bad(res, 'Message bloqué : il contient un mot ou une expression interdit·e par la charte du chat.');
   const v = visitor(req);
   if (limited(`chat:${v}`, 1, 2500) || limited(`chatm:${v}`, 20, 60000)) return bad(res, 'Doucement 🙂 attends quelques secondes.', 429);
-  if (BANNED.some((w) => text.toLowerCase().includes(w))) return bad(res, 'Message refusé par le filtre.');
   const mod = currentMod(req);
   const m = { id: newId(), channel, nick, text, at: now(), v, reports: [], mod: mod ? mod.org : null };
   db.messages.push(m);
@@ -407,6 +412,14 @@ app.get('/api/auth/me', (req, res) => { const m = currentMod(req); res.json(m ? 
 const mod = express.Router();
 mod.use(requireMod);
 app.use('/api/mod', mod);
+// Mots interdits ajoutés par les modos (en plus de la liste de base)
+mod.get('/chat-banned', (req, res) => res.json({ base: BANNED_BASE.length, extra: db.settings.chatBanned || [] }));
+mod.put('/chat-banned', (req, res) => {
+  const list = (Array.isArray(req.body.words) ? req.body.words : String(req.body.words || '').split(/[,\n]/)).map((w) => clip(w, 60).toLowerCase()).filter((w) => normalizeWord(w).length >= 2);
+  db.settings.chatBanned = [...new Set(list)].slice(0, 500);
+  save(); audit(req.mod, 'liste noire du chat', `${db.settings.chatBanned.length} mot(s) ajouté(s)`);
+  res.json({ extra: db.settings.chatBanned });
+});
 // Guide des modos (PDF) : réservé aux modos connecté·es, document interne
 mod.get('/guide.pdf', (req, res) => {
   res.setHeader('Content-Disposition', 'inline; filename="guide-modos-ladoua-en-lutte.pdf"');

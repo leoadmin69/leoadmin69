@@ -496,3 +496,12 @@ button.opt:active { transform: scale(0.98); }
 .card.ent .title { font-weight: 700; font-size: 17px; }
 .card.ent .desc { margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .frise-src { font-size: 12px; color: var(--blue); white-space: nowrap; text-decoration: none; }
+
+/* Charte du chat */
+.charter { margin: 10px 0; border-color: rgba(48,209,88,0.45); }
+.charter-list { margin: 8px 0; padding-left: 1.3em; font-size: 14px; line-height: 1.45; }
+.charter-list li { margin: 6px 0; }
+#charter-read .charter-list { font-size: 15px; }
+.composer.banned { box-shadow: 0 0 0 2px var(--red); border-radius: 22px; }
+.composer.shake { animation: shake 0.4s; }
+@keyframes shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
