@@ -203,7 +203,7 @@ function renderAlertBar() {
   const blocked = d.buildings.filter((b) => b.status === 'bloque');
   const partial = d.buildings.filter((b) => b.status === 'partiel');
   const eff = blocusNow(d.blocus);
-  if (!blocked.length && !partial.length && eff !== 'actif') { bar.hidden = true; return; }
+  if (!blocked.length && !partial.length && eff !== 'actif') { bar.hidden = true; setTopOffset(); return; }
   const parts = [];
   if (eff === 'actif') parts.push(`${BLOCUS.actif}${d.blocus.message ? ' : ' + d.blocus.message : ''}`);
   if (blocked.length) parts.push(`BLOQUÉ : ${blocked.map((b) => b.name).join(' · ')}`);
@@ -212,7 +212,19 @@ function renderAlertBar() {
   bar.innerHTML = `<span class="tag">ALERTE</span><span class="mask"><span class="ticker"><span>${txt}</span><span aria-hidden="true">${txt}</span></span></span>`;
   bar.onclick = () => (location.hash = '#/batiments');
   bar.hidden = false;
+  setTopOffset();
 }
+// iPhone à encoche / Dynamic Island : l'app installée passe sous la barre d'état.
+// Le bandeau rouge prend la zone de la barre d'état (marge « safe area ») et les barres du haut se calent dessous.
+function setTopOffset() {
+  const bar = $('#alertbar');
+  const on = bar && !bar.hidden;
+  document.body.classList.toggle('has-alert', !!on);
+  document.documentElement.style.setProperty('--top-off', on ? `${bar.offsetHeight}px` : '0px');
+  const tb = $('.topbar');
+  if (tb) document.documentElement.style.setProperty('--topbar-h', `${tb.offsetHeight}px`);
+}
+addEventListener('resize', () => setTopOffset());
 
 function setOnline(n) {
   const txt = `${n} connecté·e${n > 1 ? 's' : ''}`;
