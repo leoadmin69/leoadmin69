@@ -509,11 +509,20 @@ function viewDemands() {
 }
 
 // ===== Chat anonyme =====
-const ANIMALS = ['Hibou', 'Renard', 'Loutre', 'Lynx', 'Corbeau', 'Castor', 'Panda', 'Moineau', 'Blaireau', 'Héron', 'Chouette', 'Hérisson', 'Faucon', 'Belette', 'Tortue'];
-const COLORS = ['Rouge', 'Noir', 'Vert', 'Bleu', 'Fauve', 'Gris', 'Doré', 'Violet'];
+// Pseudo du chat : un objet de la lutte + un lieu de la Doua (ex. « Mégaphone Thémis »), tiré au hasard sur le téléphone.
+// Rien n'est envoyé au serveur tant qu'on n'écrit pas ; on peut en tirer un autre ou choisir le sien.
+const NICK_THINGS = ['Banderole', 'Mégaphone', 'Pavé', 'Piquet', 'Tract', 'Pancarte', 'Barricade', 'Sifflet', 'Cortège', 'Slogan', 'Brassard', 'Affiche', 'Chaîne', 'Cadenas', 'Tambour', 'Poing levé', 'Drapeau', 'Assemblée', 'Motion', 'Grève', 'Blocus', 'Solidarité', 'Écharpe', 'Gilet', 'Mot d ordre', 'Caisse de grève'];
+const NICK_PLACES = ['Thémis', 'Astrée', 'Nautibus', 'Déambu', 'Lippmann', 'Darwin', 'Ariane', 'Curien', 'Braconnier', 'Chevreul', 'Forel', 'Mendel', 'Doua', 'BU Sciences', 'Feyssine', 'Einstein', 'Omega', 'Grignard', 'Berthollet', 'Gaston Berger'];
+const OLD_NICK = /^(Hibou|Renard|Loutre|Lynx|Corbeau|Castor|Panda|Moineau|Blaireau|Héron|Chouette|Hérisson|Faucon|Belette|Tortue) (Rouge|Noir|Vert|Bleu|Fauve|Gris|Doré|Violet) \d{2}$/;
+const pick = (a) => a[Math.floor(Math.random() * a.length)];
+function randomNick() {
+  for (let i = 0; i < 20; i++) { const n = `${pick(NICK_THINGS)} ${pick(NICK_PLACES)}`; if (n.length <= 24) return n; }
+  return `${pick(NICK_THINGS.filter((x) => x.length < 10))} ${pick(NICK_PLACES)}`;
+}
 function nick() {
   let n = store.get('l1-nick', null);
-  if (!n) { n = `${ANIMALS[Math.floor(Math.random() * ANIMALS.length)]} ${COLORS[Math.floor(Math.random() * COLORS.length)]} ${Math.floor(Math.random() * 90 + 10)}`; store.set('l1-nick', n); }
+  // anciens pseudos automatiques (animal + couleur + nombre) remplacés par le nouveau style
+  if (!n || OLD_NICK.test(n)) { n = randomNick(); store.set('l1-nick', n); }
   return n;
 }
 function msgHtml(m) {
@@ -541,7 +550,8 @@ async function viewChat() {
   $('#chans').onclick = (e) => { const c = e.target.dataset.c; if (c) { state.chatChannel = c; store.set('l1-channel', c); render(true); } };
   $('#renick').onclick = (e) => {
     e.preventDefault();
-    sheet(`<h3>Ton pseudo</h3><form class="form" id="nf"><div class="field"><input type="text" id="nn" maxlength="24" value="${esc(nick())}"></div><p class="faint small">2 à 24 caractères. Évite ton vrai nom.</p><button class="btn">Valider</button></form>`, (root, close) => {
+    sheet(`<h3>Ton pseudo</h3><form class="form" id="nf"><div class="field"><input type="text" id="nn" maxlength="24" value="${esc(nick())}"></div><p class="faint small">2 à 24 caractères. Évite ton vrai nom.</p><div class="btn-row"><button type="button" class="btn ghost" id="nrand">🎲 Un autre au hasard</button><button class="btn">Valider</button></div></form>`, (root, close) => {
+      $('#nrand', root).onclick = () => { $('#nn', root).value = randomNick(); };
       $('#nf', root).onsubmit = (ev) => { ev.preventDefault(); const v = $('#nn', root).value.trim(); if (findBannedLocal(v)) { toast('Ce pseudo contient un mot interdit par la charte.'); return; } if (v.length >= 2) { store.set('l1-nick', v); close(); render(true); } };
     });
   };
