@@ -511,13 +511,23 @@ function viewDemands() {
 // ===== Chat anonyme =====
 // Pseudo du chat : style familier, mélange français / anglais (ex. « Lil Croissant », « Captain Raclette »).
 // Tiré au hasard sur le téléphone ; rien n'est envoyé tant qu'on n'écrit pas. On peut en tirer un autre ou choisir le sien.
-const NICK_THINGS = ['Lil', 'Big', 'Mister', 'Miss', 'Captain', 'DJ', 'MC', 'King', 'Queen', 'Doc', 'Boss', 'Agent', 'Baby', 'Tonton', 'Tata', 'Petit', 'Super', 'Professeur', 'Le Sang', 'Señor', 'Chef', 'Lord', 'Sensei', 'Coach'];
-const NICK_PLACES = ['Croissant', 'Baguette', 'Chocolatine', 'Pain au Choc', 'Raclette', 'Crêpe', 'Galette', 'Kebab', 'Tacos', 'Couscous', 'Mafé', 'Bissap', 'Café Crème', 'Madeleine', 'Camembert', 'Wifi', 'Chill', 'Flow', 'Vibes', 'Mood', 'Swag', 'Freestyle', 'Banger', 'Playlist', 'Hoodie', 'Sneakers', 'Zbeul', 'Daron', 'Ninja', 'Panda', 'Pixel', 'Skate', 'Vélo', 'Tram', 'Night', 'Sunshine', 'Thunder', 'Cookie', 'Brownie', 'Nugget'];
+const NICK_THINGS = ['Lil', 'Big', 'Mister', 'Miss', 'Captain', 'DJ', 'MC', 'King', 'Queen', 'Doc', 'Boss', 'Agent', 'Baby', 'Tonton', 'Tata', 'Petit', 'Super', 'Professeur', 'Le Sang', 'Señor', 'Chef', 'Lord', 'Sensei', 'Coach', 'Wesh', 'Gros', 'Frérot', 'Askip', 'Le Vrai', 'Team', 'Daddy', 'Mamie', 'Papi', 'Lowkey'];
+const NICK_PLACES = ['Croissant', 'Baguette', 'Chocolatine', 'Pain au Choc', 'Raclette', 'Crêpe', 'Galette', 'Kebab', 'Tacos', 'Couscous', 'Mafé', 'Bissap', 'Café Crème', 'Madeleine', 'Camembert', 'Wifi', 'Chill', 'Flow', 'Vibes', 'Mood', 'Swag', 'Freestyle', 'Banger', 'Playlist', 'Hoodie', 'Sneakers', 'Zbeul', 'Daron', 'Ninja', 'Panda', 'Pixel', 'Skate', 'Vélo', 'Tram', 'Night', 'Sunshine', 'Thunder', 'Cookie', 'Brownie', 'Nugget',
+  // mèmes et expressions TikTok françaises
+  'Quoicoubeh', 'Apagnan', 'Skibidi', 'Rizz', 'Sigma', 'Aura', 'Ratio', 'Cheh', 'Flemme', 'Masterclass', 'Dinguerie', 'Chokbar', 'Zinzin', 'Gênance', 'Cringe', 'Crush', 'Wallah', 'Askip', 'Pas Ouf', 'Oklm', 'Tqt', 'Mdr', 'Ptdr', 'Jpp', 'Goat', 'Gamos', 'Pépouze', 'Tranquillou', 'Flex', 'Big Up', 'Poto', 'Frérot', 'Bichon', 'Ratatouille', 'Mamacita', 'Ça Passe Crème', 'Gros Chat', 'Ouais Ouais', 'Le Sang de la Veine', 'Bescherelle', 'Apéro', 'Choupi', 'Chouchou'];
+// Nombre à la fin : plus de pseudos possibles (69 = le Rhône)
+const NICK_NUMBERS = ['69', '007', '404', '2000', '3000', '9000', '1er', '24', '42', '99'];
 const OLD_NICK = /^((Hibou|Renard|Loutre|Lynx|Corbeau|Castor|Panda|Moineau|Blaireau|Héron|Chouette|Hérisson|Faucon|Belette|Tortue) (Rouge|Noir|Vert|Bleu|Fauve|Gris|Doré|Violet) \d{2}|(Banderole|Mégaphone|Pavé|Piquet|Tract|Pancarte|Barricade|Sifflet|Cortège|Slogan|Brassard|Affiche|Chaîne|Cadenas|Tambour|Poing levé|Drapeau|Assemblée|Motion|Grève|Blocus|Solidarité|Écharpe|Gilet|Mot d ordre|Caisse de grève) (Thémis|Astrée|Nautibus|Déambu|Lippmann|Darwin|Ariane|Curien|Braconnier|Chevreul|Forel|Mendel|Doua|BU Sciences|Feyssine|Einstein|Omega|Grignard|Berthollet|Gaston Berger))$/;
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
+const nickNumber = () => (Math.random() < 0.35 ? pick(NICK_NUMBERS) : String(Math.floor(Math.random() * 90) + 10));
 function randomNick() {
-  for (let i = 0; i < 20; i++) { const n = `${pick(NICK_THINGS)} ${pick(NICK_PLACES)}`; if (n.length <= 24) return n; }
-  return `${pick(NICK_THINGS.filter((x) => x.length < 10))} ${pick(NICK_PLACES)}`;
+  for (let i = 0; i < 30; i++) {
+    const t = pick(NICK_THINGS), w = pick(NICK_PLACES);
+    if (t === w) continue;
+    const n = `${t} ${w} ${nickNumber()}`;
+    if (n.length <= 24) return n;
+  }
+  return `${pick(NICK_THINGS.filter((x) => x.length < 6))} ${pick(NICK_PLACES.filter((x) => x.length < 9))} ${nickNumber()}`;
 }
 function nick() {
   let n = store.get('l1-nick', null);
