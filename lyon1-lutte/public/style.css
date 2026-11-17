@@ -423,3 +423,13 @@ button.opt:active { transform: scale(0.98); }
 .steps { padding-left: 22px; display: grid; gap: 10px; font-size: 16px; line-height: 1.4; }
 .kbd { display: inline-block; padding: 1px 7px; border-radius: 6px; background: rgba(118,118,128,0.3); font-family: var(--mono); }
 .check input { flex-shrink: 0; }
+.context p { margin: 10px 0 0; font-size: 16px; line-height: 1.55; }
+.ctx-body { max-height: 7.8em; overflow: hidden; position: relative; margin-bottom: 10px; }
+.ctx-body:not(.open)::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3em; background: linear-gradient(transparent, #1c1c1e); }
+.ctx-body.open { max-height: none; }
+.call { margin: 16px 0 6px; padding: 18px; border-radius: 18px; background: var(--red); color: #fff; font: 900 clamp(20px, 5vw, 28px)/1.15 var(--font); text-transform: uppercase; letter-spacing: -0.01em; }
+.demand-cat { color: #ffd60a; text-transform: uppercase; font-size: 18px; letter-spacing: 0.02em; }
+.closing { margin-top: 18px; border-color: rgba(255,69,58,0.5) !important; background: linear-gradient(140deg, rgba(255,69,58,0.25), var(--card) 70%) !important; font-weight: 700; }
+.closing p { margin: 0 0 10px; }
+.tg-card { display: flex; gap: 14px; align-items: center; color: inherit; border-color: rgba(42,171,238,0.5) !important; background: linear-gradient(120deg, rgba(42,171,238,0.2), var(--card) 65%) !important; }
+.tg-card .tg-ico { font: 800 13px var(--mono); padding: 8px 10px; border-radius: 10px; background: #229ED9; color: #fff; }

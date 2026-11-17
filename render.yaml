@@ -41,5 +41,12 @@ services:
         sync: false
       - key: MAIL_FROM_EMAIL
         sync: false
+      # Chaîne Telegram remplie automatiquement (facultatif, recommandé)
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: TELEGRAM_URL
+        sync: false
       - key: INSTAGRAM_URL
         value: https://www.instagram.com/lyon1_ladoua.enlutte/

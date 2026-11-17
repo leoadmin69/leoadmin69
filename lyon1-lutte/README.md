@@ -78,6 +78,7 @@ Pas de logo : le site, les emails et les stories affichent seulement « Lyon 1 �
 | Données et fichiers | **Supabase** (formule Free, 1 Go) | Render gratuit n'a pas de disque : la base et les photos/vidéos validées y sont gardées dans un espace privé |
 | IA des comptes rendus | **Gemini** puis **Groq** | Voir plus haut |
 | Alertes | **Notifications du téléphone** | Gratuites et illimitées, sans compte ni email |
+| Relais | **Chaîne Telegram** | Postée automatiquement, sans limite d'abonné·es |
 | Emails (facultatif) | **Brevo** (300/jour) | Sans nom de domaine : il suffit de vérifier une adresse d'envoi |
 
 **1. Supabase (stockage permanent)**
@@ -100,11 +101,19 @@ L'adresse du site est détectée automatiquement (pas besoin de `SITE_URL`). Le 
 - **iPhone** : ouvrir dans Safari → Partager → « Sur l'écran d'accueil » → ouvrir l'app depuis l'icône → Alertes → « Activer les notifications » (iOS 16.4 minimum).
 - L'app s'ouvre même sans réseau, avec les dernières infos connues.
 
-**4. Emails (facultatif) avec Brevo**
+**4. Chaîne Telegram automatique (recommandé, gratuit, sans limite)**
+1. Dans Telegram : crée une **chaîne** (ex. « La Doua en lutte »), publique avec un lien `t.me/…`.
+2. Ouvre **@BotFather** → `/newbot` → choisis un nom → il te donne un **jeton** (`123456:ABC…`) → `TELEGRAM_BOT_TOKEN`.
+3. Dans la chaîne : Administrateurs → Ajouter → ton bot (droit « Publier des messages »).
+4. `TELEGRAM_CHAT_ID` = `@nom_de_la_chaine` ; `TELEGRAM_URL` = `https://t.me/nom_de_la_chaine`.
+5. Chaque changement de bâtiment, alerte urgente, AG/manif annoncée, compte rendu publié ou vote lancé est posté automatiquement, avec un bouton « Voir en direct ».
+
+**5. Emails (facultatif) avec Brevo**
 1. Compte gratuit sur **brevo.com**.
 2. **Senders, Domains & Dedicated IPs → Senders → Add a sender** : ajoute l'adresse qui enverra les alertes (ex. une adresse Gmail créée pour le collectif) et valide le lien reçu.
 3. **SMTP & API → API Keys → Generate** → `BREVO_API_KEY` ; l'adresse validée → `MAIL_FROM_EMAIL`.
-4. Limite gratuite : 300 emails par jour. Au-delà, le site s'arrête d'envoyer pour la journée (les notifications, elles, partent toujours). Sans nom de domaine à vous, certains emails peuvent arriver en spam : les notifications du téléphone restent le canal principal.
+4. Limite gratuite : 300 emails par jour **pour tout le compte Brevo** (ajouter des adresses d'envoi ne l'augmente pas). Le site envoie donc **un seul récapitulatif chaque matin à 7 h** (`EMAIL_DIGEST_HOUR`) : bâtiments bloqués, AG/manifs du jour, alertes de la veille, nouveaux comptes rendus. La liste est plafonnée à environ 275 inscrit·es ; une fois pleine, le site renvoie vers les notifications de l'app et Telegram. Les inscriptions non confirmées sont supprimées après 48 h.
+5. Ne pas multiplier les comptes Gmail ou Brevo pour envoyer plus : c'est interdit par leurs conditions, les comptes sont bloqués et les emails finissent en spam, souvent au pire moment. Pour 4 000 personnes, ce sont les notifications et Telegram qui marchent.
 
 **Limites de la version gratuite, à connaître**
 - Supabase gratuit : 1 Go au total et 50 Mo par fichier (les vidéos de témoignage sont limitées à 45 Mo). Un projet inactif 7 jours est mis en pause : le site y écrit toutes les 12 h pour l'éviter ; si ça arrive quand même, un clic sur « Restore » dans Supabase le relance, sans perte.

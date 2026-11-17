@@ -12,6 +12,7 @@ import { ensureAdmin, hashPassword, verifyPassword, createToken, readToken, cook
 import { mailEnabled, mailProvider, mailQuota, sendMany, renderEmail, SITE_URL, SITE_NAME, INSTAGRAM_URL } from './lib/mail.js';
 import { aiEnabled, aiProviders, analyzePdf } from './lib/ai.js';
 import { registerCommunity, MAX_VIDEO_MB } from './lib/community.js';
+import { telegramEnabled, telegramUrl, postTelegram, tgEsc } from './lib/telegram.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -132,6 +133,11 @@ app.get('/api/state', (req, res) => {
     subscribers: db.subscribers.filter((s) => s.confirmed).length,
     online: clients.size,
     pollsOpen: community.pollsOpen(),
+    context: db.settings.context || null,
+    telegramUrl: telegramUrl(),
+    emailMode: EMAIL_MODE,
+    digestHour: DIGEST_HOUR,
+    emailSpots: mailEnabled() ? emailSpots() : 0,
     maxVideoMb: MAX_VIDEO_MB,
     instagram: INSTAGRAM_URL(),
     mailEnabled: mailEnabled(),
@@ -196,6 +202,13 @@ app.post('/api/demands/:id/support', (req, res) => {
 // ---------- Newsletter / alertes email ----------
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/;
 const ALERTS = ['buildings', 'events', 'reports'];
+// Mode « digest » (par défaut) : un seul récapitulatif chaque matin, pour rester dans les quotas gratuits.
+// Mode « instant » : un email à chaque changement (seulement avec un service d'email payant ou peu d'inscrit·es).
+const EMAIL_MODE = process.env.EMAIL_MODE === 'instant' ? 'instant' : 'digest';
+const DIGEST_HOUR = Number(process.env.EMAIL_DIGEST_HOUR ?? 7);
+// Nombre maximum d'inscrit·es par email : 1 récap par personne et par jour doit tenir dans le quota gratuit.
+const emailCap = () => Number(process.env.EMAIL_MAX_SUBSCRIBERS || (mailEnabled() ? Math.max(0, mailQuota().limit - 15) : 100000));
+const emailSpots = () => Math.max(0, emailCap() - db.subscribers.length);
 app.post('/api/subscribe', async (req, res) => {
   const email = clip(req.body.email, 254).toLowerCase();
   if (!EMAIL.test(email)) return bad(res, 'Adresse email invalide.');
@@ -203,6 +216,7 @@ app.post('/api/subscribe', async (req, res) => {
   const alerts = Array.isArray(req.body.alerts) ? req.body.alerts.filter((a) => ALERTS.includes(a)) : ALERTS;
   const campuses = Array.isArray(req.body.campuses) ? req.body.campuses.map((c) => clip(c, 60)).slice(0, 10) : [];
   let s = db.subscribers.find((x) => x.email === email);
+  if (!s && emailSpots() <= 0) return bad(res, 'La liste email est complète (places limitées par la version gratuite). Active plutôt les notifications de l’app ou rejoins la chaîne Telegram : c’est gratuit et sans limite.', 409);
   if (!s) { s = { id: newId(), email, token: crypto.randomBytes(18).toString('base64url'), confirmed: false, createdAt: now() }; db.subscribers.push(s); }
   s.alerts = alerts.length ? alerts : ALERTS;
   s.campuses = campuses;
@@ -215,7 +229,7 @@ app.post('/api/subscribe', async (req, res) => {
   save();
   if (!s.confirmed) {
     const link = `${SITE_URL()}/api/confirm?token=${encodeURIComponent(s.token)}`;
-    const { html, text } = renderEmail({ tone: 'blue', kicker: 'LYON 1 · LA DOUA EN LUTTE', title: 'Confirme ton inscription', body: `Clique sur le bouton pour recevoir les alertes (bâtiments bloqués, AG, manifs).\n\nLien direct : ${link}`, cta: 'Confirmer', token: s.token });
+    const { html, text } = renderEmail({ tone: 'blue', kicker: 'LYON 1 · LA DOUA EN LUTTE', title: 'Confirme ton inscription', body: `Clique sur le bouton pour recevoir ${EMAIL_MODE === 'digest' ? `le récapitulatif de chaque matin (${DIGEST_HOUR} h : bâtiments bloqués, AG, manifs)` : 'les alertes (bâtiments bloqués, AG, manifs)'}.\n\nLien direct : ${link}`, cta: 'Confirmer', token: s.token });
     await sendMany([{ to: email, subject: 'Confirme tes alertes Lyon 1 · La Doua en lutte', html: html.replace(SITE_URL() + '"', link + '"'), text }]);
     return res.json({ ok: true, message: 'Vérifie ta boîte mail pour confirmer (pense aux spams).' });
   }
@@ -226,7 +240,7 @@ app.get('/api/confirm', (req, res) => {
   const s = db.subscribers.find((x) => x.token === req.query.token);
   if (!s) return res.status(404).send(page('Lien invalide', 'Ce lien ne correspond à aucune inscription.'));
   s.confirmed = true; save();
-  res.send(page('C’est bon ✅', 'Tu recevras les alertes par email. Tu peux te désinscrire à tout moment depuis chaque email.'));
+  res.send(page('C’est bon ✅', EMAIL_MODE === 'digest' ? `Tu recevras le récapitulatif chaque matin vers ${DIGEST_HOUR} h. Pour être prévenu·e tout de suite, active aussi les notifications de l’app.` : 'Tu recevras les alertes par email. Tu peux te désinscrire à tout moment depuis chaque email.'));
 });
 app.get('/api/unsubscribe', (req, res) => {
   const i = db.subscribers.findIndex((x) => x.token === req.query.token);
@@ -271,15 +285,72 @@ async function flushBuildingAlert() {
     const filter = campus ? (s) => s.campuses?.length && s.campuses.includes(campus) : (s) => !s.campuses?.length;
     sendPush('buildings', { title: anyBlocked ? `🔴 ${title.replace(/^🔴 /, '')}` : title, body: parts.join(' · ').slice(0, 220), url: '/#/batiments', tag: 'batiments' }, filter).catch((e) => console.error('[push]', e.message));
   }
+  // Chaîne Telegram : un message lisible d'un coup d'œil
+  const tgNames = (st) => changed.filter((b) => b.status === st).map((b) => tgEsc(b.name));
+  const tgLines = [['bloque', '🔴 <b>BLOQUÉ</b>'], ['partiel', '🟠 <b>PARTIEL</b>'], ['ouvert', '🟢 <b>OUVERT</b>']].filter(([k]) => tgNames(k).length).map(([k, l]) => `${l} : ${tgNames(k).join(', ')}`);
+  const tgNotes = changed.filter((b) => b.note).map((b) => `<i>${tgEsc(b.name)} : ${tgEsc(b.note)}</i>`);
+  postTelegram([`<b>${tgEsc(BLOCUS_LABEL[db.settings.blocus.state])}</b>`, ...tgLines, ...tgNotes].join('\n'), '/#/batiments');
+  if (EMAIL_MODE !== 'instant') return; // les emails partent dans le récapitulatif du matin
   const r = await sendMany(messages);
   console.log(`[alertes] bâtiments : ${messages.length} email(s), ${r.sent} envoyé(s)`);
 }
 async function notify(kind, { subject, kicker, title, body, items, tone, url = '/' }) {
   sendPush(kind, { title: subject, body: String(body || '').replace(/\s+/g, ' ').slice(0, 200), url, tag: kind }).catch((e) => console.error('[push]', e.message));
+  postTelegram(`<b>${tgEsc(subject)}</b>${body ? '\n' + tgEsc(String(body).trim()).slice(0, 1500) : ''}${items?.length ? '\n' + items.map((i) => `• ${tgEsc(i.label)}`).join('\n') : ''}`, url);
+  if (EMAIL_MODE !== 'instant') return;
   const recipients = db.subscribers.filter((s) => s.confirmed && s.alerts?.includes(kind));
   const messages = recipients.map((s) => ({ to: s.email, subject, ...renderEmail({ tone, kicker, title, body, items, token: s.token }) }));
   sendMany(messages).then((r) => console.log(`[alertes] ${kind} : ${r.sent ?? 0} envoyé(s)`)).catch((e) => console.error('[alertes]', e.message));
 }
+
+// ---------- Récapitulatif email du matin ----------
+const parisNow = () => {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hour12: false }).formatToParts(new Date()).map((x) => [x.type, x.value]));
+  return { day: `${p.year}-${p.month}-${p.day}`, hour: Number(p.hour) };
+};
+async function sendDigest() {
+  const since = db.settings.lastDigestAt || new Date(Date.now() - 86400e3).toISOString();
+  db.settings.lastDigestAt = now();
+  save();
+  const tone = { bloque: 'red', partiel: 'orange' };
+  const b = db.settings.blocus;
+  const soon = db.events.filter((e) => { const t = new Date(e.start).getTime(); return t > Date.now() - 3600e3 && t < Date.now() + 36 * 3600e3; }).sort((x, y) => x.start.localeCompare(y.start));
+  const reports = db.reports.filter((r) => r.status === 'published' && r.publishedAt > since);
+  const alerts = db.flashes.filter((f) => f.level === 'alerte' && f.at > since);
+  const fmt = (iso) => new Date(iso).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', weekday: 'long', hour: '2-digit', minute: '2-digit' });
+  const messages = [];
+  for (const s of db.subscribers.filter((x) => x.confirmed)) {
+    const blds = db.buildings.filter((x) => (x.status === 'bloque' || x.status === 'partiel') && (!s.campuses?.length || s.campuses.includes(x.campus)));
+    const nBlocked = blds.filter((x) => x.status === 'bloque').length;
+    const title = nBlocked ? `🔴 ${nBlocked} bâtiment${nBlocked > 1 ? 's' : ''} bloqué${nBlocked > 1 ? 's' : ''} ce matin` : b.state === 'actif' ? '🔴 Blocus en cours' : '🟢 Aucun bâtiment signalé bloqué';
+    const lines = [];
+    if (b.message) lines.push(b.message);
+    if (alerts.length) lines.push('', '🚨 Alertes d’hier :', ...alerts.map((f) => `• ${f.text}`));
+    if (s.alerts?.includes('events') && soon.length) lines.push('', '📣 À venir :', ...soon.map((e) => `• ${e.type} · ${e.title} · ${fmt(e.start)}${e.place ? ' · ' + e.place : ''}`));
+    if (s.alerts?.includes('reports') && reports.length) lines.push('', '📝 Nouveaux comptes rendus :', ...reports.map((r) => `• ${r.titre}`));
+    lines.push('', 'Pour être prévenu·e tout de suite dans la journée : notifications de l’app ou chaîne Telegram.');
+    const items = s.alerts?.includes('buildings') ? blds.map((x) => ({ label: `${x.name} : ${STATUS_LABEL[x.status]}`, value: x.campus, tone: tone[x.status] })) : [];
+    const { html, text } = renderEmail({ tone: nBlocked || b.state === 'actif' ? 'red' : 'green', kicker: `LYON 1 · LA DOUA EN LUTTE · ${BLOCUS_LABEL[b.state]}`, title, items, body: lines.join('\n').trim(), token: s.token });
+    messages.push({ to: s.email, subject: `☀️ Ce matin à Lyon 1 · ${title.replace(/^[^ ]+ /, '').replace(/ ce matin$/, '')}`, html, text });
+  }
+  const r = await sendMany(messages);
+  console.log(`[récap] ${messages.length} email(s), ${r.sent} envoyé(s)`);
+  return { count: messages.length, sent: r.sent };
+}
+setInterval(() => {
+  // Inscriptions jamais confirmées depuis 48 h : supprimées (libère des places et ne garde pas d'adresses inutiles)
+  const old = Date.now() - 48 * 3600e3;
+  const before = db.subscribers.length;
+  db.subscribers = db.subscribers.filter((x) => x.confirmed || new Date(x.createdAt).getTime() > old);
+  if (db.subscribers.length !== before) save();
+  if (EMAIL_MODE !== 'digest' || !mailEnabled()) return;
+  const { day, hour } = parisNow();
+  if (hour === DIGEST_HOUR && db.settings.lastDigestDay !== day) {
+    db.settings.lastDigestDay = day;
+    save();
+    sendDigest().catch((e) => console.error('[récap]', e.message));
+  }
+}, 5 * 60e3).unref();
 
 // ---------- Notifications sur le téléphone ----------
 app.get('/api/push/key', (req, res) => res.json({ key: publicKey(), kinds: PUSH_KINDS }));
@@ -304,6 +375,10 @@ app.get('/api/auth/me', (req, res) => { const m = currentMod(req); res.json(m ? 
 const mod = express.Router();
 mod.use(requireMod);
 app.use('/api/mod', mod);
+mod.post('/digest/send', requireAdmin, async (req, res) => {
+  if (!mailEnabled()) return bad(res, 'Aucun service d’email configuré.');
+  res.json(await sendDigest());
+});
 mod.post('/push/test', async (req, res) => {
   const r = await sendPush('urgent', { title: 'Test · La Doua en lutte', body: 'Les notifications marchent ✊', url: '/', tag: 'test' }, (s) => s.endpoint === req.body?.endpoint);
   res.json(r);
@@ -454,6 +529,7 @@ mod.post('/flashes', (req, res) => {
   db.flashes.unshift(f); db.flashes = db.flashes.slice(0, 100); save();
   audit(req.mod, 'flash', text);
   feed(text, f.level === 'alerte' ? 'alert' : f.level === 'ok' ? 'ok' : 'info');
+  if (f.level === 'alerte' && req.body.push !== false) postTelegram(`🚨 <b>ALERTE</b>\n${tgEsc(text)}`, '/');
   if (f.level === 'alerte' && req.body.push !== false) sendPush('urgent', { title: '🚨 Alerte · La Doua en lutte', body: text, url: '/', tag: `flash-${f.id}` }).catch((e) => console.error('[push]', e.message));
   broadcast('flashes', {});
   res.json(f);
@@ -467,10 +543,16 @@ mod.delete('/flashes/:id', (req, res) => {
 mod.post('/demands', (req, res) => {
   const title = clip(req.body.title, 160);
   if (!title) return bad(res, 'Titre requis.');
-  const d = { id: newId(), title, text: clip(req.body.text, 2000), category: clip(req.body.category, 40) || 'Général', status: oneOf(req.body.status, ['en-lutte', 'obtenu', 'refuse'], 'en-lutte'), createdAt: now(), org: req.mod.org };
+  const d = { id: newId(), order: Math.max(0, ...db.demands.map((x) => x.order || 0)) + 1, title, text: clip(req.body.text, 2000), category: clip(req.body.category, 60) || 'Général', status: oneOf(req.body.status, ['en-lutte', 'obtenu', 'refuse'], 'en-lutte'), createdAt: now(), org: req.mod.org };
   db.demands.push(d); save(); audit(req.mod, 'revendication', title);
   broadcast('demands', {});
   res.json(publicDemand(d));
+});
+// Texte « Le contexte » affiché en haut des revendications
+mod.put('/context', (req, res) => {
+  db.settings.context = { title: clip(req.body.title, 80) || 'Le contexte', text: clip(req.body.text, 6000), call: clip(req.body.call, 300), closing: clip(req.body.closing, 3000), source: clip(req.body.source, 600) };
+  save(); audit(req.mod, 'contexte modifié', ''); broadcast('demands', {});
+  res.json(db.settings.context);
 });
 mod.put('/demands/:id', (req, res) => {
   const d = db.demands.find((x) => x.id === req.params.id);
@@ -610,6 +692,9 @@ mod.get('/stats', (req, res) => res.json({
   mailProvider: mailProvider(),
   mailQuota: mailQuota(),
   pushSubs: pushCount(),
+  telegram: telegramEnabled(),
+  emailMode: EMAIL_MODE,
+  emailCap: emailCap(),
   storage: remoteEnabled() ? 'Supabase' : (process.env.RENDER ? 'temporaire' : 'disque'),
 }));
 mod.get('/audit', (req, res) => res.json(db.audit.slice(0, 200)));
@@ -654,7 +739,7 @@ app.get('*', (req, res) => res.sendFile(path.join(ROOT, 'public', 'index.html'))
 
 app.listen(PORT, () => {
   console.log(`${SITE_NAME} → ${SITE_URL()} (port ${PORT})`);
-  console.log(`Stockage : ${storage === 'local' ? 'disque local' : 'Supabase'} · IA : ${aiEnabled() ? aiProviders().join(' → ') : 'non configurée (mode local)'} · Emails : ${mailProvider() || 'non configurés'} · Notifications : ${pushCount()} téléphone(s)`);
+  console.log(`Stockage : ${storage === 'local' ? 'disque local' : 'Supabase'} · IA : ${aiEnabled() ? aiProviders().join(' → ') : 'non configurée (mode local)'} · Emails : ${mailProvider() || 'non configurés'} · Notifications : ${pushCount()} téléphone(s) · Telegram : ${telegramEnabled() ? 'oui' : 'non'}`);
 });
 
 // Hébergement gratuit : le service s'endort après 15 min sans visite. Il se rend visite lui-même toutes les 10 min

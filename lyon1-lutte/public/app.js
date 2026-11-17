@@ -7,7 +7,7 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
 
-const state = { data: null, me: null, chatChannel: store.get('l1-channel', 'general'), chatMsgs: [], dirty: false, modTab: 'situation', campus: 'Tous', demandCat: 'Toutes' };
+const state = { data: null, me: null, chatChannel: store.get('l1-channel', 'general'), chatMsgs: [], dirty: false, modTab: 'situation', campus: 'Tous', demandCat: 'Toutes', ctxOpen: false };
 
 async function api(path, { method = 'GET', body, raw } = {}) {
   const opt = { method, headers: {}, credentials: 'same-origin' };
@@ -95,6 +95,7 @@ const DEMAND_STATUS = { 'en-lutte': ['En lutte', 'red'], obtenu: ['Obtenu ✊', 
 const TZ = 'Europe/Paris';
 const igUrl = () => state.data?.instagram || 'https://www.instagram.com/lyon1_ladoua.enlutte/';
 const igHandle = () => '@' + ((igUrl().match(/instagram\.com\/([^/?#]+)/) || [0, 'lyon1_ladoua.enlutte'])[1]);
+const tgCard = (text = 'Les alertes postées automatiquement, gratuit et sans limite') => (state.data?.telegramUrl ? `<a class="card tg-card" href="${esc(state.data.telegramUrl)}" target="_blank" rel="noopener" style="margin-top:14px"><span class="tg-ico">TG</span><div class="grow"><b>Rejoindre la chaîne Telegram</b><div class="muted small">${esc(text)}</div></div><span class="chev">${icon('chev', 18)}</span></a>` : '');
 const igCard = (text = 'Photos, vidéos et stories de la mobilisation') => `<a class="card ig-card" href="${esc(igUrl())}" target="_blank" rel="noopener" style="margin-top:14px"><span class="ig-ico">IG</span><div class="grow"><b>Suis ${esc(igHandle())}</b><div class="muted small">${esc(text)}</div></div><span class="chev">${icon('chev', 18)}</span></a>`;
 const fmt = (iso, o) => new Date(iso).toLocaleString('fr-FR', { timeZone: TZ, ...o });
 const hhmm = (iso) => fmt(iso, { hour: '2-digit', minute: '2-digit' });
@@ -227,6 +228,7 @@ function viewLive() {
       </a>` : ''}
 
     ${appCardHtml()}
+    ${tgCard()}
     ${igCard()}
     <a class="card" href="#/alertes" style="display:flex;gap:14px;align-items:center;margin-top:14px;color:inherit;border-color:rgba(255,69,58,0.4)">
       <div style="font-size:30px">🔔</div>
@@ -378,25 +380,47 @@ function viewReport(id) {
 // ===== Revendications =====
 function viewDemands() {
   const all = state.data.demands;
-  const cats = ['Toutes', ...new Set(all.map((d) => d.category))];
-  if (!cats.includes(state.demandCat)) state.demandCat = 'Toutes';
+  const ctx = state.data.context;
+  const byOrder = (x, y) => (x.order || 9999) - (y.order || 9999) || x.createdAt.localeCompare(y.createdAt);
+  const sorted = [...all].sort(byOrder);
+  const cats = [...new Set(sorted.map((d) => d.category))];
+  if (state.demandCat !== 'Toutes' && !cats.includes(state.demandCat)) state.demandCat = 'Toutes';
   const mine = store.get('l1-supported', []);
-  const list = all.filter((d) => state.demandCat === 'Toutes' || d.category === state.demandCat).sort((a, b) => (a.status === 'en-lutte' ? 0 : 1) - (b.status === 'en-lutte' ? 0 : 1) || b.support - a.support);
-  view().innerHTML = `
-    <h1 class="large-title">Revendications</h1>
-    <p class="subtitle">Ce que porte la mobilisation. Soutiens d’un tap, anonymement.</p>
-    ${cats.length > 2 ? `<div class="tabs-inline" id="cats">${cats.map((c) => `<button data-c="${esc(c)}" class="${c === state.demandCat ? 'on' : ''}">${esc(c)}</button>`).join('')}</div>` : ''}
-    ${list.length ? list.map((d) => `
+  const shown = state.demandCat === 'Toutes' ? cats : [state.demandCat];
+  const paras = (t) => String(t || '').split(/\n{2,}/).filter(Boolean).map((x) => `<p>${esc(x)}</p>`).join('');
+  const item = (d) => `
       <div class="card demand">
         <div class="grow">
-          <div class="chips"><span class="pill ${DEMAND_STATUS[d.status][1]}">${DEMAND_STATUS[d.status][0]}</span><span class="pill grey">${esc(d.category)}</span></div>
+          ${d.status !== 'en-lutte' ? `<div class="chips"><span class="pill ${DEMAND_STATUS[d.status][1]}">${DEMAND_STATUS[d.status][0]}</span></div>` : ''}
           <h3>${esc(d.title)}</h3>
           ${d.text ? `<p>${esc(d.text)}</p>` : ''}
         </div>
         <button class="support ${mine.includes(d.id) ? 'done' : ''}" data-id="${esc(d.id)}" aria-label="Soutenir"><span>✊</span><b>${d.support}</b><span>${mine.includes(d.id) ? 'soutenu' : 'soutenir'}</span></button>
-      </div>`).join('') : '<div class="card empty"><div class="big">✊</div>Les revendications votées en AG apparaîtront ici.</div>'}`;
+      </div>`;
+  const won = all.filter((d) => d.status === 'obtenu').length;
+  view().innerHTML = `
+    <h1 class="large-title">Revendications</h1>
+    <p class="subtitle">Ce que porte la mobilisation. Soutiens d’un tap, anonymement.${won ? ` <b style="color:var(--green)">${won} déjà obtenue${won > 1 ? 's' : ''} ✊</b>` : ''}</p>
+    ${ctx?.text ? `
+    <div class="card context">
+      <div class="kicker" style="color:var(--red)">${esc(ctx.title || 'Le contexte')}</div>
+      <div class="ctx-body ${state.ctxOpen ? 'open' : ''}">${paras(ctx.text)}</div>
+      <button class="btn small ghost" id="ctxToggle" type="button">${state.ctxOpen ? 'Réduire' : 'Lire la suite'}</button>
+    </div>` : ''}
+    ${ctx?.call ? `<div class="call">${esc(ctx.call)}</div>` : ''}
+    ${cats.length > 1 ? `<div class="tabs-inline" id="cats">${['Toutes', ...cats].map((c) => `<button data-c="${esc(c)}" class="${c === state.demandCat ? 'on' : ''}">${esc(c)}</button>`).join('')}</div>` : ''}
+    ${all.length ? shown.map((c) => `<h2 class="section demand-cat">${esc(c)}</h2>${sorted.filter((d) => d.category === c).map(item).join('')}`).join('')
+      : '<div class="card empty"><div class="big">✊</div>Les revendications votées en AG apparaîtront ici.</div>'}
+    ${ctx?.closing ? `<div class="card closing">${paras(ctx.closing)}</div>` : ''}
+    ${ctx?.source ? `<p class="faint small" style="margin-top:12px">${esc(ctx.source)}</p>` : ''}
+    <div class="btn-row" style="margin-top:14px"><button class="btn ghost" id="shareDemands" type="button">${icon('share', 18)} Partager les revendications</button></div>`;
   const cat = $('#cats');
   if (cat) cat.onclick = (e) => { if (e.target.dataset.c) { state.demandCat = e.target.dataset.c; render(true); } };
+  if ($('#ctxToggle')) $('#ctxToggle').onclick = () => { state.ctxOpen = !state.ctxOpen; render(true); };
+  $('#shareDemands').onclick = async () => {
+    const text = cats.map((c) => `${c.toUpperCase()}\n${sorted.filter((d) => d.category === c).map((d) => `• ${d.title}`).join('\n')}`).join('\n\n');
+    try { if (navigator.share) await navigator.share({ title: 'Nos revendications · La Doua en lutte', text, url: location.origin + '/#/revendications' }); else { await navigator.clipboard.writeText(`${text}\n\n${location.origin}/#/revendications`); toast('Revendications copiées.'); } } catch {}
+  };
   $$('.support').forEach((b) => (b.onclick = async () => {
     try {
       const r = await api(`/api/demands/${b.dataset.id}/support`, { method: 'POST' });
@@ -497,6 +521,7 @@ function viewContacts() {
       : '<div class="card muted">Les syndicats et collectifs ajouteront leurs contacts ici.</div>'}
     <h2 class="section">🕶️ Parler anonymement</h2>
     <a class="card" href="#/chat" style="display:block;color:inherit">Le <b>chat anonyme</b> est ouvert à tou·tes, sans compte. Salon <b>#Entraide</b> pour les cours, partiels, logement, soutien.</a>
+    ${tgCard()}
     ${igCard('Les infos de la mobilisation, en direct sur Instagram')}
     <h2 class="section">🆘 Urgences & écoute</h2>
     <div class="list">
@@ -533,9 +558,10 @@ async function viewAlerts() {
       <p class="faint small">Aucune donnée perso : ton téléphone reçoit les alertes, c’est tout. Tu peux les couper ici ou dans les réglages.</p>`}
     </div>
     ${appCardHtml()}
-    <h2 class="section">✉️ Ou par email</h2>
+    ${tgCard('Chaque bâtiment bloqué, chaque AG, chaque alerte : postés automatiquement')}
+    <h2 class="section">✉️ Ou par email : le récap du matin</h2>
     <div class="card">
-      ${d.mailEnabled ? `<form class="form" id="sub">
+      ${d.mailEnabled && d.emailSpots <= 0 ? '<p class="muted" style="margin:0">📭 La liste email est <b>complète</b> (places limitées par la version gratuite). Active les notifications ci-dessus ou rejoins la chaîne Telegram : c’est gratuit et sans limite.</p>' : d.mailEnabled ? `<p class="muted small" style="margin:0 0 10px">${d.emailMode === 'digest' ? `Un seul email chaque matin vers ${d.digestHour} h : bâtiments bloqués, AG et manifs du jour, alertes de la veille.` : 'Un email à chaque changement.'} <b>${d.emailSpots} place${d.emailSpots > 1 ? 's' : ''} restante${d.emailSpots > 1 ? 's' : ''}.</b></p><form class="form" id="sub">
         <div class="field"><label for="email">Ton email (perso ou étudiant)</label><input type="email" id="email" required autocomplete="email" placeholder="prenom.nom@exemple.fr"></div>
         <div>${[['buildings', '🔴 Bâtiments bloqués / rouverts et blocus'], ['events', '📣 Nouvelles AG, manifs, rassemblements'], ['reports', '📝 Comptes rendus d’AG']].map(([k, l]) => `<label class="check"><input type="checkbox" name="a" value="${k}" checked> ${l}</label>`).join('')}</div>
         <div><div class="field"><label>Campus (aucun coché = tous)</label></div>
@@ -1286,17 +1312,28 @@ function modFlash(el) {
 }
 
 function modDemands(el) {
+  const ctx = state.data.context || {};
   el.innerHTML = `
+    <details class="card"><summary class="kicker" style="cursor:pointer">✍️ Texte « ${esc(ctx.title || 'Le contexte')} » (en haut de la page)</summary>
+      <form class="form" id="ctxf" style="margin-top:10px">
+        <div class="field"><label>Titre</label><input type="text" id="cxt" maxlength="80" value="${esc(ctx.title || 'Le contexte')}"></div>
+        <div class="field"><label>Texte (une ligne vide entre deux paragraphes)</label><textarea id="cxx" style="min-height:220px">${esc(ctx.text || '')}</textarea></div>
+        <div class="field"><label>Appel en gros (bandeau rouge)</label><input type="text" id="cxc" maxlength="300" value="${esc(ctx.call || '')}"></div>
+        <div class="field"><label>Texte de fin</label><textarea id="cxe">${esc(ctx.closing || '')}</textarea></div>
+        <div class="field"><label>Source / précision</label><input type="text" id="cxs" maxlength="600" value="${esc(ctx.source || '')}"></div>
+        <button class="btn small">Enregistrer</button>
+      </form></details>
     <div class="card"><form class="form" id="df">
       <div class="kicker">Nouvelle revendication</div>
       <div class="field"><input type="text" id="dt" maxlength="160" required placeholder="Intitulé court"></div>
-      <div class="field"><input type="text" id="dc" maxlength="40" placeholder="Catégorie (ex : Bourses, Logement, Examens)"></div>
+      <div class="field"><input type="text" id="dc" maxlength="60" list="dcats" placeholder="Catégorie (ex : Bourses, Logement, Examens)"><datalist id="dcats">${[...new Set(state.data.demands.map((d) => d.category))].map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>
       <div class="field"><textarea id="dx" maxlength="2000" placeholder="Explication (facultatif)"></textarea></div>
       <button class="btn">Ajouter</button></form></div>
     <h2 class="section">Revendications</h2>
     <div class="list">${state.data.demands.map((d) => `<div class="row" data-id="${esc(d.id)}"><div class="grow"><div class="title">${esc(d.title)}</div><div class="sub">${esc(d.category)} · ✊ ${d.support}</div></div>
       <select data-status style="width:auto">${Object.entries(DEMAND_STATUS).map(([k, [l]]) => `<option value="${k}" ${k === d.status ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <button class="icon-btn" data-del>${icon('trash', 18)}</button></div>`).join('') || '<div class="empty">Aucune.</div>'}</div>`;
+  $('#ctxf').onsubmit = async (e) => { e.preventDefault(); await act(() => api('/api/mod/context', { method: 'PUT', body: { title: $('#cxt').value, text: $('#cxx').value, call: $('#cxc').value, closing: $('#cxe').value, source: $('#cxs').value } }), 'Texte enregistré.'); await refresh(); };
   $('#df').onsubmit = async (e) => { e.preventDefault(); await act(() => api('/api/mod/demands', { method: 'POST', body: { title: $('#dt').value, category: $('#dc').value, text: $('#dx').value } }), 'Ajoutée.'); await refresh(); render(true); };
   el.querySelector('.list').onchange = (e) => { if (e.target.matches('[data-status]')) act(() => api(`/api/mod/demands/${e.target.closest('.row').dataset.id}`, { method: 'PUT', body: { status: e.target.value } }), 'Statut mis à jour.'); };
   el.querySelector('.list').onclick = async (e) => { if (e.target.closest('[data-del]') && confirm('Supprimer ?')) { await act(() => api(`/api/mod/demands/${e.target.closest('.row').dataset.id}`, { method: 'DELETE' }), 'Supprimée.'); await refresh(); render(true); } };

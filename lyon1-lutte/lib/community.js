@@ -11,6 +11,7 @@ import { db, save, newId, now, DATA_DIR } from './store.js';
 import { SECRET, parseCookies } from './auth.js';
 import { Readable } from 'node:stream';
 import { remoteEnabled, putFile, fetchObject, removeObjects } from './remote.js';
+import { postTelegram, tgEsc } from './telegram.js';
 
 const UPLOADS = path.join(DATA_DIR, 'uploads');
 fs.mkdirSync(UPLOADS, { recursive: true });
@@ -272,6 +273,7 @@ export function registerCommunity(app, mod, ctx) {
     db.polls.push(p); save();
     audit(req.mod, 'vote créé', question);
     feed(`Nouveau vote anonyme : « ${question} » · jusqu'au ${closesAt.toLocaleString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' })}`, 'info');
+    postTelegram(`🗳️ <b>Vote anonyme</b> : ${tgEsc(question)}\n${options.map((o) => `• ${tgEsc(o)}`).join('\n')}\n<i>Jusqu'au ${tgEsc(closesAt.toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' }))}, 1 vote par téléphone</i>`, '/#/votes');
     broadcast('poll', { id: p.id });
     res.json(publicPoll(p));
   });
