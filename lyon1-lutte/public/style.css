@@ -444,3 +444,6 @@ button.opt:active { transform: scale(0.98); }
 .modsites { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 10px; align-items: center; }
 .presence { font-size: 13px; color: var(--orange); background: rgba(255,159,10,0.1); border: 0.5px solid rgba(255,159,10,0.35); border-radius: 12px; padding: 7px 12px; margin-bottom: 10px; }
 .ag-head { margin: 22px 2px 8px; font: 800 13px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--purple); }
+.poll.focus { box-shadow: 0 0 0 3px var(--purple), 0 0 40px rgba(191,90,242,0.35); }
+.story-prev { gap: 8px; overflow-x: auto; justify-content: flex-start; }
+.story-prev img { flex-shrink: 0; height: min(52vh, 480px) !important; width: auto; aspect-ratio: auto; }

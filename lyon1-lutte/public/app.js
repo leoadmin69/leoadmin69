@@ -221,7 +221,7 @@ function render(force = false) {
   renderSiteBar();
   const [r, arg] = route().split('/');
   if (!state.data) { view().innerHTML = '<div class="empty"><div class="big typing mono">_</div>Connexion au flux…</div>'; return; }
-  const views = { '': viewLive, batiments: viewBuildings, agenda: viewAgenda, chat: viewChat, cr: arg ? () => viewReport(arg) : viewReports, revendications: viewDemands, votes: viewPolls, blog: () => viewBlog(arg), temoignages: viewTestimonies, contacts: viewContacts, alertes: viewAlerts, plus: viewPlus, modo: viewModo };
+  const views = { '': viewLive, batiments: viewBuildings, agenda: viewAgenda, chat: viewChat, cr: arg ? () => viewReport(arg) : viewReports, revendications: viewDemands, votes: () => viewPolls(arg), blog: () => viewBlog(arg), temoignages: viewTestimonies, contacts: viewContacts, alertes: viewAlerts, plus: viewPlus, modo: viewModo };
   (views[r] || viewLive)();
 }
 window.addEventListener('hashchange', () => { render(true); window.scrollTo(0, 0); });
@@ -1174,50 +1174,314 @@ async function storyPoll(ctx, W, H, p) {
   ctx.fillStyle = '#a1a1aa'; ctx.font = `500 34px ${SF}`; ctx.fillText(p.open ? `Vote en cours · clôture dans ${remaining(p.closesAt)}` : 'Vote clos · résultat indicatif', 80, y + 40);
 }
 
+// =====================================================================
+// Kit promo et partage des votes : images dessinées par le navigateur (aucune IA, aucun service externe)
+// =====================================================================
+const siteHost = () => location.host;
+const voteUrl = (p) => `${location.origin}/#/votes/${p.id}`;
+// QR code dessiné en carrés (bibliothèque locale /vendor/qrcode.js)
+function drawQR(ctx, text, x, y, size, dark = '#000', light = '#fff') {
+  if (typeof window.qrcode !== 'function') return;
+  const qr = window.qrcode(0, 'M');
+  qr.addData(text);
+  qr.make();
+  const n = qr.getModuleCount();
+  const pad = Math.round(size * 0.06);
+  const cell = (size - pad * 2) / n;
+  ctx.fillStyle = light; rrect(ctx, x, y, size, size, Math.round(size * 0.06)); ctx.fill();
+  ctx.fillStyle = dark;
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) ctx.fillRect(Math.floor(x + pad + c * cell), Math.floor(y + pad + r * cell), Math.ceil(cell), Math.ceil(cell));
+}
+// Zone où le modo pose le sticker « lien » d'Instagram
+function linkZone(ctx, x, y, w, label = 'COLLE LE STICKER LIEN ICI') {
+  ctx.save();
+  ctx.setLineDash([18, 14]); ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+  rrect(ctx, x, y, w, 110, 55); ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.font = `800 32px ${MONO}`;
+  const t = `🔗 ${label}`; ctx.fillText(t, x + (w - ctx.measureText(t).width) / 2, y + 68);
+}
+// Mini téléphone avec l'interface du site (pour les visuels de promo)
+function phoneMock(ctx, x, y, w, { notif = false } = {}) {
+  const h = w * 2.05;
+  ctx.save();
+  ctx.shadowColor = 'rgba(255,69,58,0.45)'; ctx.shadowBlur = 60;
+  ctx.fillStyle = '#111'; rrect(ctx, x, y, w, h, w * 0.16); ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = '#3a3a3c'; ctx.lineWidth = 6; rrect(ctx, x, y, w, h, w * 0.16); ctx.stroke();
+  const ix = x + w * 0.06, iy = y + w * 0.06, iw = w * 0.88, ih = h - w * 0.12;
+  ctx.save(); rrect(ctx, ix, iy, iw, ih, w * 0.11); ctx.clip();
+  ctx.fillStyle = '#000'; ctx.fillRect(ix, iy, iw, ih);
+  const u = iw / 100; // unité relative
+  ctx.fillStyle = '#ff453a'; ctx.fillRect(ix, iy + u * 12, iw, u * 9);
+  ctx.fillStyle = '#fff'; ctx.font = `800 ${u * 4.2}px ${MONO}`; ctx.fillText('ALERTE · BLOQUÉ : THÉMIS · NAUTIBUS', ix + u * 4, iy + u * 18);
+  ctx.fillStyle = '#fff'; ctx.font = `800 ${u * 5}px ${MONO}`; ctx.fillText('LYON 1 ·', ix + u * 6, iy + u * 32);
+  ctx.fillStyle = '#ff453a'; ctx.fillText('LA DOUA EN LUTTE', ix + u * 34, iy + u * 32);
+  const g = ctx.createLinearGradient(ix, iy + u * 38, ix + iw, iy + u * 90);
+  g.addColorStop(0, '#4a0b08'); g.addColorStop(1, '#000');
+  ctx.fillStyle = g; rrect(ctx, ix + u * 5, iy + u * 38, iw - u * 10, u * 58, u * 7); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,69,58,0.6)'; ctx.lineWidth = u * 0.6; rrect(ctx, ix + u * 5, iy + u * 38, iw - u * 10, u * 58, u * 7); ctx.stroke();
+  ctx.fillStyle = '#00ff9c'; ctx.font = `800 ${u * 3.6}px ${MONO}`; ctx.fillText('CAMPUS DE LA DOUA', ix + u * 11, iy + u * 48);
+  ctx.save(); ctx.shadowColor = '#ff453a'; ctx.shadowBlur = u * 4;
+  ctx.fillStyle = '#ff453a'; ctx.font = `900 ${u * 10.5}px ${SF}`; ctx.fillText('BLOCUS', ix + u * 11, iy + u * 62); ctx.fillText('EN COURS', ix + u * 11, iy + u * 74);
+  ctx.restore();
+  [['2', 'bloqués', '#ff453a'], ['1', 'partiel', '#ff9f0a'], ['13', 'ouverts', '#30d158']].forEach(([n, l, c], i) => {
+    const bx = ix + u * (11 + i * 26);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; rrect(ctx, bx, iy + u * 79, u * 23, u * 13, u * 3); ctx.fill();
+    ctx.fillStyle = c; ctx.font = `800 ${u * 6}px ${MONO}`; ctx.fillText(n, bx + u * 3, iy + u * 86.5);
+    ctx.fillStyle = '#a1a1aa'; ctx.font = `500 ${u * 3}px ${SF}`; ctx.fillText(l, bx + u * 3, iy + u * 90.5);
+  });
+  ['Thémis', 'Nautibus'].forEach((t, i) => {
+    const bx = ix + u * (6 + i * 30);
+    ctx.fillStyle = 'rgba(255,69,58,0.25)'; rrect(ctx, bx, iy + u * 103, u * 27, u * 9, u * 4.5); ctx.fill();
+    ctx.fillStyle = '#ff453a'; ctx.font = `700 ${u * 4}px ${SF}`; ctx.fillText(`● ${t}`, bx + u * 3, iy + u * 109);
+  });
+  ctx.fillStyle = 'rgba(0,255,156,0.08)'; rrect(ctx, ix + u * 5, iy + u * 118, iw - u * 10, u * 34, u * 5); ctx.fill();
+  ctx.fillStyle = '#00ff9c'; ctx.font = `500 ${u * 3.3}px ${MONO}`;
+  ['[07:42] Thémis → BLOQUÉ', '[07:43] AG 12h · Amphi Thémis', '[07:51] Vote anonyme ouvert', '[08:02] Nautibus → BLOQUÉ'].forEach((t, i) => ctx.fillText(t, ix + u * 9, iy + u * (126 + i * 7)));
+  ctx.fillStyle = 'rgba(191,90,242,0.14)'; rrect(ctx, ix + u * 5, iy + u * 157, iw - u * 10, u * 22, u * 5); ctx.fill();
+  ctx.fillStyle = '#bf5af2'; ctx.font = `800 ${u * 3.2}px ${MONO}`; ctx.fillText('PROCHAIN RDV · AG', ix + u * 9, iy + u * 165);
+  ctx.fillStyle = '#fff'; ctx.font = `800 ${u * 4.4}px ${SF}`; ctx.fillText('AG de mobilisation · 12:00', ix + u * 9, iy + u * 173);
+  ctx.fillStyle = 'rgba(18,18,20,0.95)'; ctx.fillRect(ix, iy + ih - u * 16, iw, u * 16);
+  ['⚡', '🏛️', '📅', '💬', '•••'].forEach((t, i) => { ctx.fillStyle = i === 0 ? '#00ff9c' : '#8e8e93'; ctx.font = `${u * 5}px ${SF}`; ctx.fillText(t, ix + u * (9 + i * 19), iy + ih - u * 6); });
+  if (notif) {
+    ctx.fillStyle = 'rgba(44,44,46,0.97)'; rrect(ctx, ix + u * 4, iy + u * 3, iw - u * 8, u * 22, u * 5); ctx.fill();
+    ctx.fillStyle = '#ff453a'; rrect(ctx, ix + u * 8, iy + u * 7, u * 9, u * 9, u * 2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = `800 ${u * 3.8}px ${SF}`; ctx.fillText('🔴 La Doua : 2 bâtiments bloqués', ix + u * 20, iy + u * 12);
+    ctx.fillStyle = '#d1d1d6'; ctx.font = `500 ${u * 3.3}px ${SF}`; ctx.fillText('Bloqué : Thémis, Nautibus · maintenant', ix + u * 20, iy + u * 19);
+  }
+  ctx.restore();
+  return h;
+}
+function promoHeader(ctx, W, top = 130) {
+  ctx.fillStyle = '#fff'; ctx.font = `800 78px ${MONO}`; ctx.fillText('LYON 1', 80, top + 60);
+  ctx.fillStyle = '#ff453a'; ctx.font = `800 50px ${MONO}`; ctx.fillText('LA DOUA EN LUTTE', 80, top + 125);
+}
+function featureRows(ctx, x, y, w, rows, size = 42, gap = 82) {
+  rows.forEach(([ico, txt], i) => {
+    ctx.fillStyle = 'rgba(255,255,255,0.07)'; rrect(ctx, x, y + i * gap, w, gap - 14, 22); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = `${size}px ${SF}`; ctx.fillText(ico, x + 24, y + i * gap + (gap - 14) / 2 + size * 0.36);
+    ctx.fillStyle = '#fff'; ctx.font = `700 ${size * 0.86}px ${SF}`; ctx.fillText(txt, x + 24 + size * 1.5, y + i * gap + (gap - 14) / 2 + size * 0.3);
+  });
+}
+
+// ---------- Story promo du site (1080 × 1920) ----------
+function promoStory(ctx, W, H) {
+  storyFrame(ctx, W, H, '#ff453a');
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, 330); // cache l'en-tête standard : celui-ci est plus grand
+  promoHeader(ctx, W, 110);
+  let y = drawBlock(ctx, 'TOUTES LES INFOS DE LA LUTTE, EN DIRECT', 80, 430, W - 160, 76, 900, '#fff', 1.05, 3);
+  y = drawBlock(ctx, 'Gratuit · anonyme · sans compte', 80, y + 10, W - 160, 38, 600, '#00ff9c', 1.2, 1);
+  featureRows(ctx, 80, y + 30, W - 160, [
+    ['🔴', 'Bâtiments bloqués en direct'],
+    ['🔔', 'Notif dès qu’un bâtiment est bloqué'],
+    ['📣', 'AG, manifs, rassemblements'],
+    ['🗳️', 'Votes anonymes de ton AG'],
+    ['💬', 'Chat anonyme, sans compte'],
+    ['🛡️', 'Témoigner des violences'],
+  ], 40, 74);
+  const qy = H - 780;
+  ctx.fillStyle = '#ff453a'; rrect(ctx, 80, qy, W - 160, 150, 36); ctx.fill();
+  const cta = 'AJOUTE L’APP À TON ÉCRAN D’ACCUEIL';
+  const cs = fitFont(ctx, cta, W - 220, 46, 28, 900);
+  ctx.fillStyle = '#fff'; ctx.font = `900 ${cs}px ${SF}`;
+  ctx.fillText(cta, (W - ctx.measureText(cta).width) / 2, qy + 75 + cs * 0.36);
+  drawQR(ctx, location.origin, 80, qy + 180, 230);
+  ctx.fillStyle = '#fff'; ctx.font = `800 44px ${MONO}`; ctx.fillText(siteHost(), 340, qy + 270);
+  ctx.fillStyle = '#a1a1aa'; ctx.font = `500 32px ${SF}`; ctx.fillText('Scanne ou touche le lien ↓', 340, qy + 325);
+  linkZone(ctx, 340, qy + 350, W - 420, 'STICKER LIEN');
+}
+
+// ---------- Publication Instagram promo (1080 × 1350) ----------
+function promoPost(ctx, W, H) {
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  const g = ctx.createRadialGradient(W * 0.85, H * 0.35, 0, W * 0.85, H * 0.35, W);
+  g.addColorStop(0, '#ff453a55'); g.addColorStop(1, '#00000000'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(255,255,255,0.025)'; for (let y = 0; y < H; y += 6) ctx.fillRect(0, y, W, 2);
+  promoHeader(ctx, W, 40);
+  drawBlock(ctx, 'Blocus, AG, manifs : sache tout, tout de suite.', 70, 300, 560, 62, 900, '#fff', 1.08, 4);
+  featureRows(ctx, 70, 600, 560, [['🔴', 'Bâtiments en direct'], ['🔔', 'Notifs gratuites'], ['🗳️', 'Votes anonymes'], ['💬', 'Chat anonyme']], 36, 74);
+  phoneMock(ctx, 660, 250, 360, { notif: true });
+  ctx.fillStyle = '#ff453a'; rrect(ctx, 70, H - 250, W - 140, 190, 36); ctx.fill();
+  drawQR(ctx, location.origin, 95, H - 228, 146);
+  ctx.fillStyle = '#fff'; ctx.font = `900 46px ${SF}`; ctx.fillText('Installe l’app gratuite', 270, H - 165);
+  ctx.font = `800 36px ${MONO}`; ctx.fillText(siteHost(), 270, H - 110);
+}
+
+// ---------- Carrousel « installer l'app + activer les notifications » (4 × 1080 × 1350) ----------
+function tutoFrame(ctx, W, H, n, accent = '#ff453a') {
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, W * 1.2);
+  g.addColorStop(0, accent + '55'); g.addColorStop(1, '#00000000'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(255,255,255,0.025)'; for (let y = 0; y < H; y += 6) ctx.fillRect(0, y, W, 2);
+  ctx.fillStyle = '#fff'; ctx.font = `800 40px ${MONO}`; ctx.fillText('LYON 1', 70, 90);
+  ctx.fillStyle = '#ff453a'; ctx.font = `800 28px ${MONO}`; ctx.fillText('LA DOUA EN LUTTE', 70, 130);
+  ctx.fillStyle = 'rgba(255,255,255,0.12)'; rrect(ctx, W - 170, 52, 100, 54, 27); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.font = `800 30px ${MONO}`; ctx.fillText(`${n}/4`, W - 150, 89);
+  ctx.fillStyle = '#6e6e73'; ctx.font = `600 28px ${MONO}`; ctx.fillText(siteHost(), 70, H - 50);
+}
+function stepCards(ctx, x, y, w, steps, accent) {
+  steps.forEach(([title, sub], i) => {
+    const h = 170;
+    ctx.fillStyle = 'rgba(255,255,255,0.07)'; rrect(ctx, x, y + i * (h + 22), w, h, 30); ctx.fill();
+    ctx.fillStyle = accent; ctx.beginPath(); ctx.arc(x + 70, y + i * (h + 22) + h / 2, 42, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#000'; ctx.font = `900 48px ${MONO}`; const t = String(i + 1); ctx.fillText(t, x + 70 - ctx.measureText(t).width / 2, y + i * (h + 22) + h / 2 + 17);
+    const ts = fitFont(ctx, title, w - 170, 40, 26, 800);
+    ctx.fillStyle = '#fff'; ctx.font = `800 ${ts}px ${SF}`; ctx.fillText(title, x + 140, y + i * (h + 22) + 72);
+    if (sub) drawBlock(ctx, sub, x + 140, y + i * (h + 22) + 128, w - 170, 28, 500, '#a1a1aa', 1.2, 1);
+  });
+}
+function tuto1(ctx, W, H) {
+  tutoFrame(ctx, W, H, 1);
+  drawBlock(ctx, 'Reçois une notif dès qu’un bâtiment est bloqué', 70, 260, 600, 66, 900, '#fff', 1.08, 5);
+  drawBlock(ctx, '3 étapes · 30 secondes · gratuit, sans compte, sans email', 70, 640, 560, 34, 600, '#00ff9c', 1.25, 3);
+  phoneMock(ctx, 650, 200, 360, { notif: true });
+  ctx.fillStyle = '#fff'; ctx.font = `800 40px ${SF}`; ctx.fillText('Fais défiler →', 70, H - 130);
+}
+function tuto2(ctx, W, H) {
+  tutoFrame(ctx, W, H, 2, '#0a84ff');
+  drawBlock(ctx, '📱 Sur iPhone', 70, 250, W - 140, 72, 900, '#fff', 1.1, 1);
+  drawBlock(ctx, 'Avec Safari (iOS 16.4 minimum)', 70, 310, W - 140, 32, 600, '#a1a1aa', 1.2, 1);
+  stepCards(ctx, 70, 370, W - 140, [
+    [`Ouvre ${siteHost()} dans Safari`, 'Scanne le QR code ou touche le lien'],
+    ['Touche Partager ⎋', 'Le carré avec la flèche, en bas de l’écran'],
+    ['« Sur l’écran d’accueil » → Ajouter', 'L’icône LYON 1 apparaît avec tes apps'],
+    ['Ouvre l’app depuis l’icône', 'Important : les notifs ne marchent que là'],
+  ], '#0a84ff');
+}
+function tuto3(ctx, W, H) {
+  tutoFrame(ctx, W, H, 3, '#30d158');
+  drawBlock(ctx, '🤖 Sur Android', 70, 250, W - 140, 72, 900, '#fff', 1.1, 1);
+  drawBlock(ctx, 'Avec Chrome (ou Samsung Internet)', 70, 310, W - 140, 32, 600, '#a1a1aa', 1.2, 1);
+  stepCards(ctx, 70, 370, W - 140, [
+    [`Ouvre ${siteHost()} dans Chrome`, 'Scanne le QR code ou touche le lien'],
+    ['Touche « Installer l’app » sur l’accueil', 'Ou menu ⋮ → « Installer l’application »'],
+    ['Confirme « Installer »', 'L’icône LYON 1 apparaît avec tes apps'],
+    ['Ouvre l’app depuis l’icône', 'C’est elle qui t’enverra les notifs'],
+  ], '#30d158');
+}
+function tuto4(ctx, W, H) {
+  tutoFrame(ctx, W, H, 4);
+  drawBlock(ctx, '🔔 Active les notifications', 70, 250, W - 140, 66, 900, '#fff', 1.1, 2);
+  stepCards(ctx, 70, 330, W - 140, [
+    ['Dans l’app : onglet « Alertes »', 'Menu « Plus » sur téléphone'],
+    ['Choisis ton site (La Doua, IUT…)', 'Et ce que tu veux recevoir'],
+    ['« Activer les notifications » → Autoriser', 'Teste avec le bouton « Tester »'],
+  ], '#ff453a');
+  ctx.fillStyle = 'rgba(255,69,58,0.18)'; rrect(ctx, 70, H - 380, W - 140, 270, 34); ctx.fill();
+  drawQR(ctx, location.origin, 100, H - 350, 210);
+  drawBlock(ctx, 'Anonyme : aucun compte, aucun email, aucun numéro.', 340, H - 290, W - 450, 34, 700, '#fff', 1.25, 3);
+  ctx.fillStyle = '#ff453a'; ctx.font = `800 34px ${MONO}`; ctx.fillText(siteHost(), 340, H - 150);
+}
+
+// ---------- Votes : story « vote en cours » et story des résultats ----------
+function storyVote(ctx, W, H, p) {
+  storyFrame(ctx, W, H, '#bf5af2');
+  pill(ctx, 80, 380, `🗳️ ${(p.ag || 'VOTE ANONYME').toUpperCase().slice(0, 34)}`, 'rgba(191,90,242,0.22)', '#bf5af2');
+  let y = drawBlock(ctx, p.question, 80, 560, W - 160, fitFont(ctx, p.question, (W - 160) * 2.2, 92, 60, 900), 900, '#fff', 1.08, 4) + 30;
+  const optH = p.options.length > 3 ? 88 : 104;
+  p.options.slice(0, 5).forEach((o) => {
+    ctx.fillStyle = 'rgba(118,118,128,0.28)'; rrect(ctx, 80, y, W - 160, optH, 28); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = `800 ${optH * 0.42}px ${SF}`; ctx.fillText(o.slice(0, 30), 124, y + optH * 0.64);
+    y += optH + 16;
+  });
+  ctx.fillStyle = '#00ff9c'; ctx.font = `800 40px ${SF}`;
+  const t = `Vote anonyme · 1 vote par téléphone${p.open ? ' · clôture dans ' + remaining(p.closesAt) : ''}`;
+  const yText = drawBlock(ctx, t, 80, y + 40, W - 160, 34, 700, '#00ff9c', 1.2, 2);
+  const qy = Math.min(Math.max(yText + 20, H - 620), H - 530);
+  drawQR(ctx, voteUrl(p), 80, qy, 220);
+  drawBlock(ctx, 'Scanne ou touche le lien pour voter', 330, qy + 70, W - 410, 40, 800, '#fff', 1.15, 2);
+  linkZone(ctx, 330, qy + 150, W - 410, 'STICKER LIEN');
+}
+function storyResults(ctx, W, H, p) {
+  storyFrame(ctx, W, H, '#00ff9c');
+  pill(ctx, 80, 380, `📊 RÉSULTATS · ${(p.ag || 'VOTE ANONYME').toUpperCase().slice(0, 30)}`, 'rgba(0,255,156,0.16)', '#00ff9c');
+  let y = drawBlock(ctx, p.question, 80, 560, W - 160, 72, 900, '#fff', 1.1, 3) + 30;
+  const counts = p.counts || p.options.map(() => 0);
+  const total = counts.reduce((a, b) => a + b, 0);
+  const max = Math.max(...counts);
+  const winners = counts.filter((c) => c === max).length;
+  if (total && winners === 1) {
+    const w = p.options[counts.indexOf(max)];
+    ctx.save(); ctx.shadowColor = '#00ff9c'; ctx.shadowBlur = 30;
+    y = drawBlock(ctx, `✅ ${w}`, 80, y + 70, W - 160, fitFont(ctx, `✅ ${w}`, W - 160, 110, 60, 900), 900, '#00ff9c', 1.05, 2);
+    ctx.restore();
+    y += 20;
+  }
+  counts.forEach((n, i) => {
+    const pct = total ? Math.round((n / total) * 100) : 0;
+    ctx.fillStyle = 'rgba(118,118,128,0.25)'; rrect(ctx, 80, y, W - 160, 110, 28); ctx.fill();
+    ctx.fillStyle = n === max && total ? '#00ff9c66' : '#0a84ff55'; rrect(ctx, 80, y, Math.max(56, (W - 160) * pct / 100), 110, 28); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = `800 44px ${SF}`; ctx.fillText(p.options[i].slice(0, 24), 120, y + 70);
+    ctx.font = `800 48px ${MONO}`; const t = `${pct}%`; ctx.fillText(t, W - 120 - ctx.measureText(t).width, y + 72);
+    y += 130;
+  });
+  drawBlock(ctx, `${total} vote${total > 1 ? 's' : ''} · vote anonyme et indicatif : les décisions se prennent en AG`, 80, y + 40, W - 160, 34, 600, '#a1a1aa', 1.25, 2);
+}
+
+// ---------- Générateur : choix du modèle, aperçu, téléchargement, partage ----------
+// Modèle : [clé, libellé, données, largeur, hauteur, fonction de dessin]
 async function openStory(kind = 'campus') {
   const d = state.data;
-  const polls = await api('/api/mod/polls').catch(() => []);
-  const options = [
-    ['campus', '🏛️ Statut du campus', null],
-    ...d.events.slice(0, 4).map((e) => [`ev:${e.id}`, `📣 ${EVENT_TYPE[e.type][0]} · ${e.title.slice(0, 26)}`, e]),
-    ...(d.reports[0] ? [[`cr:${d.reports[0].id}`, `📝 CR · ${d.reports[0].titre.slice(0, 24)}`, d.reports[0]]] : []),
-    ...polls.filter((p) => !p.hidden && p.total).slice(0, 2).map((p) => [`poll:${p.id}`, `🗳️ ${p.question.slice(0, 28)}`, p]),
+  const polls = (await api('/api/mod/polls').catch(() => [])).filter((p) => inScope(p) && !p.hidden);
+  const S = [1080, 1920], P = [1080, 1350];
+  const tpl = [
+    ['promo', '📣 Promo (story)', null, ...S, promoStory],
+    ['post', '🖼️ Promo (publication)', null, ...P, promoPost],
+    ['tuto', '🔔 Tuto notifs (4 images)', null, ...P, [tuto1, tuto2, tuto3, tuto4]],
+    ['campus', '🏛️ Statut du site', null, ...S, storyCampus],
+    ...d.events.slice(0, 3).map((e) => [`ev:${e.id}`, `📣 ${EVENT_TYPE[e.type][0]} · ${e.title.slice(0, 22)}`, e, ...S, (c, w, h) => storyEvent(c, w, h, e)]),
+    ...(d.reports[0] ? [[`cr:${d.reports[0].id}`, `📝 CR · ${d.reports[0].titre.slice(0, 20)}`, d.reports[0], ...S, (c, w, h) => storyReport(c, w, h, d.reports[0])]] : []),
+    ...polls.filter((p) => p.open).slice(0, 3).map((p) => [`vote:${p.id}`, `🗳️ Vote · ${p.question.slice(0, 22)}`, p, ...S, (c, w, h) => storyVote(c, w, h, p)]),
+    ...polls.filter((p) => p.total).slice(0, 3).map((p) => [`res:${p.id}`, `📊 Résultats · ${p.question.slice(0, 18)}`, p, ...S, (c, w, h) => storyResults(c, w, h, p)]),
   ];
-  sheet(`<h3>📸 Story Instagram</h3>
-    <div class="tabs-inline" id="skind">${options.map(([k, l]) => `<button data-k="${esc(k)}">${esc(l)}</button>`).join('')}</div>
-    <div class="story-prev"><img id="simg" alt="Aperçu de la story"></div>
-    <div class="btn-row" style="margin-top:12px"><button class="btn red" id="sshare">Partager</button><a class="btn ghost" id="sdl" download="story-ladoua-en-lutte.png">Télécharger</a></div>
-    <p class="faint small">Format 1080 × 1920, prêt pour Instagram. Sur téléphone, « Partager » ouvre directement Instagram.</p>`, (root) => {
-    let blob = null;
+  sheet(`<h3>📸 Images à publier</h3>
+    <div class="tabs-inline" id="skind" style="flex-wrap:wrap">${tpl.map(([k, l]) => `<button data-k="${esc(k)}">${esc(l)}</button>`).join('')}</div>
+    <div class="story-prev" id="sprev"></div>
+    <div class="btn-row" style="margin-top:12px"><button class="btn red" id="sshare">Partager</button><button class="btn ghost" id="sdl">Télécharger</button><button class="btn ghost" id="slink" hidden>🔗 Copier le lien</button></div>
+    <p class="faint small" id="shint">Créées sur ton téléphone, sans IA ni service externe, avec les infos à jour.</p>`, (root) => {
+    let files = [];
+    let current = null;
     const draw = async (k) => {
       $$('#skind button', root).forEach((b) => b.classList.toggle('on', b.dataset.k === k));
-      const opt = options.find((o) => o[0] === k) || options[0];
-      const c = document.createElement('canvas');
-      c.width = 1080; c.height = 1920;
-      const ctx = c.getContext('2d');
-      if (k.startsWith('ev:')) storyEvent(ctx, 1080, 1920, opt[2]);
-      else if (k.startsWith('cr:')) storyReport(ctx, 1080, 1920, opt[2]);
-      else if (k.startsWith('poll:')) await storyPoll(ctx, 1080, 1920, opt[2]);
-      else storyCampus(ctx, 1080, 1920);
-      blob = await new Promise((r) => c.toBlob(r, 'image/png'));
-      const url = URL.createObjectURL(blob);
-      $('#simg', root).src = url;
-      $('#sdl', root).href = url;
-      $('#sdl', root).download = `story-ladoua-en-lutte-${k.split(':')[0]}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.png`;
+      current = tpl.find((o) => o[0] === k) || tpl[0];
+      const [, , data, w, h, fns] = current;
+      files = [];
+      for (const [i, fn] of [].concat(fns).entries()) {
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        await fn(c.getContext('2d'), w, h);
+        const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+        files.push(new File([blob], `ladoua-en-lutte-${current[0].split(':')[0]}${[].concat(fns).length > 1 ? '-' + (i + 1) : ''}.png`, { type: 'image/png' }));
+      }
+      $('#sprev', root).innerHTML = files.map((f) => `<img src="${URL.createObjectURL(f)}" alt="Aperçu" style="aspect-ratio:${w}/${h}">`).join('');
+      const isVote = current[0].startsWith('vote:') || current[0].startsWith('res:');
+      $('#slink', root).hidden = !isVote;
+      $('#shint', root).textContent = files.length > 1 ? `${files.length} images : publie-les ensemble en carrousel (dans l’ordre).` : current[0].startsWith('vote:') ? 'Publie en story, puis ajoute le sticker « Lien » d’Instagram sur la zone en pointillés avec le lien copié.' : h === 1350 ? 'Format publication 4:5 (1080 × 1350).' : 'Format story 1080 × 1920.';
     };
     $('#skind', root).onclick = (e) => { const k = e.target.closest('[data-k]')?.dataset.k; if (k) draw(k); };
+    const download = () => files.forEach((f, i) => setTimeout(() => { const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; a.click(); }, i * 400));
+    $('#sdl', root).onclick = download;
     $('#sshare', root).onclick = async () => {
-      if (!blob) return;
-      const file = new File([blob], 'story-ladoua-en-lutte.png', { type: 'image/png' });
-      if (navigator.canShare?.({ files: [file] })) { try { await navigator.share({ files: [file] }); } catch {} }
-      else { $('#sdl', root).click(); toast('Image téléchargée : publie-la en story.'); }
+      if (!files.length) return;
+      if (navigator.canShare?.({ files })) { try { await navigator.share({ files }); } catch {} }
+      else { download(); toast('Images téléchargées : publie-les sur Instagram.'); }
     };
-    draw(options.some((o) => o[0] === kind) ? kind : 'campus');
+    $('#slink', root).onclick = async () => { try { await navigator.clipboard.writeText(voteUrl(current[2])); toast('Lien du vote copié ✅'); } catch { prompt('Lien du vote :', voteUrl(current[2])); } };
+    draw(tpl.some((o) => o[0] === kind) ? kind : 'promo');
   });
 }
 async function modStory(el) {
-  el.innerHTML = `<div class="card"><div class="kicker">Stories Instagram prêtes à publier</div><p class="muted">Statut du campus, prochain rendez-vous, dernier compte rendu ou résultat de vote, au format 1080 × 1920, aux couleurs du site et avec les infos à jour.</p><button class="btn red" id="ostory">📸 Créer une story</button></div>`;
-  $('#ostory').onclick = () => openStory('campus');
+  el.innerHTML = `
+    <div class="card"><div class="kicker">📣 Faire connaître le site</div>
+      <p class="muted">Story et publication de promo, carrousel qui explique comment installer l’app et activer les notifications. Avec le QR code et l’adresse du site.</p>
+      <div class="btn-row"><button class="btn red" data-open="promo">Story promo</button><button class="btn ghost" data-open="post">Publication</button><button class="btn ghost" data-open="tuto">Tuto notifs</button></div></div>
+    <div class="card" style="margin-top:12px"><div class="kicker">📸 Infos du jour · ${esc(siteShort(state.modSite))}</div>
+      <p class="muted">Statut du site, prochain rendez-vous, compte rendu, votes en cours et résultats.</p>
+      <div class="btn-row"><button class="btn ghost" data-open="campus">Statut du site</button><a class="btn ghost" href="#/modo" id="tovotes">Votes et résultats →</a></div></div>
+    <p class="faint small">Toutes les images sont dessinées sur ton téléphone à partir des infos du site : aucune IA, aucun service extérieur, gratuit.</p>`;
+  el.onclick = (e) => { const k = e.target.closest('[data-open]')?.dataset.open; if (k) openStory(k); };
+  $('#tovotes').onclick = (e) => { e.preventDefault(); state.modTab = 'votes'; render(true); };
 }
 
 async function modAgenda(el) {
@@ -1558,9 +1822,10 @@ function pollHtml(p) {
       return `<div class="opt res ${p.myVote === i ? 'mine' : ''}"><i style="width:${pct}%"></i><span>${p.myVote === i ? '✓ ' : ''}${esc(o)}</span><b>${n === null ? '?' : pct + '%'}</b></div>`;
     }).join('')}</div>
     <div class="faint small" style="margin-top:8px">${voted ? 'Ton vote est enregistré (anonyme). ' : ''}${!p.counts ? 'Résultats affichés à la clôture. ' : ''}Lancé par ${esc(p.org)} · fin ${esc(fmt(p.closesAt, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}</div>
+    <button class="btn small ghost" data-share-poll="${esc(p.id)}" style="margin-top:10px">${icon('share', 16)} Partager ce vote</button>
   </div>`;
 }
-async function viewPolls() {
+async function viewPolls(focusId) {
   view().innerHTML = `
     <h1 class="large-title">Votes anonymes</h1>
     <p class="subtitle">Donne ton avis en un tap. Aucun compte, aucune trace de qui a voté quoi. 1 vote par appareil.</p>
@@ -1573,7 +1838,17 @@ async function viewPolls() {
     const mine = polls.filter((p) => inScope(p));
     const ags = [...new Set(mine.map((p) => p.ag || 'Vote'))];
     box.innerHTML = mine.length ? ags.map((ag) => `<div class="ag-head">🗳️ ${esc(ag)}</div>${mine.filter((p) => (p.ag || 'Vote') === ag).map(pollHtml).join('')}`).join('') : `<div class="card empty"><div class="big">🗳️</div>Aucun vote ${state.data.scope === ALL ? '' : 'pour ' + esc(siteShort(state.data.scope)) + ' '}pour le moment. Chaque AG lance ses votes ici.</div>`;
+    // Lien direct vers un vote (#/votes/<id>) : on l'amène à l'écran et on le met en avant
+    const target = focusId && box.querySelector(`[data-poll="${CSS.escape(focusId)}"]`);
+    if (target) { target.classList.add('focus'); setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150); }
+    else if (focusId && polls.some((p) => p.id === focusId)) { const p = polls.find((x) => x.id === focusId); if (p.site && p.site !== scopeSite()) { state.site = p.site; store.set('l1-site', p.site); applyScope(); return viewPolls(focusId); } }
     box.onclick = async (e) => {
+      const sh = e.target.closest('[data-share-poll]')?.dataset.sharePoll;
+      if (sh) {
+        const p = polls.find((x) => x.id === sh);
+        try { if (navigator.share) await navigator.share({ title: p.question, text: `🗳️ Vote anonyme · ${p.question}`, url: voteUrl(p) }); else { await navigator.clipboard.writeText(voteUrl(p)); toast('Lien du vote copié.'); } } catch {}
+        return;
+      }
       const opt = e.target.closest('[data-opt]');
       if (!opt) return;
       const card = opt.closest('[data-poll]');
@@ -1783,7 +2058,7 @@ async function modPolls(el) {
       <div class="faint small" style="margin-top:6px">${esc(p.ag || '')} · ${esc(p.org)}</div>
       <b style="display:block;margin:4px 0 8px">${esc(p.question)}</b>
       ${p.options.map((o, i) => `<div class="kv"><span>${esc(o)}</span><b class="mono">${p.counts[i]}</b></div>`).join('')}
-      <div class="btn-row" style="margin-top:8px">${p.open ? '<button class="btn small red" data-a="close">Clore maintenant</button>' : ''}<button class="btn small ghost" data-a="extend">+24 h</button><button class="btn small ghost" data-a="hide">${p.hidden ? 'Afficher' : 'Masquer'}</button><button class="btn small ghost" data-a="del">Supprimer</button></div>
+      <div class="btn-row" style="margin-top:8px"><button class="btn small ghost" data-a="link">🔗 Lien</button>${p.open ? '<button class="btn small ghost" data-a="story">📸 Story du vote</button>' : ''}${p.total ? '<button class="btn small ghost" data-a="res">📊 Story résultats</button>' : ''}${p.open ? '<button class="btn small red" data-a="close">Clore maintenant</button>' : ''}<button class="btn small ghost" data-a="extend">+24 h</button><button class="btn small ghost" data-a="hide">${p.hidden ? 'Afficher' : 'Masquer'}</button><button class="btn small ghost" data-a="del">Supprimer</button></div>
     </div>`).join('') || '<div class="empty">Aucun vote.</div>'}`;
   $('#pdur').onchange = (e) => ($('#pcw').hidden = e.target.value !== 'custom');
   $('#pf').onsubmit = async (e) => {
@@ -1798,6 +2073,9 @@ async function modPolls(el) {
     if (!a || !card) return;
     const id = card.dataset.id;
     const p = polls.find((x) => x.id === id);
+    if (a === 'link') { try { await navigator.clipboard.writeText(voteUrl(p)); toast('Lien du vote copié : colle-le dans un sticker « Lien » de ta story.'); } catch { prompt('Lien du vote :', voteUrl(p)); } return; }
+    if (a === 'story') return openStory(`vote:${id}`);
+    if (a === 'res') return openStory(`res:${id}`);
     if (a === 'close' && confirm('Clore ce vote maintenant ?')) await act(() => api(`/api/mod/polls/${id}`, { method: 'PUT', body: { close: true } }), 'Clos.');
     if (a === 'extend') await act(() => api(`/api/mod/polls/${id}`, { method: 'PUT', body: { extendHours: 24 } }), 'Prolongé de 24 h.');
     if (a === 'hide') await act(() => api(`/api/mod/polls/${id}`, { method: 'PUT', body: { hidden: !p.hidden } }), 'OK.');

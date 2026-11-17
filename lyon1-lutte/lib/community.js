@@ -441,6 +441,26 @@ export function registerCommunity(app, mod, ctx) {
     ffmpeg: HAS_FFMPEG,
   }));
 
+  // Fin d'un vote : résultats publiés automatiquement (fil en direct + Telegram), une seule fois par vote.
+  function announceResults() {
+    for (const p of db.polls) {
+      if (p.hidden || p.resultsAnnounced || isOpen(p)) continue;
+      p.resultsAnnounced = true;
+      const counts = p.options.map((_, i) => Object.values(p.ballots).filter((b) => b === i).length);
+      const total = counts.reduce((a, b) => a + b, 0);
+      save();
+      if (!total) continue;
+      const max = Math.max(...counts);
+      const lines = p.options.map((o, i) => `${counts[i] === max ? '✅' : '▫️'} ${o} : ${Math.round((counts[i] / total) * 100)} %`);
+      feed(`${p.ag || siteName(siteOf(p))} · Résultat du vote « ${p.question} » : ${p.options[counts.indexOf(max)]} (${total} votes)`, 'ok');
+      postTelegram(`📊 <b>Résultats · ${tgEsc(p.ag || siteName(siteOf(p)))}</b>\n${tgEsc(p.question)}\n${lines.map(tgEsc).join('\n')}\n<i>${total} votes · vote anonyme et indicatif</i>`, `/#/votes/${p.id}`, site(siteOf(p))?.telegramChatId);
+      broadcast('poll', { id: p.id });
+    }
+  }
+  // Au démarrage, les votes déjà terminés avant cette fonctionnalité ne sont pas réannoncés.
+  for (const p of db.polls) if (!p.resultsAnnounced && !isOpen(p) && new Date(p.closesAt).getTime() < Date.now() - 3600e3) p.resultsAnnounced = true;
+  setInterval(announceResults, 60e3).unref();
+
   return {
     pollsOpen: () => db.polls.filter((p) => !p.hidden && isOpen(p)).length,
     pollsOpenBySite: () => db.polls.filter((p) => !p.hidden && isOpen(p)).reduce((o, p) => ({ ...o, [siteOf(p)]: (o[siteOf(p)] || 0) + 1 }), {}),
