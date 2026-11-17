@@ -1,8 +1,20 @@
-// Comptes rendus d'AG : le PDF est lu par Claude, qui le transforme en flash infos courts.
-// Sans clé API, une extraction locale (pdf.js + règles simples) prend le relais.
+// Comptes rendus d'AG : le PDF est transformé en flash infos courts par une IA.
+// Priorité aux IA GRATUITES, essayées dans l'ordre ; si l'une échoue (quota, panne), la suivante prend le relais :
+//   1. Google Gemini (gratuit, clé sur aistudio.google.com) : lit le PDF entier, y compris les scans et l'écriture manuscrite.
+//   2. Groq (gratuit, clé sur console.groq.com) : très rapide, lit le texte extrait du PDF (pas les scans).
+//   3. Claude (payant, facultatif).
+//   4. Extraction locale sans IA (toujours disponible).
+// Ordre modifiable avec AI_PROVIDERS=gemini,groq,anthropic
 import Anthropic from '@anthropic-ai/sdk';
 
-export const aiEnabled = () => !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+const has = {
+  gemini: () => !!process.env.GEMINI_API_KEY,
+  groq: () => !!process.env.GROQ_API_KEY,
+  anthropic: () => !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN),
+};
+const order = () => (process.env.AI_PROVIDERS || 'gemini,groq,anthropic').split(',').map((s) => s.trim()).filter((p) => has[p]?.());
+export const aiEnabled = () => order().length > 0;
+export const aiProviders = () => order().map((p) => ({ gemini: 'Gemini (gratuit)', groq: 'Groq (gratuit)', anthropic: 'Claude' }[p]));
 const MODEL = () => process.env.ANTHROPIC_MODEL || 'claude-opus-5-5';
 
 const str = { type: 'string' };
@@ -57,7 +69,175 @@ Règles :
 - revendications : formulées en une phrase courte chacune.
 - Tout en français.`;
 
+// ---------- Lecture d'un flux SSE (Gemini et Groq) ----------
+async function* sse(res) {
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i).trim();
+      buf = buf.slice(i + 1);
+      if (!line.startsWith('data:')) continue;
+      const data = line.slice(5).trim();
+      if (data === '[DONE]') return;
+      try { yield JSON.parse(data); } catch {}
+    }
+  }
+}
+async function httpError(res, who) {
+  const body = await res.text().catch(() => '');
+  const e = new Error(`${who} HTTP ${res.status} : ${body.slice(0, 200)}`);
+  e.status = res.status;
+  return e;
+}
+function parseJson(text) {
+  try { return JSON.parse(text); } catch {}
+  const a = text.indexOf('{'); const b = text.lastIndexOf('}');
+  if (a >= 0 && b > a) return JSON.parse(text.slice(a, b + 1));
+  throw new Error('Réponse de l’IA illisible.');
+}
+
+// ---------- Choix automatique du meilleur modèle gratuit disponible ----------
+const modelCache = {};
+async function pickModel(key, fetchList, choose, fallback) {
+  const c = modelCache[key];
+  if (c && Date.now() - c.at < 6 * 3600e3) return c.model;
+  let model = fallback;
+  try { model = choose(await fetchList()) || fallback; } catch (e) { console.warn(`[ia] liste des modèles ${key} indisponible : ${e.message}`); }
+  modelCache[key] = { model, at: Date.now() };
+  return model;
+}
+const version = (s) => (s.match(/(\d+(?:\.\d+)?)/) || [0, 0])[1] * 1;
+
+// Gemini : le modèle « flash » le plus récent et stable (gratuit, rapide, lit les PDF).
+const GEMINI_BASE = () => (process.env.GEMINI_BASE || 'https://generativelanguage.googleapis.com').replace(/\/$/, '');
+async function geminiModel() {
+  if (process.env.GEMINI_MODEL) return process.env.GEMINI_MODEL;
+  return pickModel('gemini', async () => {
+    const r = await fetch(`${GEMINI_BASE()}/v1beta/models?pageSize=200`, { headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY }, signal: AbortSignal.timeout(10000) });
+    if (!r.ok) throw await httpError(r, 'Gemini');
+    return (await r.json()).models || [];
+  }, (models) => {
+    const ok = models.filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
+      .map((m) => m.name.replace(/^models\//, ''))
+      .filter((n) => /^gemini-[\d.]+-flash/.test(n) && !/lite|image|tts|audio|live|thinking|embedding|8b|native/.test(n));
+    ok.sort((a, b) => (/preview|exp/.test(a) - /preview|exp/.test(b)) || version(b) - version(a) || a.length - b.length);
+    return ok[0];
+  }, 'gemini-2.5-flash');
+}
+// Le format de schéma de Gemini : types en majuscules, pas d'additionalProperties.
+function geminiSchema(s) {
+  if (Array.isArray(s)) return s.map(geminiSchema);
+  if (!s || typeof s !== 'object') return s;
+  const out = {};
+  for (const [k, v] of Object.entries(s)) {
+    if (k === 'additionalProperties') continue;
+    out[k] = k === 'type' ? String(v).toUpperCase() : (k === 'properties' ? Object.fromEntries(Object.entries(v).map(([pk, pv]) => [pk, geminiSchema(pv)])) : geminiSchema(v));
+  }
+  return out;
+}
+async function analyzeWithGemini(pdf, onEvent) {
+  const model = await geminiModel();
+  onEvent({ t: 'log', m: `IA : Google ${model} (gratuit) lit le PDF…` });
+  const res = await fetch(`${GEMINI_BASE()}/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`, {
+    method: 'POST',
+    signal: AbortSignal.timeout(180000),
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: SYSTEM }] },
+      contents: [{ role: 'user', parts: [{ inline_data: { mime_type: 'application/pdf', data: pdf.toString('base64') } }, { text: 'Voici le compte rendu. Produis le JSON des flash infos.' }] }],
+      generationConfig: { responseMimeType: 'application/json', responseSchema: geminiSchema(SCHEMA), temperature: 0.2, maxOutputTokens: 8192 },
+    }),
+  });
+  if (!res.ok) throw await httpError(res, 'Gemini');
+  let text = '';
+  let finish = '';
+  for await (const chunk of sse(res)) {
+    const cand = chunk.candidates?.[0];
+    const d = (cand?.content?.parts || []).map((p) => p.text || '').join('');
+    if (d) { text += d; onEvent({ t: 'delta', d }); }
+    if (cand?.finishReason) finish = cand.finishReason;
+    if (chunk.promptFeedback?.blockReason) throw new Error(`Gemini a bloqué le document (${chunk.promptFeedback.blockReason}).`);
+  }
+  if (finish && !['STOP', 'MAX_TOKENS'].includes(finish)) throw new Error(`Gemini s'est arrêté (${finish}).`);
+  return parseJson(text);
+}
+
+// Groq : modèle ouvert le plus capable disponible (gratuit, très rapide). Lit le texte du PDF.
+const GROQ_BASE = () => (process.env.GROQ_BASE || 'https://api.groq.com/openai/v1').replace(/\/$/, '');
+async function groqModel() {
+  if (process.env.GROQ_MODEL) return process.env.GROQ_MODEL;
+  return pickModel('groq', async () => {
+    const r = await fetch(`${GROQ_BASE()}/models`, { headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}` }, signal: AbortSignal.timeout(10000) });
+    if (!r.ok) throw await httpError(r, 'Groq');
+    return ((await r.json()).data || []).filter((m) => m.active !== false).map((m) => m.id);
+  }, (ids) => {
+    const prefs = [/gpt-oss-120b/, /llama-4-maverick/, /llama-3\.3-70b-versatile/, /qwen.*32b/, /llama-4-scout/, /gpt-oss-20b/, /llama-3\.1-8b/];
+    for (const re of prefs) { const hit = ids.find((id) => re.test(id)); if (hit) return hit; }
+    return null;
+  }, 'llama-3.3-70b-versatile');
+}
+async function analyzeWithGroq(pdf, onEvent) {
+  const lines = await extractPdfText(pdf);
+  if (lines.join('').length < 80) throw new Error('PDF sans texte (scan) : Groq ne peut pas le lire.');
+  let text = lines.join('\n');
+  // Le palier gratuit limite le nombre de mots par minute : on garde l'essentiel d'un long compte rendu.
+  const max = Number(process.env.GROQ_MAX_CHARS || 24000);
+  if (text.length > max) { text = text.slice(0, max); onEvent({ t: 'log', m: `Compte rendu long : seuls les ${max} premiers caractères sont lus.` }); }
+  const model = await groqModel();
+  onEvent({ t: 'log', m: `IA : ${model} via Groq (gratuit), ${lines.length} lignes…` });
+  const res = await fetch(`${GROQ_BASE()}/chat/completions`, {
+    method: 'POST',
+    signal: AbortSignal.timeout(120000),
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+    body: JSON.stringify({
+      model,
+      stream: true,
+      temperature: 0.2,
+      max_tokens: 6000,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: `${SYSTEM}\n\nRéponds UNIQUEMENT avec un objet JSON qui respecte exactement ce schéma JSON :\n${JSON.stringify(SCHEMA)}` },
+        { role: 'user', content: `Compte rendu :\n"""\n${text}\n"""` },
+      ],
+    }),
+  });
+  if (!res.ok) throw await httpError(res, 'Groq');
+  let out = '';
+  for await (const chunk of sse(res)) {
+    const d = chunk.choices?.[0]?.delta?.content || '';
+    if (d) { out += d; onEvent({ t: 'delta', d }); }
+  }
+  return parseJson(out);
+}
+
+// Essaie chaque IA disponible dans l'ordre ; renvoie { data, source }.
+export async function analyzePdf(pdf, onEvent) {
+  const run = { gemini: analyzeWithGemini, groq: analyzeWithGroq, anthropic: analyzeWithClaude };
+  for (const p of order()) {
+    try {
+      const data = await run[p](pdf, onEvent);
+      return { data, source: p };
+    } catch (e) {
+      console.error(`[ia] ${p} :`, e.message);
+      const why = e.status === 429 ? 'quota gratuit atteint pour le moment' : e.status === 401 || e.status === 403 ? 'clé refusée' : e.message.slice(0, 120);
+      onEvent({ t: 'log', m: `⚠ ${p} indisponible (${why}). On passe au suivant…` });
+    }
+  }
+  onEvent({ t: 'log', m: 'Extraction locale sans IA…' });
+  const lines = await extractPdfText(pdf);
+  if (!lines.length) throw new Error('Aucun texte trouvé (PDF scanné ?). Ajoute une clé Gemini gratuite pour lire les scans.');
+  onEvent({ t: 'log', m: `${lines.length} lignes extraites. Repérage des votes, décisions, rendez-vous…` });
+  return { data: analyzeLocally(lines), source: 'local' };
+}
+
 export async function analyzeWithClaude(pdf, onEvent) {
+  onEvent({ t: 'log', m: 'IA : Claude lit le PDF…' });
   const client = new Anthropic();
   const params = {
     model: MODEL(),

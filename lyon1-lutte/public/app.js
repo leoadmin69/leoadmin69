@@ -1,4 +1,4 @@
-// Lyon 1 en lutte : application monopage (sans framework).
+// Lyon 1 · La Doua en lutte : application monopage (sans framework).
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -93,6 +93,9 @@ const DEMAND_STATUS = { 'en-lutte': ['En lutte', 'red'], obtenu: ['Obtenu ✊', 
 
 // ---------- Dates (heure de Paris) ----------
 const TZ = 'Europe/Paris';
+const igUrl = () => state.data?.instagram || 'https://www.instagram.com/lyon1_ladoua.enlutte/';
+const igHandle = () => '@' + ((igUrl().match(/instagram\.com\/([^/?#]+)/) || [0, 'lyon1_ladoua.enlutte'])[1]);
+const igCard = (text = 'Photos, vidéos et stories de la mobilisation') => `<a class="card ig-card" href="${esc(igUrl())}" target="_blank" rel="noopener" style="margin-top:14px"><span class="ig-ico">IG</span><div class="grow"><b>Suis ${esc(igHandle())}</b><div class="muted small">${esc(text)}</div></div><span class="chev">${icon('chev', 18)}</span></a>`;
 const fmt = (iso, o) => new Date(iso).toLocaleString('fr-FR', { timeZone: TZ, ...o });
 const hhmm = (iso) => fmt(iso, { hour: '2-digit', minute: '2-digit' });
 const dayLabel = (iso) => {
@@ -175,7 +178,7 @@ function viewLive() {
   const lastReport = d.reports[0];
   view().innerHTML = `
     <section class="hero ${esc(b.state)}">
-      <div class="kicker">Lyon 1 // statut du campus</div>
+      <div class="kicker">Lyon 1 · La Doua en lutte</div>
       <div class="state" data-glitch="${esc(BLOCUS[b.state])}">${esc(BLOCUS[b.state])}</div>
       ${b.message ? `<div class="msg">${esc(b.message)}</div>` : '<div class="msg muted">Les infos sont mises à jour en direct par les étudiant·es syndiqué·es.</div>'}
       <div class="meta">MAJ ${esc(ago(b.updatedAt))}${b.by ? ' · ' + esc(b.by) : ''}</div>
@@ -223,6 +226,7 @@ function viewLive() {
         <div class="chips" style="margin-top:10px">${lastReport.flashs.slice(0, 3).map((f) => `<span class="pill ${f.type === 'alerte' ? 'red' : 'blue'}">${FLASH_ICO[f.type]} ${esc(f.titre)}</span>`).join('')}</div>
       </a>` : ''}
 
+    ${igCard()}
     <a class="card" href="#/alertes" style="display:flex;gap:14px;align-items:center;margin-top:24px;color:inherit;border-color:rgba(255,69,58,0.4)">
       <div style="font-size:30px">🔔</div>
       <div class="grow"><b>Reçois les alertes par email</b><div class="muted small">Bâtiment bloqué = email rouge, lisible en 3 secondes. ${d.subscribers} inscrit·es.</div></div>
@@ -277,7 +281,7 @@ function icsFor(e) {
   const d = (iso) => new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
   const endIso = new Date(new Date(e.start).getTime() + 2 * 3600e3).toISOString();
   const clean = (s) => String(s || '').replace(/[\\,;]/g, (c) => '\\' + c).replace(/\n/g, '\\n');
-  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Lyon1 en lutte//FR', 'BEGIN:VEVENT', `UID:${e.id}@lyon1-lutte`, `DTSTAMP:${d(new Date().toISOString())}`, `DTSTART:${d(e.start)}`, `DTEND:${d(endIso)}`, `SUMMARY:${clean(`[${EVENT_TYPE[e.type][0]}] ${e.title}`)}`, `LOCATION:${clean([e.place, e.address].filter(Boolean).join(', '))}`, `DESCRIPTION:${clean(e.description)}`, 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Lyon 1 La Doua en lutte//FR', 'BEGIN:VEVENT', `UID:${e.id}@lyon1-lutte`, `DTSTAMP:${d(new Date().toISOString())}`, `DTSTART:${d(e.start)}`, `DTEND:${d(endIso)}`, `SUMMARY:${clean(`[${EVENT_TYPE[e.type][0]}] ${e.title}`)}`, `LOCATION:${clean([e.place, e.address].filter(Boolean).join(', '))}`, `DESCRIPTION:${clean(e.description)}`, 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
 }
 function viewAgenda() {
   const evs = state.data.events;
@@ -492,6 +496,7 @@ function viewContacts() {
       : '<div class="card muted">Les syndicats et collectifs ajouteront leurs contacts ici.</div>'}
     <h2 class="section">🕶️ Parler anonymement</h2>
     <a class="card" href="#/chat" style="display:block;color:inherit">Le <b>chat anonyme</b> est ouvert à tou·tes, sans compte. Salon <b>#Entraide</b> pour les cours, partiels, logement, soutien.</a>
+    ${igCard('Les infos de la mobilisation, en direct sur Instagram')}
     <h2 class="section">🆘 Urgences & écoute</h2>
     <div class="list">
       <a class="row" href="tel:112" style="color:inherit"><div class="grow"><div class="title">112</div><div class="sub">Urgences (police, pompiers, SAMU)</div></div><span class="pill red">Appeler</span></a>
@@ -542,7 +547,8 @@ function viewPlus() {
   const items = NAV.filter((n) => !TABS.some((t) => t.id === n.id));
   const sub = { votes: 'Donne ton avis, anonymement', blog: 'Articles et tribunes', temoignages: 'Violences : témoigner', cr: 'Les AG en flash infos', revendications: 'Soutiens les revendications', contacts: 'Syndicats, écoute, urgences', alertes: 'Emails bâtiments bloqués', modo: 'Accès syndicats' };
   view().innerHTML = `<h1 class="large-title">Plus</h1><p class="subtitle">Tout ce qu’il faut savoir sur la mobilisation.</p>
-    <div class="menu-grid">${items.map((n) => `<a href="#/${n.id}">${icon(n.icon)}<span>${n.label}<br><small>${sub[n.id] || ''}</small></span></a>`).join('')}</div>`;
+    <div class="menu-grid">${items.map((n) => `<a href="#/${n.id}">${icon(n.icon)}<span>${n.label}<br><small>${sub[n.id] || ''}</small></span></a>`).join('')}</div>
+    ${igCard()}`;
 }
 
 // ---------- Feuille modale ----------
@@ -589,7 +595,7 @@ async function viewModo() {
     <div class="tabs-inline" id="mtabs">${tabs.map(([id, l]) => `<button data-t="${id}" class="${id === state.modTab ? 'on' : ''}">${l}</button>`).join('')}</div>
     <div id="mod"></div>`;
   $('#mtabs').onclick = (e) => { if (e.target.dataset.t) { state.modTab = e.target.dataset.t; render(true); } };
-  api('/api/mod/stats').then((s) => { const el = $('#mstats'); if (el) el.textContent = `${s.subscribers} abonné·es · IA ${s.aiEnabled ? 'ON' : 'OFF'} · email ${s.mailEnabled ? 'ON' : 'OFF'}${s.reported ? ` · ${s.reported} msg signalé(s)` : ''}`; }).catch(() => {});
+  api('/api/mod/stats').then((s) => { const el = $('#mstats'); if (el) el.textContent = `${s.subscribers} abonné·es · IA ${s.aiEnabled ? s.aiProviders.join(' → ') : 'sans IA'} · email ${s.mailEnabled ? 'ON' : 'OFF'}${s.reported ? ` · ${s.reported} msg signalé(s)` : ''}`; }).catch(() => {});
   const fn = { story: modStory, votes: modPolls, blog: modBlog, temoignages: modTestimonies, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, journal: modJournal, moi: modMe }[state.modTab] || modSituation;
   try { await fn($('#mod')); } catch (err) { if (/Connexion modo/.test(err.message)) { state.me = null; render(true); } else toast(err.message); }
 }
@@ -905,16 +911,14 @@ function storyFrame(ctx, W, H, accent) {
   ctx.fillStyle = 'rgba(255,255,255,0.025)';
   for (let y = 0; y < H; y += 6) ctx.fillRect(0, y, W, 2);
   // en-tête
-  ctx.fillStyle = '#ff453a'; rrect(ctx, 80, 150, 120, 120, 26); ctx.fill();
-  ctx.fillStyle = '#000'; rrect(ctx, 86, 156, 108, 108, 22); ctx.fill();
-  ctx.fillStyle = '#00ff9c'; ctx.font = `800 52px ${MONO}`; ctx.fillText('L1', 106, 230);
-  ctx.fillStyle = '#fff'; ctx.font = `800 54px ${MONO}`; ctx.fillText('EN LUTTE', 230, 205);
-  ctx.fillStyle = '#a1a1aa'; ctx.font = `500 32px ${SF}`;
-  ctx.fillText(new Date().toLocaleString('fr-FR', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }), 230, 255);
+  ctx.fillStyle = '#fff'; ctx.font = `800 64px ${MONO}`; ctx.fillText('LYON 1', 80, 200);
+  ctx.fillStyle = '#ff453a'; ctx.font = `800 40px ${MONO}`; ctx.fillText('LA DOUA EN LUTTE', 80, 255);
+  ctx.fillStyle = '#a1a1aa'; ctx.font = `500 30px ${SF}`;
+  ctx.fillText(new Date().toLocaleString('fr-FR', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }), 80, 300);
   // pied
   ctx.fillStyle = 'rgba(255,255,255,0.08)'; rrect(ctx, 80, H - 250, W - 160, 130, 30); ctx.fill();
-  ctx.fillStyle = '#00ff9c'; ctx.font = `700 40px ${MONO}`; ctx.fillText(`➜ ${location.host}`, 120, H - 172);
-  ctx.fillStyle = '#d1d1d6'; ctx.font = `500 30px ${SF}`; ctx.fillText('Infos en direct · alertes email · chat anonyme', 120, H - 130);
+  ctx.fillStyle = '#ff6fae'; ctx.font = `800 40px ${MONO}`; ctx.fillText(igHandle(), 120, H - 172);
+  ctx.fillStyle = '#d1d1d6'; ctx.font = `500 30px ${SF}`; ctx.fillText(`Infos en direct : ${location.host}`, 120, H - 130);
 }
 function pill(ctx, x, y, text, bg, fg) {
   ctx.font = `800 34px ${MONO}`;
@@ -1032,7 +1036,7 @@ async function openStory(kind = 'campus') {
   sheet(`<h3>📸 Story Instagram</h3>
     <div class="tabs-inline" id="skind">${options.map(([k, l]) => `<button data-k="${esc(k)}">${esc(l)}</button>`).join('')}</div>
     <div class="story-prev"><img id="simg" alt="Aperçu de la story"></div>
-    <div class="btn-row" style="margin-top:12px"><button class="btn red" id="sshare">Partager</button><a class="btn ghost" id="sdl" download="story-lyon1.png">Télécharger</a></div>
+    <div class="btn-row" style="margin-top:12px"><button class="btn red" id="sshare">Partager</button><a class="btn ghost" id="sdl" download="story-ladoua-en-lutte.png">Télécharger</a></div>
     <p class="faint small">Format 1080 × 1920, prêt pour Instagram. Sur téléphone, « Partager » ouvre directement Instagram.</p>`, (root) => {
     let blob = null;
     const draw = async (k) => {
@@ -1049,12 +1053,12 @@ async function openStory(kind = 'campus') {
       const url = URL.createObjectURL(blob);
       $('#simg', root).src = url;
       $('#sdl', root).href = url;
-      $('#sdl', root).download = `story-lyon1-${k.split(':')[0]}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.png`;
+      $('#sdl', root).download = `story-ladoua-en-lutte-${k.split(':')[0]}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.png`;
     };
     $('#skind', root).onclick = (e) => { const k = e.target.closest('[data-k]')?.dataset.k; if (k) draw(k); };
     $('#sshare', root).onclick = async () => {
       if (!blob) return;
-      const file = new File([blob], 'story-lyon1.png', { type: 'image/png' });
+      const file = new File([blob], 'story-ladoua-en-lutte.png', { type: 'image/png' });
       if (navigator.canShare?.({ files: [file] })) { try { await navigator.share({ files: [file] }); } catch {} }
       else { $('#sdl', root).click(); toast('Image téléchargée : publie-la en story.'); }
     };
@@ -1117,7 +1121,7 @@ async function modReports(el) {
   el.innerHTML = `
     <div class="card">
       <div class="kicker">Importer un compte rendu d’AG</div>
-      <p class="muted small">Dépose le PDF (même scanné). L’IA le lit, retire les noms des personnes et le transforme en flash infos. Tu relis avant de publier.${state.data.aiEnabled ? '' : ' <b style="color:var(--orange)">IA non configurée : extraction simple du texte.</b>'}</p>
+      <p class="muted small">Dépose le PDF (même scanné). L’IA le lit, retire les noms des personnes et le transforme en flash infos. Tu relis avant de publier.${state.data.aiEnabled ? '' : ' <b style="color:var(--orange)">Aucune IA configurée : extraction simple du texte. Ajoute une clé Gemini gratuite (GEMINI_API_KEY).</b>'}</p>
       <label class="drop" id="drop"><input type="file" id="pdf" accept="application/pdf" hidden><div style="font-size:34px">📄</div><b>Choisir un PDF</b><div class="faint small">ou glisse-le ici · 25 Mo max</div></label>
     </div>
     <div id="ai" hidden style="margin-top:14px"></div>
@@ -1685,6 +1689,8 @@ async function modTestimonies(el) {
 // ---------- Données + temps réel ----------
 async function refresh() {
   state.data = await api('/api/state');
+  const ig = document.getElementById('ig-side');
+  if (ig) { ig.href = igUrl(); ig.querySelector('b').textContent = igHandle(); }
   setOnline(state.data.online);
 }
 let refreshTimer = null;
@@ -1707,7 +1713,7 @@ function connectLive() {
     const f = JSON.parse(e.data);
     if (state.data) state.data.feed.unshift(f);
     typeFeedLine(f);
-    if (f.level === 'alert' && document.hidden && 'Notification' in window && Notification.permission === 'granted') new Notification('Lyon 1 · alerte', { body: f.text, icon: '/icon.svg' });
+    if (f.level === 'alert' && document.hidden && 'Notification' in window && Notification.permission === 'granted') new Notification('Lyon 1 · La Doua en lutte', { body: f.text, icon: '/icon.svg' });
   });
   es.addEventListener('chat', (e) => onChat(JSON.parse(e.data)));
   es.addEventListener('poll', () => { scheduleRefresh(); if (route() === 'votes' && !$('.sheet')) viewPolls(); });

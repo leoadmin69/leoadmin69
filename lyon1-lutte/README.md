@@ -1,4 +1,4 @@
-# Lyon 1 en lutte
+# Lyon 1 · La Doua en lutte
 
 Plateforme d'information des étudiant·es de l'Université Lyon 1 pendant la mobilisation : un seul endroit pour savoir **s'il y a blocus**, **quels bâtiments sont bloqués**, **où et quand sont les AG et les manifs**, ce qui a été **voté**, et pour **se parler**.
 
@@ -50,7 +50,24 @@ cp .env.example .env   # puis remplir ADMIN_PASSWORD, SITE_URL…
 node --env-file=.env server.js
 ```
 
-Sans `ANTHROPIC_API_KEY`, l'analyse des PDF utilise une extraction simple (pas de PDF scannés). Sans `RESEND_API_KEY`/SMTP, les inscriptions sont enregistrées mais les emails sont seulement écrits dans la console.
+Sans `RESEND_API_KEY`/SMTP, les inscriptions sont enregistrées mais les emails sont seulement écrits dans la console.
+
+### IA gratuite pour les comptes rendus
+
+| Ordre | Service | Prix | Lit les scans | Clé |
+|---|---|---|---|---|
+| 1 | Google Gemini (modèle « flash » le plus récent, choisi automatiquement) | gratuit | oui | `GEMINI_API_KEY` sur aistudio.google.com |
+| 2 | Groq (meilleur modèle ouvert dispo, choisi automatiquement) | gratuit | non (texte) | `GROQ_API_KEY` sur console.groq.com |
+| 3 | Claude | payant, facultatif | oui | `ANTHROPIC_API_KEY` |
+| 4 | Extraction locale | gratuit | non | aucune |
+
+Si une IA a épuisé son quota gratuit ou est en panne, la suivante prend le relais automatiquement, et le modo le voit dans le terminal en direct.
+
+⚠️ **Confidentialité** : avec la version **gratuite** de Gemini, Google peut utiliser les documents envoyés pour améliorer ses produits (et des personnes peuvent les relire). Un compte rendu qui contient des noms passe donc par Google *avant* que l'IA les retire. Pour éviter ça : retirer les noms du PDF avant de l'importer, ou mettre `AI_PROVIDERS=groq,gemini` pour passer d'abord par Groq (selon ses conditions, Groq ne se sert pas des requêtes de ses clients pour entraîner ses modèles).
+
+### Nom et Instagram
+
+Pas de logo : le site, les emails et les stories affichent seulement « Lyon 1 · La Doua en lutte ». Le compte Instagram (`INSTAGRAM_URL`, par défaut `@lyon1_ladoua.enlutte`) apparaît dans la barre latérale, sur l'accueil, la page contacts, le menu Plus, en pied de chaque email et sur chaque story.
 
 ### Déploiement
 

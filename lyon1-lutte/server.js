@@ -1,4 +1,4 @@
-// Lyon 1 en lutte : plateforme d'information étudiante pendant la mobilisation.
+// Lyon 1 · La Doua en lutte : plateforme d'information étudiante pendant la mobilisation.
 // API JSON + flux temps réel (SSE) + site statique (public/).
 import express from 'express';
 import path from 'node:path';
@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { db, save, newId, now } from './lib/store.js';
 import { seed } from './lib/seed.js';
 import { ensureAdmin, hashPassword, verifyPassword, createToken, readToken, cookieHeader, parseCookies, COOKIE, publicMod, SECRET } from './lib/auth.js';
-import { mailEnabled, sendMany, renderEmail, SITE_URL } from './lib/mail.js';
-import { aiEnabled, analyzeWithClaude, extractPdfText, analyzeLocally } from './lib/ai.js';
+import { mailEnabled, sendMany, renderEmail, SITE_URL, SITE_NAME, INSTAGRAM_URL } from './lib/mail.js';
+import { aiEnabled, aiProviders, analyzePdf } from './lib/ai.js';
 import { registerCommunity } from './lib/community.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -117,6 +117,7 @@ app.get('/api/state', (req, res) => {
     subscribers: db.subscribers.filter((s) => s.confirmed).length,
     online: clients.size,
     pollsOpen: community.pollsOpen(),
+    instagram: INSTAGRAM_URL(),
     mailEnabled: mailEnabled(),
     aiEnabled: aiEnabled(),
   });
@@ -198,13 +199,13 @@ app.post('/api/subscribe', async (req, res) => {
   save();
   if (!s.confirmed) {
     const link = `${SITE_URL()}/api/confirm?token=${encodeURIComponent(s.token)}`;
-    const { html, text } = renderEmail({ tone: 'blue', kicker: 'LYON 1 // ALERTES', title: 'Confirme ton inscription', body: `Clique sur le bouton pour recevoir les alertes (bâtiments bloqués, AG, manifs).\n\nLien direct : ${link}`, cta: 'Confirmer', token: s.token });
-    await sendMany([{ to: email, subject: 'Confirme tes alertes Lyon 1', html: html.replace(SITE_URL() + '"', link + '"'), text }]);
+    const { html, text } = renderEmail({ tone: 'blue', kicker: 'LYON 1 · LA DOUA EN LUTTE', title: 'Confirme ton inscription', body: `Clique sur le bouton pour recevoir les alertes (bâtiments bloqués, AG, manifs).\n\nLien direct : ${link}`, cta: 'Confirmer', token: s.token });
+    await sendMany([{ to: email, subject: 'Confirme tes alertes Lyon 1 · La Doua en lutte', html: html.replace(SITE_URL() + '"', link + '"'), text }]);
     return res.json({ ok: true, message: 'Vérifie ta boîte mail pour confirmer (pense aux spams).' });
   }
   res.json({ ok: true, message: 'Préférences mises à jour.' });
 });
-const page = (title, msg) => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#000;color:#f2f2f7;font:17px -apple-system,Segoe UI,Roboto,sans-serif;padding:16px"><div style="max-width:420px;text-align:center"><h1 style="font-size:28px">${title}</h1><p style="color:#a1a1aa">${msg}</p><a href="/" style="color:#30D158">Retour au site →</a></div>`;
+const page = (title, msg) => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#000;color:#f2f2f7;font:17px -apple-system,Segoe UI,Roboto,sans-serif;padding:16px"><div style="max-width:420px;text-align:center"><h1 style="font-size:28px">${title}</h1><p style="color:#a1a1aa">${msg}</p><a href="/" style="color:#30D158">Retour au site →</a><p style="color:#6e6e73;font-size:13px;margin-top:24px">Lyon 1 · La Doua en lutte</p></div>`;
 app.get('/api/confirm', (req, res) => {
   const s = db.subscribers.find((x) => x.token === req.query.token);
   if (!s) return res.status(404).send(page('Lien invalide', 'Ce lien ne correspond à aucune inscription.'));
@@ -242,7 +243,7 @@ async function flushBuildingAlert() {
     const relevant = s.campuses?.length ? changed.filter((b) => s.campuses.includes(b.campus)) : changed;
     if (!relevant.length) continue;
     const items = relevant.map((b) => ({ label: `${b.name} : ${STATUS_LABEL[b.status]}`, value: b.campus, tone: tone[b.status] }));
-    const { html, text } = renderEmail({ tone: anyBlocked ? 'red' : 'green', kicker: `LYON 1 // ${BLOCUS_LABEL[db.settings.blocus.state]}`, title, items, body: relevant.map((b) => b.note).filter(Boolean).join('\n'), token: s.token });
+    const { html, text } = renderEmail({ tone: anyBlocked ? 'red' : 'green', kicker: `LYON 1 · LA DOUA EN LUTTE · ${BLOCUS_LABEL[db.settings.blocus.state]}`, title, items, body: relevant.map((b) => b.note).filter(Boolean).join('\n'), token: s.token });
     messages.push({ to: s.email, subject, html, text });
   }
   const r = await sendMany(messages);
@@ -293,7 +294,7 @@ mod.put('/blocus', (req, res) => {
   feed(`${BLOCUS_LABEL[b.state]}${b.message ? ' : ' + b.message : ''}`, b.state === 'actif' ? 'alert' : b.state === 'leve' ? 'ok' : 'warn');
   broadcast('blocus', b);
   if (prev !== b.state && req.body.notify !== false) {
-    notify('buildings', { tone: b.state === 'leve' ? 'green' : 'red', subject: `${b.state === 'leve' ? '🟢' : '🔴'} ${BLOCUS_LABEL[b.state]} à Lyon 1`, kicker: 'LYON 1 // BLOCUS', title: BLOCUS_LABEL[b.state], body: b.message });
+    notify('buildings', { tone: b.state === 'leve' ? 'green' : 'red', subject: `${b.state === 'leve' ? '🟢' : '🔴'} ${BLOCUS_LABEL[b.state]} à Lyon 1`, kicker: 'LYON 1 · LA DOUA EN LUTTE', title: BLOCUS_LABEL[b.state], body: b.message });
   }
   res.json(b);
 });
@@ -388,7 +389,7 @@ mod.post('/events', (req, res) => {
   const when = new Date(e.start).toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' });
   feed(`Nouveau rendez-vous · ${e.type} · ${e.title} · ${when}${e.place ? ' · ' + e.place : ''}`, 'info');
   broadcast('events', {});
-  if (req.body.notify) notify('events', { tone: 'blue', subject: `📣 ${e.type} : ${e.title} (${when})`, kicker: `LYON 1 // ${e.type.toUpperCase()}`, title: e.title, body: `${when}\n${e.place}${e.address ? ' · ' + e.address : ''}\n\n${e.description}`.trim() });
+  if (req.body.notify) notify('events', { tone: 'blue', subject: `📣 ${e.type} : ${e.title} (${when})`, kicker: `LYON 1 · LA DOUA EN LUTTE · ${e.type.toUpperCase()}`, title: e.title, body: `${when}\n${e.place}${e.address ? ' · ' + e.address : ''}\n\n${e.description}`.trim() });
   res.json(e);
 });
 mod.put('/events/:id', (req, res) => {
@@ -492,18 +493,11 @@ mod.post('/reports/analyze', express.raw({ type: 'application/pdf', limit: '25mb
   let data;
   let source = 'ia';
   try {
-    if (aiEnabled()) {
-      send({ t: 'log', m: 'Lecture du PDF par l’IA (texte, tableaux, scans)…' });
-      data = await analyzeWithClaude(pdf, send);
-      send({ t: 'log', m: 'Structure validée. Noms de personnes retirés.' });
-    } else {
-      source = 'local';
-      send({ t: 'log', m: 'IA non configurée : extraction locale du texte…' });
-      const lines = await extractPdfText(pdf);
-      send({ t: 'log', m: `${lines.length} lignes extraites. Repérage des votes, décisions, rendez-vous…` });
-      if (!lines.length) throw new Error('Aucun texte trouvé (PDF scanné ?). Configure la clé IA pour lire les scans.');
-      data = analyzeLocally(lines);
-    }
+    if (!aiEnabled()) send({ t: 'log', m: 'Aucune clé IA configurée : extraction locale du texte…' });
+    const out = await analyzePdf(pdf, send);
+    data = out.data;
+    source = out.source === 'local' ? 'local' : 'ia';
+    if (source === 'ia') send({ t: 'log', m: 'Structure validée. Noms de personnes retirés.' });
   } catch (e) {
     console.error('[cr]', e);
     send({ t: 'error', m: e.message || 'Erreur pendant l’analyse.' });
@@ -555,7 +549,7 @@ mod.put('/reports/:id', (req, res) => {
       broadcast('demands', {});
     }
     save();
-    if (req.body.notify) notify('reports', { tone: 'blue', subject: `📝 Compte rendu : ${r.titre}`, kicker: 'LYON 1 // COMPTE RENDU AG', title: r.titre, body: r.resume, items: r.flashs.slice(0, 6).map((f) => ({ label: f.titre, value: '', tone: f.type === 'alerte' ? 'red' : undefined })) });
+    if (req.body.notify) notify('reports', { tone: 'blue', subject: `📝 Compte rendu : ${r.titre}`, kicker: 'LYON 1 · LA DOUA EN LUTTE · COMPTE RENDU', title: r.titre, body: r.resume, items: r.flashs.slice(0, 6).map((f) => ({ label: f.titre, value: '', tone: f.type === 'alerte' ? 'red' : undefined })) });
   }
   broadcast('reports', {});
   res.json(r);
@@ -573,6 +567,7 @@ mod.get('/stats', (req, res) => res.json({
   online: clients.size,
   mailEnabled: mailEnabled(),
   aiEnabled: aiEnabled(),
+  aiProviders: aiProviders(),
 }));
 mod.get('/audit', (req, res) => res.json(db.audit.slice(0, 200)));
 
@@ -613,6 +608,6 @@ app.use('/api', (req, res) => bad(res, 'Route inconnue', 404));
 app.get('*', (req, res) => res.sendFile(path.join(ROOT, 'public', 'index.html')));
 
 app.listen(PORT, () => {
-  console.log(`Lyon 1 en lutte → ${SITE_URL()} (port ${PORT})`);
-  console.log(`IA : ${aiEnabled() ? 'activée' : 'non configurée (mode local)'} · Emails : ${mailEnabled() ? 'activés' : 'non configurés (journal console)'}`);
+  console.log(`${SITE_NAME} → ${SITE_URL()} (port ${PORT})`);
+  console.log(`IA : ${aiEnabled() ? aiProviders().join(' → ') : 'non configurée (mode local)'} · Emails : ${mailEnabled() ? 'activés' : 'non configurés (journal console)'}`);
 });

@@ -1,4 +1,4 @@
-/* Lyon 1 en lutte : style iOS sombre + touches « terminal live ». */
+/* Lyon 1 · La Doua en lutte : style iOS sombre + touches « terminal live ». */
 :root {
   --bg: #000;
   --bg2: #0b0b0d;
@@ -77,7 +77,12 @@ main { flex: 1; min-width: 0; outline: none; }
 .brand { display: flex; align-items: center; gap: 12px; color: var(--text); padding: 4px 8px 22px; }
 .brand-mark { width: 42px; height: 42px; border-radius: 11px; display: grid; place-items: center; font: 800 18px var(--mono); color: var(--neon); background: #000; box-shadow: inset 0 0 0 2px var(--red), 0 0 18px rgba(255,69,58,0.35); }
 .brand-text { display: flex; flex-direction: column; line-height: 1.1; }
-.brand-text b { font: 800 19px var(--mono); letter-spacing: 0.06em; }
+.brand-text b { font: 800 24px var(--mono); letter-spacing: 0.08em; }
+.brand-text b.sub { font: 800 14px var(--mono); letter-spacing: 0.1em; color: var(--red); margin-top: 6px; }
+.ig-link { display: block; margin: 14px 8px 0; padding: 10px 12px; border-radius: 12px; background: linear-gradient(90deg, rgba(214,41,118,0.18), rgba(250,126,30,0.12)); color: var(--text); font-size: 13px; }
+.ig-link b { display: block; color: #ff6fae; font-weight: 700; }
+.ig-card { display: flex; gap: 14px; align-items: center; color: inherit; border-color: rgba(214,41,118,0.5) !important; background: linear-gradient(120deg, rgba(214,41,118,0.2), rgba(250,126,30,0.1) 60%, var(--card)) !important; }
+.ig-card .ig-ico { font: 800 13px var(--mono); padding: 8px 10px; border-radius: 10px; background: #d62976; color: #fff; }
 .brand-text small { color: var(--muted); font-size: 12px; margin-top: 3px; }
 #sidenav { display: flex; flex-direction: column; gap: 2px; }
 #sidenav a { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 11px; color: var(--text); font-size: 15px; font-weight: 500; }
@@ -408,3 +413,7 @@ button.opt:active { transform: scale(0.98); }
   .actionbar.undo #undo-txt { flex: 1; }
   .actionbar.undo .ab.ghost { flex: 0 0 auto; padding: 11px 14px; }
 }
+.top-name { font: 800 12px var(--mono); letter-spacing: 0.08em; color: var(--text); margin: 0 auto 0 12px; }
+.top-name span { color: var(--red); }
+@media (min-width: 900px) { .top-name { display: none; } }
+@media (max-width: 520px) { #online-top { display: none; } .top-name { margin-right: 0; } }
