@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Génère les stickers du chat (public/emotes/*.svg) et leur liste (public/emotes.js).
+"""Génère les stickers animés du chat (public/emotes/*.svg) et leur liste (public/emotes.js).
 Dessins originaux, style « emote » : contour épais, couleurs vives, lisibles en 24 px.
 Pour en ajouter un : écrire une fonction qui renvoie le SVG intérieur, l'ajouter à EMOTES, relancer :
     python3 tools/make-emotes.py
@@ -11,8 +11,49 @@ OUT = os.path.join(ROOT, 'emotes')
 INK = '#14141a'
 SW = 3.2  # épaisseur du contour
 
-def svg(body):
-    return f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">{body}</svg>'
+# Animations (CSS dans le SVG, marche aussi dans une balise <img>). Coupées si le téléphone demande moins d'animations.
+ANIMS = {
+    'bounce': ('0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}', '1.1s ease-in-out', 'center'),
+    'shake': ('0%,100%{transform:rotate(0)}20%{transform:rotate(-7deg)}40%{transform:rotate(7deg)}60%{transform:rotate(-5deg)}80%{transform:rotate(5deg)}', '0.7s ease-in-out', 'center'),
+    'wobble': ('0%,100%{transform:rotate(-6deg)}50%{transform:rotate(6deg)}', '1.8s ease-in-out', 'bottom'),
+    'pump': ('0%,100%{transform:translateY(2px) scale(1)}45%{transform:translateY(-5px) scale(1.06)}', '0.9s cubic-bezier(.3,1.6,.6,1)', 'bottom'),
+    'pop': ('0%,70%,100%{transform:scale(1)}80%{transform:scale(1.15) rotate(-4deg)}90%{transform:scale(.97) rotate(2deg)}', '1.8s ease-in-out', 'center'),
+    'pulse': ('0%,100%{transform:scale(1)}50%{transform:scale(1.08)}', '1.2s ease-in-out', 'center'),
+    'beat': ('0%,40%,100%{transform:scale(1)}10%,30%{transform:scale(1.13)}20%{transform:scale(1.02)}', '1.2s ease-in-out', 'center'),
+    'flicker': ('0%,100%{transform:scaleY(1) skewX(0)}25%{transform:scaleY(1.07) skewX(-3deg)}50%{transform:scaleY(.96) skewX(2deg)}75%{transform:scaleY(1.05) skewX(3deg)}', '0.8s ease-in-out', 'bottom'),
+    'float': ('0%,100%{transform:translateY(1px) rotate(-2deg)}50%{transform:translateY(-3px) rotate(2deg)}', '2.6s ease-in-out', 'center'),
+    'jump': ('0%,60%,100%{transform:translateY(0) scale(1)}70%{transform:translateY(-6px) scale(1.05,0.95)}80%{transform:translateY(0) scale(1.06,0.94)}', '1.4s ease-in-out', 'bottom'),
+    'tilt': ('0%,100%{transform:rotate(0)}50%{transform:rotate(-10deg)}', '2s ease-in-out', 'center'),
+    'none': ('', '', ''),
+}
+PARTS = (
+    '.tear{animation:tear 1.3s ease-in infinite}.tear.t2{animation-delay:.65s}'
+    '@keyframes tear{0%{transform:translateY(-3px);opacity:0}20%{opacity:1}100%{transform:translateY(9px);opacity:0}}'
+    '.steam{animation:steam 2s ease-in-out infinite}.steam.s2{animation-delay:.6s}.steam.s3{animation-delay:1.2s}'
+    '@keyframes steam{0%{transform:translateY(4px);opacity:0}40%{opacity:1}100%{transform:translateY(-6px);opacity:0}}'
+    '.zz{animation:zz 2.4s ease-in-out infinite}.zz.z2{animation-delay:1.2s}'
+    '@keyframes zz{0%{transform:translate(-3px,6px);opacity:0}30%{opacity:1}100%{transform:translate(3px,-5px);opacity:0}}'
+    '.wave{animation:wave 1s ease-out infinite}.wave.w2{animation-delay:.3s}'
+    '@keyframes wave{0%{opacity:0;transform:translateX(-3px)}40%{opacity:1}100%{opacity:0;transform:translateX(3px)}}'
+    '.hop{animation:hop 1.2s cubic-bezier(.3,1.6,.6,1) infinite}.hop.h2{animation-delay:.4s}.hop.h3{animation-delay:.8s}'
+    '@keyframes hop{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-5px)}}'
+    '.drop{animation:drop 1.8s ease-in infinite}'
+    '@keyframes drop{0%,20%{transform:translateY(-6px)}70%,100%{transform:translateY(6px)}}'
+    '.flag{animation:flag 1.6s ease-in-out infinite;transform-origin:left center}'
+    '@keyframes flag{0%,100%{transform:skewY(0)}50%{transform:skewY(-4deg) scaleY(1.03)}}'
+    '.glint{animation:glint 2.2s ease-in-out infinite}'
+    '@keyframes glint{0%,60%,100%{opacity:.25}75%{opacity:1}}'
+    '.blink{animation:blink 3s infinite}'
+    '@keyframes blink{0%,92%,100%{transform:scaleY(1)}96%{transform:scaleY(.1)}}'
+)
+
+def svg(body, anim='none'):
+    kf, timing, origin = ANIMS[anim]
+    main = f'.m{{animation:m {timing} infinite;transform-box:fill-box;transform-origin:{origin}}}@keyframes m{{{kf}}}' if kf else ''
+    css = ('.tear,.steam,.zz,.wave,.hop,.drop,.blink{transform-box:fill-box;transform-origin:center}.flag{transform-box:fill-box}' + main + PARTS
+           + '@media (prefers-reduced-motion:reduce){*{animation:none!important}}')
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">'
+            f'<style>{css}</style><g class="m">{body}</g></svg>')
 
 # ---------- briques pour les visages ----------
 def face(fill='#ffcc33', shade='#f0a020'):
@@ -21,7 +62,7 @@ def face(fill='#ffcc33', shade='#f0a020'):
             f'<ellipse cx="22" cy="17" rx="7" ry="3.5" fill="#fff" opacity=".45" transform="rotate(-25 22 17)"/>')
 
 def eyes_dot(y=28, dx=9, r=3.6):
-    return f'<circle cx="{32-dx}" cy="{y}" r="{r}" fill="{INK}"/><circle cx="{32+dx}" cy="{y}" r="{r}" fill="{INK}"/>'
+    return f'<g class="blink"><circle cx="{32-dx}" cy="{y}" r="{r}" fill="{INK}"/><circle cx="{32+dx}" cy="{y}" r="{r}" fill="{INK}"/></g>'
 
 def eyes_happy(y=29):  # ^ ^
     return (f'<path d="M18 {y+2}q5-7 10 0M36 {y+2}q5-7 10 0" fill="none" stroke="{INK}" stroke-width="{SW}" stroke-linecap="round"/>')
@@ -30,12 +71,12 @@ def eyes_closed(y=30):  # - -
     return f'<path d="M18 {y}q5 4 10 0M36 {y}q5 4 10 0" fill="none" stroke="{INK}" stroke-width="{SW}" stroke-linecap="round"/>'
 
 def eyes_big(y=29):  # grands yeux brillants
-    out = ''
+    out = '<g class="blink">'
     for cx in (23, 41):
         out += (f'<circle cx="{cx}" cy="{y}" r="7.5" fill="#fff" stroke="{INK}" stroke-width="2.4"/>'
                 f'<circle cx="{cx+1}" cy="{y+1}" r="5" fill="{INK}"/>'
                 f'<circle cx="{cx+2.6}" cy="{y-1.4}" r="1.9" fill="#fff"/><circle cx="{cx-1}" cy="{y+3}" r="1" fill="#fff"/>')
-    return out
+    return out + '</g>'
 
 def eyes_wide(y=27):  # yeux ronds (choc)
     return (f'<circle cx="23" cy="{y}" r="6.5" fill="#fff" stroke="{INK}" stroke-width="2.4"/><circle cx="23" cy="{y}" r="2.4" fill="{INK}"/>'
@@ -48,10 +89,10 @@ def heart(cx, cy, s=1.0, fill='#ff3b5c'):
 def brows_angry():
     return f'<path d="M15 20l11 5M49 20l-11 5" stroke="{INK}" stroke-width="{SW+0.6}" stroke-linecap="round"/>'
 
-def tear(x, y, flip=False):
+def tear(x, y, flip=False, cls='tear'):
     sx = -1 if flip else 1
-    return (f'<path transform="translate({x} {y}) scale({sx} 1)" d="M0 0c-4 6-6 9-6 12a6 6 0 0 0 12 0c0-3-2-6-6-12z" '
-            f'fill="#4fc3ff" stroke="{INK}" stroke-width="2"/>')
+    return (f'<g class="{cls}"><path transform="translate({x} {y}) scale({sx} 1)" d="M0 0c-4 6-6 9-6 12a6 6 0 0 0 12 0c0-3-2-6-6-12z" '
+            f'fill="#4fc3ff" stroke="{INK}" stroke-width="2"/></g>')
 
 def mouth(kind):
     m = {
@@ -91,11 +132,11 @@ def megaphone():
     return (f'<path d="M10 26h9l25-14v40L19 38h-9z" fill="#ff9f0a" stroke="{INK}" stroke-width="{SW}" stroke-linejoin="round"/>'
             f'<rect x="7" y="25" width="7" height="14" rx="2.5" fill="#fff" stroke="{INK}" stroke-width="{SW}"/>'
             f'<path d="M21 38l3 13h7l-2-11" fill="#ff9f0a" stroke="{INK}" stroke-width="{SW}" stroke-linejoin="round"/>'
-            f'<path d="M50 23q5 9 0 18M55 18q8 14 0 28" fill="none" stroke="#ff3b30" stroke-width="3.4" stroke-linecap="round"/>'
+            f'<path class="wave" d="M50 23q5 9 0 18" fill="none" stroke="#ff3b30" stroke-width="3.4" stroke-linecap="round"/><path class="wave w2" d="M55 18q8 14 0 28" fill="none" stroke="#ff3b30" stroke-width="3.4" stroke-linecap="round"/>'
             '<path d="M22 28l18-10" stroke="#fff" stroke-width="2.6" stroke-linecap="round" opacity=".55"/>')
 
 def mdr():
-    return face() + eyes_happy(27) + mouth('grin') + tear(9, 24) + tear(55, 24, True)
+    return face() + eyes_happy(27) + mouth('grin') + tear(9, 24) + tear(55, 24, True, 'tear t2')
 
 def ptdr():  # crâne : mort de rire
     return (f'<path d="M32 6c-14 0-24 9-24 22c0 8 4 13 9 16v8c0 3 2 5 5 5h20c3 0 5-2 5-5v-8c5-3 9-8 9-16C56 15 46 6 32 6z" fill="#f2f2f7" stroke="{INK}" stroke-width="{SW}" stroke-linejoin="round"/>'
@@ -127,13 +168,13 @@ def hmm():
 
 def flemme():
     return (face('#e0d4ff', '#b8a4f0') + eyes_closed(31) + mouth('small')
-            + f'<text x="49" y="18" font-family="Arial Black,Arial,sans-serif" font-weight="900" font-size="15" fill="#bf5af2" stroke="{INK}" stroke-width="1.2" paint-order="stroke">z</text>'
-            + f'<text x="55" y="9" font-family="Arial Black,Arial,sans-serif" font-weight="900" font-size="11" fill="#bf5af2" stroke="{INK}" stroke-width="1" paint-order="stroke">z</text>'
+            + f'<text class="zz" x="49" y="18" font-family="Arial Black,Arial,sans-serif" font-weight="900" font-size="15" fill="#bf5af2" stroke="{INK}" stroke-width="1.2" paint-order="stroke">z</text>'
+            + f'<text class="zz z2" x="55" y="9" font-family="Arial Black,Arial,sans-serif" font-weight="900" font-size="11" fill="#bf5af2" stroke="{INK}" stroke-width="1" paint-order="stroke">z</text>'
             + '<circle cx="24" cy="42" r="2.5" fill="#9ad7ff"/>')
 
 def sigma():
     return (face() + f'<path d="M12 24h40l-2 9c-1 4-4 6-8 6h-4c-3 0-5-2-6-5c-1 3-3 5-6 5h-4c-4 0-7-2-8-6z" fill="{INK}"/>'
-            '<path d="M17 27l6 0M38 27l6 0" stroke="#fff" stroke-width="2.4" stroke-linecap="round" opacity=".7"/>' + mouth('smirk'))
+            '<path class="glint" d="M17 27l6 0M38 27l6 0" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>' + mouth('smirk'))
 
 def pls():
     return face() + f'<path d="M16 21q5-4 10 0M38 21q5-4 10 0" fill="none" stroke="{INK}" stroke-width="2.4" stroke-linecap="round"/>' + eyes_big(31) + mouth('small')
@@ -165,7 +206,7 @@ def cafe():
     return (f'<path d="M12 28h34v14c0 9-7 14-17 14S12 51 12 42z" fill="#fff" stroke="{INK}" stroke-width="{SW}" stroke-linejoin="round"/>'
             f'<path d="M46 32h3c5 0 7 3 7 6s-2 7-8 7h-3" fill="none" stroke="{INK}" stroke-width="{SW}"/>'
             f'<ellipse cx="29" cy="28" rx="17" ry="4" fill="#7a4a24" stroke="{INK}" stroke-width="2.4"/>'
-            '<path d="M22 20q-4-5 0-9q4-4 0-8M31 20q-4-5 0-9q4-4 0-8M40 20q-4-5 0-9" fill="none" stroke="#c7c7cc" stroke-width="2.6" stroke-linecap="round"/>'
+            '<path class="steam" d="M22 20q-4-5 0-9q4-4 0-8" fill="none" stroke="#c7c7cc" stroke-width="2.6" stroke-linecap="round"/><path class="steam s2" d="M31 20q-4-5 0-9q4-4 0-8" fill="none" stroke="#c7c7cc" stroke-width="2.6" stroke-linecap="round"/><path class="steam s3" d="M40 20q-4-5 0-9" fill="none" stroke="#c7c7cc" stroke-width="2.6" stroke-linecap="round"/>'
             '<path d="M10 58h40" stroke="' + INK + '" stroke-width="3" stroke-linecap="round"/><path d="M17 36v8" stroke="#e5e5ea" stroke-width="3" stroke-linecap="round"/>')
 
 def tram():
@@ -201,12 +242,12 @@ def popcorn():
     return (f'<path d="M14 26h36l-5 32H19z" fill="#fff" stroke="{INK}" stroke-width="{SW}" stroke-linejoin="round"/>'
             '<path d="M21 27l3 30M32 27v30M43 27l-3 30" stroke="#ff3b30" stroke-width="4.5"/>'
             f'<path d="M14 26h36l-5 32H19z" fill="none" stroke="{INK}" stroke-width="{SW}" stroke-linejoin="round"/>'
-            + ''.join(f'<circle cx="{x}" cy="{y}" r="{r}" fill="#fff4c2" stroke="{INK}" stroke-width="2"/>' for x, y, r in
-                      [(17, 22, 5.5), (26, 18, 6.5), (37, 18, 6.5), (47, 22, 5.5), (31, 11, 6), (21, 12, 4.5), (42, 11, 4.5)]))
+            + ''.join(f'<circle class="hop h{i % 3 + 1}" cx="{x}" cy="{y}" r="{r}" fill="#fff4c2" stroke="{INK}" stroke-width="2"/>' for i, (x, y, r) in
+                      enumerate([(17, 22, 5.5), (26, 18, 6.5), (37, 18, 6.5), (47, 22, 5.5), (31, 11, 6), (21, 12, 4.5), (42, 11, 4.5)])))
 
 def vote():
-    return (f'<rect x="20" y="4" width="24" height="24" rx="3" fill="#fff" stroke="{INK}" stroke-width="2.6" transform="rotate(8 32 16)"/>'
-            '<path d="M26 16l4 4l8-9" fill="none" stroke="#30d158" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" transform="rotate(8 32 16)"/>'
+    return (f'<g class="drop"><rect x="20" y="4" width="24" height="24" rx="3" fill="#fff" stroke="{INK}" stroke-width="2.6" transform="rotate(8 32 16)"/>'
+            '<path d="M26 16l4 4l8-9" fill="none" stroke="#30d158" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" transform="rotate(8 32 16)"/></g>'
             f'<rect x="8" y="26" width="48" height="32" rx="6" fill="#0a84ff" stroke="{INK}" stroke-width="{SW}"/>'
             f'<rect x="18" y="25" width="28" height="6" rx="3" fill="{INK}"/>'
             '<path d="M14 36h12" stroke="#fff" stroke-width="2.6" stroke-linecap="round" opacity=".5"/>')
@@ -224,13 +265,13 @@ def lacry():  # nuage de lacrymo qui pleure
             f'fill="#d1d1d6" stroke="{INK}" stroke-width="{SW}" stroke-linejoin="round"/>'
             f'<path d="M20 31q4-3 8 0M36 31q4-3 8 0" fill="none" stroke="{INK}" stroke-width="2.6" stroke-linecap="round"/>'
             f'<path d="M26 40q6-4 12 0" fill="none" stroke="{INK}" stroke-width="2.6" stroke-linecap="round"/>'
-            + tear(22, 46) + tear(42, 46))
+            + tear(22, 46) + tear(42, 46, False, 'tear t2'))
 
 def banderole():
     return (f'<path d="M10 8v52M54 8v52" stroke="#7a4a24" stroke-width="5" stroke-linecap="round"/>'
             f'<path d="M10 8v52M54 8v52" stroke="{INK}" stroke-width="1.6" stroke-linecap="round" opacity=".4"/>'
-            f'<path d="M10 14q22 6 44 0v26q-22 6-44 0z" fill="#fff" stroke="{INK}" stroke-width="{SW}" stroke-linejoin="round"/>'
-            '<path d="M16 24q16 4 32 0M16 31q16 4 32 0" stroke="#ff3b30" stroke-width="4" stroke-linecap="round"/>')
+            f'<g class="flag"><path d="M10 14q22 6 44 0v26q-22 6-44 0z" fill="#fff" stroke="{INK}" stroke-width="{SW}" stroke-linejoin="round"/>'
+            '<path d="M16 24q16 4 32 0M16 31q16 4 32 0" stroke="#ff3b30" stroke-width="4" stroke-linecap="round"/></g>')
 
 def solidaire():  # deux mains qui se serrent
     return (f'<circle cx="32" cy="32" r="27" fill="#bf5af2" stroke="{INK}" stroke-width="{SW}"/>'
@@ -238,21 +279,21 @@ def solidaire():  # deux mains qui se serrent
             f'<path d="M28 27l-6 7c-1 2 1 4 3 3l7-5M33 36l6 5M30 39l5 4M27 41l3 3" fill="none" stroke="{INK}" stroke-width="2.2" stroke-linecap="round"/>')
 
 EMOTES = [
-    ('poing', 'Poing levé', poing), ('megaphone', 'Mégaphone', megaphone), ('banderole', 'Banderole', banderole), ('pave', 'Pavé', pave),
-    ('bloque', 'Bloqué', bloque), ('ouvert', 'Ouvert', ouvert), ('vote', 'Vote', vote), ('solidaire', 'Solidarité', solidaire),
-    ('tram', 'Tram', tram), ('lacry', 'Lacrymo', lacry), ('feu', 'Le feu', feu), ('coeur', 'Cœur', coeur),
-    ('mdr', 'MDR', mdr), ('ptdr', 'PTDR', ptdr), ('cheh', 'Cheh', cheh), ('grr', 'Grr', grr),
-    ('love', 'Love', love), ('choc', 'Choc', choc), ('snif', 'Snif', snif), ('hmm', 'Hmm', hmm),
-    ('flemme', 'Flemme', flemme), ('sigma', 'Sigma', sigma), ('pls', 'Steuplé', pls), ('clown', 'Clown', clown),
-    ('gg', 'GG', gg), ('ratio', 'Ratio', ratio), ('wsh', 'Wesh', wsh), ('plus1', '+1', plus1),
-    ('croissant', 'Croissant', croissant), ('cafe', 'Café', cafe), ('popcorn', 'Popcorn', popcorn),
+    ('poing', 'Poing levé', poing, 'pump'), ('megaphone', 'Mégaphone', megaphone, 'shake'), ('banderole', 'Banderole', banderole, 'none'), ('pave', 'Pavé', pave, 'tilt'),
+    ('bloque', 'Bloqué', bloque, 'pulse'), ('ouvert', 'Ouvert', ouvert, 'pop'), ('vote', 'Vote', vote, 'none'), ('solidaire', 'Solidarité', solidaire, 'shake'),
+    ('tram', 'Tram', tram, 'bounce'), ('lacry', 'Lacrymo', lacry, 'float'), ('feu', 'Le feu', feu, 'flicker'), ('coeur', 'Cœur', coeur, 'beat'),
+    ('mdr', 'MDR', mdr, 'shake'), ('ptdr', 'PTDR', ptdr, 'jump'), ('cheh', 'Cheh', cheh, 'wobble'), ('grr', 'Grr', grr, 'shake'),
+    ('love', 'Love', love, 'beat'), ('choc', 'Choc', choc, 'jump'), ('snif', 'Snif', snif, 'none'), ('hmm', 'Hmm', hmm, 'tilt'),
+    ('flemme', 'Flemme', flemme, 'float'), ('sigma', 'Sigma', sigma, 'wobble'), ('pls', 'Steuplé', pls, 'bounce'), ('clown', 'Clown', clown, 'wobble'),
+    ('gg', 'GG', gg, 'pop'), ('ratio', 'Ratio', ratio, 'pop'), ('wsh', 'Wesh', wsh, 'pop'), ('plus1', '+1', plus1, 'pop'),
+    ('croissant', 'Croissant', croissant, 'wobble'), ('cafe', 'Café', cafe, 'none'), ('popcorn', 'Popcorn', popcorn, 'none'),
 ]
 
 os.makedirs(OUT, exist_ok=True)
-for code, label, fn in EMOTES:
+for code, label, fn, anim in EMOTES:
     with open(os.path.join(OUT, f'{code}.svg'), 'w') as f:
-        f.write(svg(fn()))
+        f.write(svg(fn(), anim))
 with open(os.path.join(ROOT, 'emotes.js'), 'w') as f:
     f.write('// Généré par tools/make-emotes.py : stickers du chat, s\'écrivent :code: dans un message.\n')
-    f.write('export const EMOTES = ' + json.dumps([{'code': c, 'label': l} for c, l, _ in EMOTES], ensure_ascii=False) + ';\n')
+    f.write('export const EMOTES = ' + json.dumps([{'code': c, 'label': l} for c, l, _, _ in EMOTES], ensure_ascii=False) + ';\n')
 print(len(EMOTES), 'stickers générés')

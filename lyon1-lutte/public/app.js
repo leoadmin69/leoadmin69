@@ -38,7 +38,7 @@ const siteFull = (id) => siteList().find((x) => x.id === id)?.name || id;
 const defaultSite = () => state.raw?.defaultSite || 'doua';
 const publicSite = () => (state.site && state.site !== ALL && siteList().some((x) => x.id === state.site) ? state.site : defaultSite());
 // Pages communes à tous les sites : pas de choix de site, tout est ensemble
-const UNIFIED = ['droits', 'frise', 'temoignages', 'revendications'];
+const UNIFIED = ['droits', 'frise', 'temoignages', 'revendications', 'contacts'];
 const unified = () => UNIFIED.includes(route().split('/')[0]);
 const scopeSite = () => (unified() ? ALL : route().startsWith('modo') && state.me ? state.modSite || defaultSite() : state.site && siteList().some((x) => x.id === state.site) ? state.site : state.site === ALL ? ALL : defaultSite());
 const inScope = (x, sc = scopeSite()) => sc === ALL || (x.site || defaultSite()) === sc;
@@ -655,7 +655,9 @@ function onChat(m) {
 
 // ===== Contacts =====
 function viewContacts() {
-  const cs = state.data.contacts;
+  // Tous les sites ensemble ; un même contact saisi sur plusieurs sites n'apparaît qu'une fois
+  const seen = new Set();
+  const cs = state.data.contacts.filter((c) => { const k = `${c.name}|${c.link || c.how || ''}`.toLowerCase().replace(/\s+/g, ' ').trim(); if (seen.has(k)) return false; seen.add(k); return true; });
   view().innerHTML = `
     <h1 class="large-title">Parler à qui ?</h1>
     <p class="subtitle">Syndicats, collectifs, soutien. Tu n’es pas seul·e.</p>
