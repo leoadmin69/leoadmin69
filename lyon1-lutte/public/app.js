@@ -1,3 +1,4 @@
+import { randomNick, isSystemNick } from './nicks.js';
 // Lyon 1 · La Doua en lutte : application monopage (sans framework).
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -509,30 +510,10 @@ function viewDemands() {
 }
 
 // ===== Chat anonyme =====
-// Pseudo du chat : style familier, mélange français / anglais (ex. « Lil Croissant », « Captain Raclette »).
-// Tiré au hasard sur le téléphone ; rien n'est envoyé tant qu'on n'écrit pas. On peut en tirer un autre ou choisir le sien.
-const NICK_THINGS = ['Lil', 'Big', 'Mister', 'Miss', 'Captain', 'DJ', 'MC', 'King', 'Queen', 'Doc', 'Boss', 'Agent', 'Baby', 'Tonton', 'Tata', 'Petit', 'Super', 'Professeur', 'Le Sang', 'Señor', 'Chef', 'Lord', 'Sensei', 'Coach', 'Wesh', 'Gros', 'Frérot', 'Askip', 'Le Vrai', 'Team', 'Daddy', 'Mamie', 'Papi', 'Lowkey'];
-const NICK_PLACES = ['Croissant', 'Baguette', 'Chocolatine', 'Pain au Choc', 'Raclette', 'Crêpe', 'Galette', 'Kebab', 'Tacos', 'Couscous', 'Mafé', 'Bissap', 'Café Crème', 'Madeleine', 'Camembert', 'Wifi', 'Chill', 'Flow', 'Vibes', 'Mood', 'Swag', 'Freestyle', 'Banger', 'Playlist', 'Hoodie', 'Sneakers', 'Zbeul', 'Daron', 'Ninja', 'Panda', 'Pixel', 'Skate', 'Vélo', 'Tram', 'Night', 'Sunshine', 'Thunder', 'Cookie', 'Brownie', 'Nugget',
-  // mèmes et expressions TikTok françaises
-  'Quoicoubeh', 'Apagnan', 'Skibidi', 'Rizz', 'Sigma', 'Aura', 'Ratio', 'Cheh', 'Flemme', 'Masterclass', 'Dinguerie', 'Chokbar', 'Zinzin', 'Gênance', 'Cringe', 'Crush', 'Wallah', 'Askip', 'Pas Ouf', 'Oklm', 'Tqt', 'Mdr', 'Ptdr', 'Jpp', 'Goat', 'Gamos', 'Pépouze', 'Tranquillou', 'Flex', 'Big Up', 'Poto', 'Frérot', 'Bichon', 'Ratatouille', 'Mamacita', 'Ça Passe Crème', 'Gros Chat', 'Ouais Ouais', 'Le Sang de la Veine', 'Bescherelle', 'Apéro', 'Choupi', 'Chouchou'];
-// Nombre à la fin : plus de pseudos possibles (69 = le Rhône)
-const NICK_NUMBERS = ['69', '007', '404', '2000', '3000', '9000', '1er', '24', '42', '99'];
-const OLD_NICK = /^((Hibou|Renard|Loutre|Lynx|Corbeau|Castor|Panda|Moineau|Blaireau|Héron|Chouette|Hérisson|Faucon|Belette|Tortue) (Rouge|Noir|Vert|Bleu|Fauve|Gris|Doré|Violet) \d{2}|(Banderole|Mégaphone|Pavé|Piquet|Tract|Pancarte|Barricade|Sifflet|Cortège|Slogan|Brassard|Affiche|Chaîne|Cadenas|Tambour|Poing levé|Drapeau|Assemblée|Motion|Grève|Blocus|Solidarité|Écharpe|Gilet|Mot d ordre|Caisse de grève) (Thémis|Astrée|Nautibus|Déambu|Lippmann|Darwin|Ariane|Curien|Braconnier|Chevreul|Forel|Mendel|Doua|BU Sciences|Feyssine|Einstein|Omega|Grignard|Berthollet|Gaston Berger))$/;
-const pick = (a) => a[Math.floor(Math.random() * a.length)];
-const nickNumber = () => (Math.random() < 0.35 ? pick(NICK_NUMBERS) : String(Math.floor(Math.random() * 90) + 10));
-function randomNick() {
-  for (let i = 0; i < 30; i++) {
-    const t = pick(NICK_THINGS), w = pick(NICK_PLACES);
-    if (t === w) continue;
-    const n = `${t} ${w} ${nickNumber()}`;
-    if (n.length <= 24) return n;
-  }
-  return `${pick(NICK_THINGS.filter((x) => x.length < 6))} ${pick(NICK_PLACES.filter((x) => x.length < 9))} ${nickNumber()}`;
-}
+// Le pseudo est toujours donné par le système (public/nicks.js) : on peut en tirer un autre, pas l'écrire.
 function nick() {
   let n = store.get('l1-nick', null);
-  // anciens pseudos automatiques (animal + couleur + nombre, objet + lieu) remplacés par le nouveau style
-  if (!n || OLD_NICK.test(n)) { n = randomNick(); store.set('l1-nick', n); }
+  if (!isSystemNick(n)) { n = randomNick(); store.set('l1-nick', n); }
   return n;
 }
 function msgHtml(m) {
@@ -560,9 +541,10 @@ async function viewChat() {
   $('#chans').onclick = (e) => { const c = e.target.dataset.c; if (c) { state.chatChannel = c; store.set('l1-channel', c); render(true); } };
   $('#renick').onclick = (e) => {
     e.preventDefault();
-    sheet(`<h3>Ton pseudo</h3><form class="form" id="nf"><div class="field"><input type="text" id="nn" maxlength="24" value="${esc(nick())}"></div><p class="faint small">2 à 24 caractères. Évite ton vrai nom.</p><div class="btn-row"><button type="button" class="btn ghost" id="nrand">🎲 Un autre au hasard</button><button class="btn">Valider</button></div></form>`, (root, close) => {
-      $('#nrand', root).onclick = () => { $('#nn', root).value = randomNick(); };
-      $('#nf', root).onsubmit = (ev) => { ev.preventDefault(); const v = $('#nn', root).value.trim(); if (findBannedLocal(v)) { toast('Ce pseudo contient un mot interdit par la charte.'); return; } if (v.length >= 2) { store.set('l1-nick', v); close(); render(true); } };
+    let cand = nick();
+    sheet(`<h3>Ton pseudo</h3><div class="nick-big" id="nn">${esc(cand)}</div><p class="faint small">Les pseudos sont donnés par le système, pour rester anonyme et éviter les abus. Tire-en un autre autant que tu veux.</p><div class="btn-row"><button type="button" class="btn ghost" id="nrand">🎲 Un autre</button><button type="button" class="btn" id="nok">Garder celui-ci</button></div>`, (root, close) => {
+      $('#nrand', root).onclick = () => { cand = randomNick(); $('#nn', root).textContent = cand; };
+      $('#nok', root).onclick = () => { store.set('l1-nick', cand); close(); render(true); };
     });
   };
   $('#charte').onclick = (e) => { e.preventDefault(); sheet(charterHtml(false)); };
@@ -2581,8 +2563,7 @@ async function viewEntraide(focus) {
     if (!form) return;
     e.preventDefault();
     const id = form.closest('[data-id]').dataset.id;
-    const nick = store.get('l1-nick', '') || 'Anonyme';
-    try { await api(`/api/entraide/${id}/reply`, { method: 'POST', body: { text: form.text.value, nick, secret: mine[id] } }); viewEntraide(id); } catch (err) { toast(err.message); }
+    try { await api(`/api/entraide/${id}/reply`, { method: 'POST', body: { text: form.text.value, nick: nick(), secret: mine[id] } }); viewEntraide(id); } catch (err) { toast(err.message); }
   };
 }
 function newEntraide(kind, cats) {
@@ -2592,16 +2573,15 @@ function newEntraide(kind, cats) {
       <div class="field"><label>Catégorie</label><select name="cat">${Object.entries(cats).map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join('')}</select></div>
       <div class="field"><label>Titre</label><input type="text" name="title" maxlength="90" required placeholder="${kind === 'propose' ? 'Ex : notes de L2 bio cell à partager' : 'Ex : cherche un canapé pour 2 nuits'}"></div>
       <div class="field"><label>Détails (facultatif)</label><textarea name="text" maxlength="800" placeholder="Quand, où sur le campus, ce dont tu as besoin…"></textarea></div>
-      <div class="field"><label>Pseudo (facultatif)</label><input type="text" name="nick" maxlength="24" value="${esc(store.get('l1-nick', ''))}" placeholder="Anonyme"></div>
+      <p class="faint small">Publié sous ton pseudo <b>${esc(nick())}</b> (changeable dans le chat).</p>
       <button class="btn green">Publier l’annonce</button>
     </form>`, (el, close) => {
     $('#entf', el).onsubmit = async (e) => {
       e.preventDefault();
       const fd = Object.fromEntries(new FormData(e.target));
       try {
-        const r = await api('/api/entraide', { method: 'POST', body: { ...fd, kind, site: publicSite() } });
+        const r = await api('/api/entraide', { method: 'POST', body: { ...fd, nick: nick(), kind, site: publicSite() } });
         const mine = store.get('l1-entraide', {}); mine[r.id] = r.secret; store.set('l1-entraide', mine);
-        if (fd.nick) store.set('l1-nick', fd.nick);
         close(); toast('Annonce publiée ✊'); viewEntraide(r.id);
       } catch (err) { toast(err.message); }
     };

@@ -5,6 +5,7 @@ import { db, save, newId, now } from './store.js';
 import { SECRET, parseCookies } from './auth.js';
 import { DEFAULT_SITE, site, siteName, siteOf, canSite, isAdmin, wantsSite } from './sites.js';
 import { renderRich } from './community.js';
+import { isSystemNick } from '../public/nicks.js';
 
 const SIGHT_WINDOW = 45 * 60e3;                                   // un signalement compte 45 min
 const SIGHT_THRESHOLD = () => Number(process.env.SIGHTING_THRESHOLD || 3); // signalements concordants pour alerter les modos
@@ -291,7 +292,7 @@ export function registerExtras(app, mod, ctx) {
     if (limited(`ent:${visitor(req)}`, 10, 3600e3) || limited(`entd:${dev}`, 3, 3600e3)) return bad(res, 'Trop d’annonces, réessaie plus tard.', 429);
     const title = clip(req.body.title, 90);
     const text = clip(req.body.text, 800);
-    const nick = clip(req.body.nick, 24) || 'Anonyme';
+    const nick = isSystemNick(req.body.nick) ? req.body.nick : 'Anonyme';
     if (title.length < 4) return bad(res, 'Donne un titre (4 caractères minimum).');
     if (!noContact(`${title} ${text}`)) return bad(res, 'Pas de numéro de téléphone ni d’email : échangez dans les réponses (ou donnez un pseudo Signal).');
     const a = { id: newId(), site: site(req.body.site) ? req.body.site : DEFAULT_SITE, kind: oneOf(req.body.kind, ['propose', 'cherche'], 'propose'), cat: oneOf(req.body.cat, Object.keys(CATS), 'autre'), title, text, nick, at: now(), expires: new Date(Date.now() + ENTRAIDE_DAYS * 864e5).toISOString(), secret: crypto.randomBytes(12).toString('base64url'), replies: [], reports: [] };
@@ -308,7 +309,7 @@ export function registerExtras(app, mod, ctx) {
     if (!text) return bad(res, 'Message vide.');
     if (!noContact(text)) return bad(res, 'Pas de numéro ni d’email ici : donnez plutôt un pseudo Signal ou un lieu de rendez-vous sur le campus.');
     if (a.replies.length >= 50) return bad(res, 'Trop de réponses sur cette annonce.');
-    a.replies.push({ id: newId(), nick: clip(req.body.nick, 24) || 'Anonyme', text, at: now(), author: req.body.secret && req.body.secret === a.secret, reports: [] });
+    a.replies.push({ id: newId(), nick: isSystemNick(req.body.nick) ? req.body.nick : 'Anonyme', text, at: now(), author: req.body.secret && req.body.secret === a.secret, reports: [] });
     save(); broadcast('entraide', { id: a.id });
     res.json(pub(a));
   });

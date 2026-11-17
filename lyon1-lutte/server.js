@@ -13,6 +13,7 @@ import { mailEnabled, mailProvider, mailQuota, sendMany, renderEmail, SITE_URL, 
 import { aiEnabled, aiProviders, analyzePdf } from './lib/ai.js';
 import { registerCommunity, MAX_VIDEO_MB } from './lib/community.js';
 import { registerExtras } from './lib/extras.js';
+import { isSystemNick } from './public/nicks.js';
 import { bannedList, findBanned, normalize as normalizeWord, BANNED_BASE } from './lib/moderation.js';
 import { telegramEnabled, telegramUrl, postTelegram, tgEsc } from './lib/telegram.js';
 import { DEFAULT_SITE, site, siteName, modSites, canSite, siteOf, migrateSites, effectiveBlocus, wantsSite, isAdmin } from './lib/sites.js';
@@ -199,6 +200,7 @@ app.post('/api/chat', (req, res) => {
   const nick = clip(req.body.nick, 24);
   const text = clip(req.body.text, 600).replace(/\s{3,}/g, '  ');
   if (!NICK.test(nick)) return bad(res, 'Pseudo : 2 à 24 lettres, chiffres, espaces ou tirets.');
+  if (!currentMod(req) && !isSystemNick(nick)) return bad(res, 'Pseudo non reconnu : les pseudos sont donnés par le système. Recharge la page.');
   if (!text) return bad(res, 'Message vide.');
   const modNow = currentMod(req);
   if (!modNow && req.body.charter !== true) return bad(res, 'Lis et accepte la charte du chat avant d’écrire.', 403);

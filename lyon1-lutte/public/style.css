@@ -505,3 +505,4 @@ button.opt:active { transform: scale(0.98); }
 .composer.banned { box-shadow: 0 0 0 2px var(--red); border-radius: 22px; }
 .composer.shake { animation: shake 0.4s; }
 @keyframes shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+.nick-big { font-family: ui-monospace, Menlo, monospace; font-size: 24px; font-weight: 700; text-align: center; padding: 18px 10px; margin: 6px 0 10px; border: 1px dashed rgba(48,209,88,0.5); border-radius: 14px; color: var(--green); }
