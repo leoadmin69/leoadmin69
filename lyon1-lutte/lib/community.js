@@ -136,13 +136,27 @@ async function persistMedia(m) {
 // ---------- Mise en forme légère du blog : paragraphes, **gras**, liens ----------
 export function renderRich(text) {
   const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  return String(text || '').split(/\n{2,}/).map((p) => {
-    let h = esc(p.trim());
-    if (!h) return '';
-    if (/^## /.test(h)) return `<h3>${h.slice(3)}</h3>`;
-    h = h.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)])/g, '<a href="$1" target="_blank" rel="noopener nofollow">$1</a>').replace(/\n/g, '<br>');
-    return `<p>${h}</p>`;
-  }).join('');
+  const inline = (x) => x.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)])/g, '<a href="$1" target="_blank" rel="noopener nofollow">$1</a>');
+  // Ligne par ligne : « ## » titre, « - » puce, « > » encadré, le reste en paragraphes.
+  const out = [];
+  let cur = null; // { kind: 'p' | 'ul' | 'note', lines: [] }
+  const close = () => {
+    if (!cur) return;
+    if (cur.kind === 'ul') out.push(`<ul>${cur.lines.map((l) => `<li>${inline(l)}</li>`).join('')}</ul>`);
+    else if (cur.kind === 'note') out.push(`<div class="note">${inline(cur.lines.join('<br>'))}</div>`);
+    else out.push(`<p>${inline(cur.lines.join('<br>'))}</p>`);
+    cur = null;
+  };
+  for (const raw of String(text || '').split('\n')) {
+    const l = esc(raw.trim());
+    if (!l) { close(); continue; }
+    if (/^## /.test(l)) { close(); out.push(`<h3>${l.slice(3)}</h3>`); continue; }
+    const kind = /^- /.test(l) ? 'ul' : /^&gt; ?/.test(l) ? 'note' : 'p';
+    if (cur?.kind !== kind) { close(); cur = { kind, lines: [] }; }
+    cur.lines.push(kind === 'ul' ? l.slice(2) : kind === 'note' ? l.replace(/^&gt; ?/, '') : l);
+  }
+  close();
+  return out.join('');
 }
 
 export function registerCommunity(app, mod, ctx) {

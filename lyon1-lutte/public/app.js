@@ -59,7 +59,7 @@ function renderSiteBar() {
   const bar = $('#sitebar');
   if (!bar) return;
   const r = route().split('/')[0];
-  const show = state.raw && siteList().length > 1 && !['modo', 'chat', 'plus', 'alertes'].includes(r);
+  const show = state.raw && siteList().length > 1 && !['modo', 'chat', 'plus', 'alertes', 'droits'].includes(r);
   bar.hidden = !show;
   if (!show) return;
   const cur = scopeSite();
@@ -102,6 +102,9 @@ const P = {
   ballot: '<rect x="4" y="3" width="16" height="18" rx="3"/><path d="m8.5 12 2.5 2.5L16 9.5"/>',
   pen: '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"/>',
   shield: '<path d="M12 3 4.5 6v6c0 4.5 3.2 8 7.5 9 4.3-1 7.5-4.5 7.5-9V6L12 3Z"/><path d="M12 8v5M12 16h.01"/>',
+  timeline: '<path d="M6 3v18"/><circle cx="6" cy="7" r="2"/><circle cx="6" cy="17" r="2"/><path d="M10 7h10M10 17h7"/>',
+  scale: '<path d="M12 3v18M7 21h10M4 7h16"/><path d="m4 7-2.5 6a3 3 0 0 0 5 0L4 7ZM20 7l-2.5 6a3 3 0 0 0 5 0L20 7Z"/>',
+  hands: '<path d="M7 11V6a1.5 1.5 0 0 1 3 0v4M10 10V4.5a1.5 1.5 0 0 1 3 0V10M13 10V5.5a1.5 1.5 0 0 1 3 0V12M16 9.5a1.5 1.5 0 0 1 3 0V14a7 7 0 0 1-7 7h-1a6 6 0 0 1-5-2.7L3.4 14a1.5 1.5 0 0 1 2.5-1.6L7 14"/>',
 };
 const icon = (n, size = 22) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || ''}</svg>`;
 
@@ -115,6 +118,9 @@ const NAV = [
   { id: 'revendications', label: 'Revendications', icon: 'megaphone' },
   { id: 'blog', label: 'Blog & tribunes', icon: 'pen' },
   { id: 'temoignages', label: 'Témoignages', icon: 'shield' },
+  { id: 'frise', label: 'Frise de la lutte', icon: 'timeline' },
+  { id: 'entraide', label: 'Entraide', icon: 'hands' },
+  { id: 'droits', label: 'Tes droits', icon: 'scale' },
   { id: 'contacts', label: 'Parler à qui ?', icon: 'people' },
   { id: 'alertes', label: 'Alertes & notifs', icon: 'bell' },
   { id: 'modo', label: 'Espace modos', icon: 'lock' },
@@ -221,7 +227,7 @@ function render(force = false) {
   renderSiteBar();
   const [r, arg] = route().split('/');
   if (!state.data) { view().innerHTML = '<div class="empty"><div class="big typing mono">_</div>Connexion au flux…</div>'; return; }
-  const views = { '': viewLive, batiments: viewBuildings, agenda: viewAgenda, chat: viewChat, cr: arg ? () => viewReport(arg) : viewReports, revendications: viewDemands, votes: () => viewPolls(arg), blog: () => viewBlog(arg), temoignages: viewTestimonies, contacts: viewContacts, alertes: viewAlerts, plus: viewPlus, modo: viewModo };
+  const views = { '': viewLive, batiments: viewBuildings, agenda: viewAgenda, chat: viewChat, cr: arg ? () => viewReport(arg) : viewReports, revendications: viewDemands, votes: () => viewPolls(arg), blog: () => viewBlog(arg), temoignages: viewTestimonies, contacts: viewContacts, alertes: viewAlerts, plus: viewPlus, modo: viewModo, frise: viewFrise, entraide: () => viewEntraide(arg), droits: viewDroits };
   (views[r] || viewLive)();
 }
 window.addEventListener('hashchange', () => { render(true); window.scrollTo(0, 0); });
@@ -332,10 +338,13 @@ function viewBuildings() {
         <div class="campus">${esc(b.campus)}</div>
         ${b.note ? `<div class="note">${esc(b.note)}</div>` : ''}
         <div class="when">${b.updatedAt ? 'MAJ ' + esc(ago(b.updatedAt)) : ''}</div>
+        ${sightLine(b)}
+        <button class="see-btn" data-see="${esc(b.id)}">👀 Signaler</button>
       </div>`).join('') || '<div class="empty">Aucun bâtiment.</div>'}
     </div>
-    <p class="faint small" style="margin-top:18px">Une info fausse ou périmée ? Signale-la dans le <a href="#/chat">chat</a> : les modos la corrigent.</p>`;
+    <p class="faint small" style="margin-top:18px">Tu es devant un bâtiment et l’info est fausse ? Touche « 👀 Signaler ». Quand plusieurs personnes signalent la même chose, les modos sont prévenu·es et confirment en un tap. Rien n’est publié sans elles et eux.</p>`;
   $('#campus').onclick = (e) => { const c = e.target.dataset?.c; if (c) { state.campus = c; render(true); } };
+  view().onclick = (e) => { const id = e.target.closest('[data-see]')?.dataset.see; if (id) openSighting(id); };
 }
 
 // ===== Agenda =====
@@ -366,12 +375,15 @@ function viewAgenda() {
               ${e.place || e.address ? `<a class="btn small ghost" target="_blank" rel="noopener" href="https://www.openstreetmap.org/search?query=${encodeURIComponent([e.address || e.place, 'Lyon'].join(' '))}">${icon('pin', 16)} Itinéraire</a>` : ''}
               <button class="btn small ghost" data-ics="${esc(e.id)}">${icon('calendar', 16)} Calendrier</button>
               <button class="btn small ghost" data-share="${esc(e.id)}">${icon('share', 16)} Partager</button>
+              <button class="btn small going-btn ${myGoing().includes(e.id) ? 'on' : ''}" data-going="${esc(e.id)}">✋ J’y vais <b class="mono">${e.goingCount || 0}</b></button>
             </div>
             <div class="faint small" style="margin-top:8px">Annoncé par ${esc(e.org || 'les modos')}</div>
           </div>
         </div>`).join('')}`).join('')
     : '<div class="card empty"><div class="big">📅</div>Aucun rendez-vous annoncé.<br>Inscris-toi aux <a href="#/alertes">alertes</a> pour être prévenu·e.</div>'}`;
   view().onclick = async (ev) => {
+    const gid = ev.target.closest('[data-going]')?.dataset.going;
+    if (gid) return toggleGoing(gid, ev.target.closest('[data-going]'));
     const ics = ev.target.closest('[data-ics]')?.dataset.ics;
     const sh = ev.target.closest('[data-share]')?.dataset.share;
     const e = evs.find((x) => x.id === (ics || sh));
@@ -664,7 +676,7 @@ async function viewAlerts() {
 // ===== Menu « Plus » (mobile) =====
 function viewPlus() {
   const items = NAV.filter((n) => !TABS.some((t) => t.id === n.id));
-  const sub = { votes: 'Donne ton avis, anonymement', blog: 'Articles et tribunes', temoignages: 'Violences : témoigner', cr: 'Les AG en flash infos', revendications: 'Soutiens les revendications', contacts: 'Syndicats, écoute, urgences', alertes: 'Notifs quand un bâtiment est bloqué', modo: 'Accès syndicats' };
+  const sub = { votes: 'Donne ton avis, anonymement', blog: 'Articles et tribunes', temoignages: 'Violences : témoigner', frise: 'La mobilisation jour par jour', entraide: 'Je propose / je cherche', droits: 'Absences, examens, interpellation', cr: 'Les AG en flash infos', revendications: 'Soutiens les revendications', contacts: 'Syndicats, écoute, urgences', alertes: 'Notifs quand un bâtiment est bloqué', modo: 'Accès syndicats' };
   view().innerHTML = `<h1 class="large-title">Plus</h1><p class="subtitle">Tout ce qu’il faut savoir sur la mobilisation.</p>
     <div class="menu-grid">${items.map((n) => `<a href="#/${n.id}">${icon(n.icon)}<span>${n.label}<br><small>${sub[n.id] || ''}</small></span></a>`).join('')}</div>
     ${igCard()}`;
@@ -686,7 +698,7 @@ function sheet(html, setup) {
 // =====================================================================
 const MOD_TABS = [
   ['situation', '🚧 Bâtiments'], ['story', '📸 Story Insta'], ['agenda', '📅 Agenda'], ['cr', '🤖 CR + IA'], ['flash', '⚡ Flash'],
-  ['votes', '🗳️ Votes'], ['blog', '✍️ Blog'], ['temoignages', '🛡️ Témoignages'], ['revendications', '✊ Revendications'], ['contacts', '📇 Contacts'], ['chat', '🛡️ Chat'], ['comptes', '👥 Comptes'], ['sites', '📍 Sites'], ['journal', '📜 Journal'], ['moi', '🔑 Mon compte'],
+  ['votes', '🗳️ Votes'], ['blog', '✍️ Blog'], ['temoignages', '🛡️ Témoignages'], ['entraide', '🤝 Entraide'], ['droits', '⚖️ Page droits'], ['revendications', '✊ Revendications'], ['contacts', '📇 Contacts'], ['chat', '🛡️ Chat'], ['comptes', '👥 Comptes'], ['sites', '📍 Sites'], ['journal', '📜 Journal'], ['moi', '🔑 Mon compte'],
 ];
 async function viewModo() {
   if (!state.me) {
@@ -724,7 +736,7 @@ async function viewModo() {
   $('#msites').onclick = (e) => { const id = e.target.closest('[data-ms]')?.dataset.ms; if (id) { state.modSite = id; store.set('l1-modsite', id); applyScope(); render(true); } };
   showPresence();
   api('/api/mod/stats').then((s) => { const el = $('#mstats'); if (el) el.innerHTML = `${s.pushSubs} téléphone(s) · ${s.subscribers} email(s) · IA ${esc(s.aiEnabled ? s.aiProviders.join(' → ') : 'sans IA')} · emails ${s.mailProvider ? `${esc(s.mailProvider)} ${s.mailQuota.used}/${s.mailQuota.limit} aujourd’hui` : 'OFF'} · stockage ${s.storage === 'temporaire' ? '<b style="color:var(--red)">TEMPORAIRE (configure Supabase !)</b>' : esc(s.storage)}${s.reported ? ` · ${s.reported} msg signalé(s)` : ''}`; }).catch(() => {});
-  const fn = { story: modStory, votes: modPolls, blog: modBlog, temoignages: modTestimonies, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, sites: modSites, journal: modJournal, moi: modMe }[state.modTab] || modSituation;
+  const fn = { story: modStory, votes: modPolls, blog: modBlog, temoignages: modTestimonies, entraide: modEntraide, droits: modDroits, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, sites: modSites, journal: modJournal, moi: modMe }[state.modTab] || modSituation;
   try { await fn($('#mod')); } catch (err) { if (/Connexion modo/.test(err.message)) { state.me = null; render(true); } else toast(err.message); }
 }
 // Autres modos connectés sur les mêmes sites : on le voit pour ne pas se marcher dessus
@@ -848,6 +860,7 @@ function modSituation(el) {
   const lastCR = d.reports.find((r) => r.batiments_bloques?.length);
   const canDictate = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
   el.innerHTML = `
+    <div id="sightings"></div>
     <div class="card">
       <div class="kicker">Titre de l’accueil · ${esc(siteShort(state.modSite))} · un tap = publié</div>
       <div class="segmented status-seg" id="bstate" style="margin-top:10px">${['auto', 'actif', 'partiel', 'leve'].map((k) => `<button data-s="${k}" class="${(b.auto ? 'auto' : b.state) === k ? 'on ' + ({ auto: 'auto', actif: 'bloque', partiel: 'partiel', leve: 'ouvert' }[k]) : ''}">${{ auto: '🤖 Auto', actif: '🔴 Blocus', partiel: '🟠 Partiel', leve: '🟢 Levé' }[k]}</button>`).join('')}</div>
@@ -900,6 +913,7 @@ function modSituation(el) {
     if (h) h.textContent = s === 'auto' ? `Automatique : le titre suit les bâtiments (actuellement « ${BLOCUS[r.effective]} »).` : 'Choisi à la main : il ne bouge plus avec les bâtiments. Touche « Auto » pour qu’il les suive.';
   };
   $('#bmsg').onchange = () => act(() => api('/api/mod/blocus', { method: 'PUT', body: { state: state.data.blocus.state, message: $('#bmsg').value, notify: false } }), 'Message publié.');
+  drawSightings();
   if (!d.buildings.length) $('#tiles').insertAdjacentHTML('beforebegin', `<div class="card muted">Aucun bâtiment pour ${esc(siteShort(state.modSite))}. Ajoute-les en bas de la page (« ＋ Ajouter un bâtiment »).</div>`);
 
   // Saisie éclair
@@ -2203,6 +2217,16 @@ function connectLive() {
     if (f.level === 'alert' && document.hidden && 'Notification' in window && Notification.permission === 'granted') new Notification('Lyon 1 · La Doua en lutte', { body: f.text, icon: '/icon.svg' });
   });
   es.addEventListener('chat', (e) => onChat(JSON.parse(e.data)));
+  es.addEventListener('sighting', () => { scheduleRefresh(); if (route() === 'modo' && state.modTab === 'situation') drawSightings(); });
+  es.addEventListener('going', (e) => {
+    const { id, count } = JSON.parse(e.data);
+    const ev = state.raw?.events.find((x) => x.id === id);
+    if (ev) ev.goingCount = count;
+    const b = $(`[data-going="${CSS.escape(id)}"] b`);
+    if (b) b.textContent = count;
+  });
+  es.addEventListener('entraide', () => { if (route() === 'entraide' && !$('.sheet') && !view().contains(document.activeElement)) render(); });
+  es.addEventListener('pages', scheduleRefresh);
   es.addEventListener('poll', () => { scheduleRefresh(); if (route() === 'votes' && !$('.sheet')) viewPolls(); });
   for (const [ev, r] of [['blog', 'blog'], ['testimonies', 'temoignages']]) es.addEventListener(ev, () => { if (route() === r && !$('.sheet')) render(); });
   es.addEventListener('chat-del', (e) => { const id = JSON.parse(e.data).id; $(`.msg[data-id="${CSS.escape(id)}"]`)?.remove(); });
@@ -2326,3 +2350,252 @@ document.addEventListener('click', (e) => { if (e.target.closest('[data-install]
   registerSW();
   setInterval(() => { if (route() === '' && !document.hidden) { const m = $('.hero .meta'); if (m && state.data) m.textContent = `MAJ ${ago(state.data.blocus.updatedAt)}${state.data.blocus.by ? ' · ' + state.data.blocus.by : ''}`; } }, 30000);
 })();
+
+// =====================================================================
+// Signalements des étudiant·es, « J'y vais », frise, page droits, entraide
+// =====================================================================
+const SIGHT_LABEL = { bloque: 'bloqué', partiel: 'partiellement bloqué', ouvert: 'ouvert' };
+function sightLine(b) {
+  const list = (state.raw?.sightings || []).filter((s) => s.building === b.id);
+  if (!list.length) return '';
+  return `<div class="sight-line">${list.map((s) => `👀 ${s.count} signalement${s.count > 1 ? 's' : ''} : ${esc(SIGHT_LABEL[s.status])}`).join(' · ')} <span class="faint">(non confirmé)</span></div>`;
+}
+function openSighting(id) {
+  const b = state.raw.buildings.find((x) => x.id === id);
+  if (!b) return;
+  sheet(`<h2 style="margin:0 0 4px">👀 ${esc(b.name)}</h2>
+    <p class="muted small" style="margin:0 0 14px">Tu es sur place ? Dis ce que tu vois. C’est anonyme. Les modos vérifient avant de publier.</p>
+    <div class="see-grid">
+      <button class="ab red" data-st="bloque">🔴 Bloqué</button>
+      <button class="ab orange" data-st="partiel">🟠 Partiel</button>
+      <button class="ab green" data-st="ouvert">🟢 Ouvert</button>
+    </div>`, (el, close) => {
+    el.onclick = async (e) => {
+      const st = e.target.closest('[data-st]')?.dataset.st;
+      if (!st) return;
+      try { const r = await api('/api/sightings', { method: 'POST', body: { building: id, status: st } }); toast(r.message); close(); } catch (err) { toast(err.message); }
+    };
+  });
+}
+async function drawSightings() {
+  const box = $('#sightings');
+  if (!box) return;
+  let r;
+  try { r = await api('/api/mod/sightings'); } catch { return; }
+  const list = r.list.filter((x) => inScope(x));
+  const strong = list.filter((x) => x.count >= r.threshold);
+  if (!list.length) { box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="card sight-card ${strong.length ? 'hot' : ''}" style="margin-bottom:12px">
+    <div class="kicker">📣 Signalements des étudiant·es · ${r.threshold} concordants = à vérifier</div>
+    ${list.map((x) => `<div class="sight-row" data-b="${esc(x.building)}" data-st="${esc(x.status)}" data-from="${esc(x.current)}">
+      <div class="grow"><b>${esc(x.name)}</b> → ${STATUS[x.status].dot} ${esc(STATUS[x.status].label)}
+        <div class="faint small">${x.count} personne${x.count > 1 ? 's' : ''} · dernier ${esc(ago(x.last))} · affiché : ${esc(STATUS[x.current].label)}</div></div>
+      <button class="btn small ${x.status === 'bloque' ? 'red' : x.status === 'partiel' ? 'orange' : 'green'}" data-ok>✓ Confirmer</button>
+      <button class="btn small ghost" data-no>Ignorer</button>
+    </div>`).join('')}
+    <p class="faint small" style="margin:8px 0 0">Vérifie (sur place, dans un groupe, ou par un·e camarade) avant de confirmer : un signalement peut être une blague ou une manip.</p>
+  </div>`;
+  box.onclick = async (e) => {
+    const row = e.target.closest('.sight-row');
+    if (!row) return;
+    if (e.target.closest('[data-ok]')) {
+      await applyChanges([{ id: row.dataset.b, status: row.dataset.st, from: row.dataset.from }], 'Signalement confirmé');
+      drawSightings();
+    } else if (e.target.closest('[data-no]')) {
+      await act(() => api('/api/mod/sightings/ignore', { method: 'POST', body: { building: row.dataset.b } }), 'Signalements ignorés.');
+      drawSightings();
+    }
+  };
+}
+
+const myGoing = () => store.get('l1-going', []);
+async function toggleGoing(id, btn) {
+  try {
+    const r = await api(`/api/events/${encodeURIComponent(id)}/going`, { method: 'POST' });
+    const list = myGoing().filter((x) => x !== id);
+    if (r.going) list.push(id);
+    store.set('l1-going', list.slice(-100));
+    btn.classList.toggle('on', r.going);
+    $('b', btn).textContent = r.count;
+    const ev = state.raw?.events.find((x) => x.id === id);
+    if (ev) ev.goingCount = r.count;
+    toast(r.going ? (store.get('l1-push', null)?.kinds?.includes('events') ? 'Noté ✊ Rappel 1 h avant par notification.' : 'Noté ✊ Active les notifs (Alertes) pour le rappel 1 h avant.') : 'Retiré.');
+  } catch (e) { toast(e.message); }
+}
+
+// ----- Frise -----
+async function viewFrise() {
+  view().innerHTML = '<div class="empty mono typing">Chargement de la frise…</div>';
+  const sc = scopeSite();
+  let f;
+  try { f = await api(`/api/frise?site=${encodeURIComponent(sc)}`); } catch (e) { view().innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (route() !== 'frise') return;
+  const dayName = (d) => new Date(d + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  view().innerHTML = `
+    <h1 class="large-title">Frise de la lutte</h1>
+    <p class="subtitle">Jour ${f.today} de la mobilisation${state.data.scope === ALL ? '' : ' · ' + esc(siteShort(sc))}. Remplie automatiquement : blocages, AG, votes, revendications obtenues.</p>
+    <div class="frise-stats">
+      <div><b>${f.today}</b><span>jours</span></div>
+      <div><b>${f.stats.days}</b><span>jours d’action</span></div>
+      <div><b>${f.stats.ag}</b><span>AG</span></div>
+      <div><b>${f.stats.votes}</b><span>votes</span></div>
+      <div class="win"><b>${f.stats.wins}</b><span>obtenues</span></div>
+    </div>
+    ${f.days.length ? `<div class="frise">${f.days.map((d) => `
+      <div class="frise-day">
+        <div class="frise-num mono">J${d.num}</div>
+        <div class="frise-body">
+          <div class="frise-date">${esc(dayName(d.day))}</div>
+          ${d.items.map((i) => `<div class="frise-item ${esc(i.kind)}">${i.link ? `<a href="${esc(i.link)}">` : ''}<span>${i.icon}</span> ${esc(i.text)}${i.link ? '</a>' : ''}</div>`).join('')}
+        </div>
+      </div>`).join('')}</div>` : '<div class="card empty"><div class="big">🗓️</div>La frise se remplit toute seule dès que des bâtiments sont bloqués, que des AG ont lieu ou que des votes se terminent.</div>'}
+    ${state.me?.role === 'admin' ? `<form class="card form" id="fstart" style="margin-top:16px"><div class="kicker">Admin · premier jour de la mobilisation</div><div class="btn-row"><input type="date" id="fdate" value="${esc(f.start)}"><button class="btn small">Enregistrer</button></div></form>` : ''}`;
+  if ($('#fstart')) $('#fstart').onsubmit = async (e) => { e.preventDefault(); await act(() => api('/api/mod/frise/start', { method: 'PUT', body: { start: $('#fdate').value } }), 'Date enregistrée.'); viewFrise(); };
+}
+
+// ----- Tes droits -----
+async function viewDroits() {
+  let p;
+  try { p = await api('/api/pages/droits'); } catch (e) { p = { published: false, title: 'Tes droits pendant le blocage' }; }
+  if (route() !== 'droits') return;
+  view().innerHTML = `
+    <h1 class="large-title">${esc(p.title)}</h1>
+    ${p.published ? `<p class="subtitle">Absences, examens, bourses, interpellation. Validé par les syndicats${p.by ? ' (' + esc(p.by) + ')' : ''} · MAJ ${esc(ago(p.updatedAt))}.</p>
+      <article class="card prose droits">${p.html}</article>
+      <a class="card" href="#/contacts" style="display:flex;gap:12px;align-items:center;margin-top:14px;color:inherit">${icon('people')}<div class="grow"><b>Une question précise ?</b><div class="muted small">Syndicats, legal team, écoute : page « Parler à qui ? »</div></div><span class="chev">${icon('chev', 18)}</span></a>`
+    : `<div class="card empty"><div class="big">⚖️</div>Cette page est en cours de relecture par les syndicats.<br>En attendant, contacte-les directement : <a href="#/contacts">Parler à qui ?</a></div>`}`;
+}
+
+// ----- Entraide -----
+const ENT_KIND = { propose: ['Je propose', 'green'], cherche: ['Je cherche', 'blue'] };
+async function viewEntraide(focus) {
+  let data;
+  try { data = await api('/api/entraide'); } catch (e) { view().innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (route() !== 'entraide') return;
+  const mine = store.get('l1-entraide', {});
+  state.entFilter ||= 'tout';
+  const sc = scopeSite();
+  const items = data.items.filter((a) => inScope(a, sc) && (state.entFilter === 'tout' || a.kind === state.entFilter || a.cat === state.entFilter));
+  view().innerHTML = `
+    <h1 class="large-title">Entraide</h1>
+    <p class="subtitle">Cours à rattraper, hébergement, repas solidaires, trajets… Propose ou demande un coup de main. Anonyme, sans numéro ni email : on échange dans les réponses, puis on se retrouve sur le campus.</p>
+    <div class="btn-row"><button class="btn green" data-new="propose">＋ Je propose</button><button class="btn" data-new="cherche">＋ Je cherche</button></div>
+    <div class="chips ent-filters" style="margin:14px 0 4px">${[['tout', 'Tout'], ['propose', 'Offres'], ['cherche', 'Demandes'], ...Object.entries(data.cats)].map(([k, l]) => `<button class="chip ${state.entFilter === k ? 'on' : ''}" data-f="${esc(k)}">${esc(l)}</button>`).join('')}</div>
+    ${items.map((a) => `
+      <div class="card ent ${focus === a.id ? 'focus' : ''}" data-id="${esc(a.id)}" id="ent-${esc(a.id)}">
+        <div class="chips"><span class="pill ${ENT_KIND[a.kind][1]}">${ENT_KIND[a.kind][0]}</span><span class="pill grey">${esc(a.catLabel)}</span>${siteTag(a)}</div>
+        <div class="title" style="margin-top:8px">${esc(a.title)}</div>
+        ${a.text ? `<div class="desc">${esc(a.text)}</div>` : ''}
+        <div class="faint small" style="margin-top:6px">${esc(a.nick)} · ${esc(ago(a.at))} · expire ${esc(fmt(a.expires, { day: 'numeric', month: 'short' }))}</div>
+        ${a.replies.length ? `<div class="ent-replies">${a.replies.map((r) => `<div class="ent-reply"><b>${esc(r.nick)}${r.author ? ' <span class="pill green">auteur·e</span>' : ''}</b> <span class="faint small">${esc(ago(r.at))}</span><div>${esc(r.text)}</div><button class="linklike faint small" data-rep="${esc(r.id)}">Signaler</button></div>`).join('')}</div>` : ''}
+        <form class="ent-form" data-reply>
+          <input type="text" name="text" maxlength="500" placeholder="Répondre (lieu, horaire, pseudo Signal…)" required>
+          <button class="btn small">Envoyer</button>
+        </form>
+        <div class="btn-row" style="margin-top:6px">
+          <button class="linklike faint small" data-report>Signaler l’annonce</button>
+          ${mine[a.id] ? '<button class="linklike small" data-del style="color:var(--red)">Supprimer mon annonce</button>' : ''}
+        </div>
+      </div>`).join('') || '<div class="card empty"><div class="big">🤝</div>Aucune annonce pour l’instant. Lance la première !</div>'}
+    <p class="faint small">Les annonces disparaissent au bout de 14 jours. 3 signalements = annonce masquée en attendant un·e modo. Ne donne jamais ton adresse : rendez-vous dans un lieu public du campus.</p>`;
+  if (focus) $(`#ent-${CSS.escape(focus)}`)?.scrollIntoView({ block: 'center' });
+  view().onclick = async (e) => {
+    const f = e.target.closest('[data-f]')?.dataset.f;
+    if (f) { state.entFilter = f; return viewEntraide(); }
+    const nw = e.target.closest('[data-new]')?.dataset.new;
+    if (nw) return newEntraide(nw, data.cats);
+    const card = e.target.closest('[data-id]');
+    if (!card) return;
+    const id = card.dataset.id;
+    if (e.target.closest('[data-rep]')) { await act(() => api(`/api/entraide/${id}/report`, { method: 'POST', body: { reply: e.target.closest('[data-rep]').dataset.rep } }), 'Merci, signalé aux modos.'); return; }
+    if (e.target.closest('[data-report]')) { if (confirm('Signaler cette annonce aux modos ?')) await act(() => api(`/api/entraide/${id}/report`, { method: 'POST' }), 'Merci, signalé aux modos.'); return; }
+    if (e.target.closest('[data-del]') && confirm('Supprimer ton annonce ?')) {
+      await act(() => api(`/api/entraide/${id}?secret=${encodeURIComponent(mine[id])}`, { method: 'DELETE' }), 'Annonce supprimée.');
+      delete mine[id]; store.set('l1-entraide', mine); viewEntraide();
+    }
+  };
+  view().onsubmit = async (e) => {
+    const form = e.target.closest('[data-reply]');
+    if (!form) return;
+    e.preventDefault();
+    const id = form.closest('[data-id]').dataset.id;
+    const nick = store.get('l1-nick', '') || 'Anonyme';
+    try { await api(`/api/entraide/${id}/reply`, { method: 'POST', body: { text: form.text.value, nick, secret: mine[id] } }); viewEntraide(id); } catch (err) { toast(err.message); }
+  };
+}
+function newEntraide(kind, cats) {
+  sheet(`<h2 style="margin:0 0 4px">${kind === 'propose' ? '🤝 Je propose' : '🙋 Je cherche'}</h2>
+    <p class="muted small" style="margin:0 0 12px">Pas de numéro, pas d’email, pas d’adresse : les échanges se font dans les réponses.</p>
+    <form class="form" id="entf">
+      <div class="field"><label>Catégorie</label><select name="cat">${Object.entries(cats).map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join('')}</select></div>
+      <div class="field"><label>Titre</label><input type="text" name="title" maxlength="90" required placeholder="${kind === 'propose' ? 'Ex : notes de L2 bio cell à partager' : 'Ex : cherche un canapé pour 2 nuits'}"></div>
+      <div class="field"><label>Détails (facultatif)</label><textarea name="text" maxlength="800" placeholder="Quand, où sur le campus, ce dont tu as besoin…"></textarea></div>
+      <div class="field"><label>Pseudo (facultatif)</label><input type="text" name="nick" maxlength="24" value="${esc(store.get('l1-nick', ''))}" placeholder="Anonyme"></div>
+      <button class="btn green">Publier l’annonce</button>
+    </form>`, (el, close) => {
+    $('#entf', el).onsubmit = async (e) => {
+      e.preventDefault();
+      const fd = Object.fromEntries(new FormData(e.target));
+      try {
+        const r = await api('/api/entraide', { method: 'POST', body: { ...fd, kind, site: publicSite() } });
+        const mine = store.get('l1-entraide', {}); mine[r.id] = r.secret; store.set('l1-entraide', mine);
+        if (fd.nick) store.set('l1-nick', fd.nick);
+        close(); toast('Annonce publiée ✊'); viewEntraide(r.id);
+      } catch (err) { toast(err.message); }
+    };
+  });
+}
+async function modEntraide(el) {
+  const all = (await api('/api/mod/entraide')).filter((a) => inScope(a));
+  const flagged = (a) => a.hidden || a.reports || a.repliesAll.some((r) => r.reports || r.hidden);
+  all.sort((a, b) => flagged(b) - flagged(a) || b.at.localeCompare(a.at));
+  el.innerHTML = `
+    <p class="muted small">Les annonces sont publiées tout de suite (sans numéro ni email, c’est bloqué automatiquement). Elles sont masquées dès 3 signalements : vérifie ici, puis rétablis ou supprime. Supprime toute annonce qui donne une adresse, vend quelque chose ou cible quelqu’un.</p>
+    ${all.map((a) => `
+      <div class="card" data-id="${esc(a.id)}" style="${flagged(a) ? 'border-color:rgba(255,159,10,0.5)' : ''}">
+        <div class="chips"><span class="pill ${ENT_KIND[a.kind][1]}">${ENT_KIND[a.kind][0]}</span><span class="pill grey">${esc(a.catLabel)}</span>${a.hidden ? '<span class="pill red">masquée</span>' : ''}${a.reports ? `<span class="pill orange">${a.reports} signalement(s)</span>` : ''}</div>
+        <div class="title" style="margin-top:6px">${esc(a.title)}</div>
+        ${a.text ? `<div class="desc">${esc(a.text)}</div>` : ''}
+        <div class="faint small">${esc(a.nick)} · ${esc(ago(a.at))}</div>
+        ${a.repliesAll.map((r) => `<div class="ent-reply ${r.hidden ? 'off' : ''}" data-r="${esc(r.id)}"><b>${esc(r.nick)}</b> ${r.reports ? `<span class="pill orange">${r.reports}</span>` : ''} ${r.hidden ? '<span class="pill red">masquée</span>' : ''}<div>${esc(r.text)}</div>
+          <button class="linklike small" data-act="${r.hidden ? 'restore' : 'hide'}">${r.hidden ? 'Rétablir' : 'Masquer'}</button></div>`).join('')}
+        <div class="btn-row" style="margin-top:8px">
+          ${a.hidden ? '<button class="btn small green" data-act="restore">Rétablir</button>' : '<button class="btn small ghost" data-act="hide">Masquer</button>'}
+          <button class="btn small red" data-act="delete">Supprimer</button>
+        </div>
+      </div>`).join('') || '<div class="card empty">Aucune annonce.</div>'}`;
+  el.onclick = async (e) => {
+    const action = e.target.closest('[data-act]')?.dataset.act;
+    if (!action) return;
+    const id = e.target.closest('[data-id]').dataset.id;
+    const reply = e.target.closest('[data-r]')?.dataset.r;
+    if (action === 'delete' && !confirm('Supprimer définitivement cette annonce ?')) return;
+    await act(() => api(`/api/mod/entraide/${id}/moderate`, { method: 'POST', body: { action, reply } }), 'Fait.');
+    modEntraide(el);
+  };
+}
+async function modDroits(el) {
+  const p = await api('/api/mod/pages/droits');
+  el.innerHTML = `
+    <div class="card"><div class="kicker">⚖️ Page « ${esc(p.title)} » · ${p.published ? '<span style="color:var(--green)">publiée</span>' : '<span style="color:var(--orange)">brouillon, invisible du public</span>'}</div>
+      <p class="muted small">Un brouillon est déjà écrit. <b>Faites-le relire par vos syndicats ou votre legal team</b> avant de publier : une erreur sur les droits peut coûter cher à un·e étudiant·e. ${p.canEdit ? '' : 'Seul·e l’admin peut modifier et publier cette page : envoie-lui tes corrections.'}</p>
+      ${p.updatedAt ? `<p class="faint small">MAJ ${esc(ago(p.updatedAt))}${p.by ? ' par ' + esc(p.by) : ''}</p>` : ''}
+    </div>
+    ${p.canEdit ? `<form class="form card" id="dform" style="margin-top:12px">
+      <div class="field"><label>Titre</label><input type="text" name="title" maxlength="120" value="${esc(p.title)}"></div>
+      <div class="field"><label>Texte · « ## » titre, « - » puce, « > » encadré, **gras**</label><textarea name="body" style="min-height:420px;font-family:ui-monospace,Menlo,monospace;font-size:13px">${esc(p.body)}</textarea></div>
+      <div class="btn-row"><button class="btn" data-pub="0">Enregistrer en brouillon</button><button class="btn green" data-pub="1">${p.published ? 'Mettre à jour (publié)' : 'Publier'}</button>${p.published ? '<button class="btn ghost" data-pub="-1">Dépublier</button>' : ''}</div>
+    </form>` : ''}
+    <h2 class="section">Aperçu</h2><article class="card prose droits">${p.html}</article>`;
+  if (!p.canEdit) return;
+  $('#dform').onsubmit = (e) => e.preventDefault();
+  $('#dform').onclick = async (e) => {
+    const v = e.target.closest('[data-pub]')?.dataset.pub;
+    if (v === undefined) return;
+    e.preventDefault();
+    const f = $('#dform');
+    if (v === '1' && !p.published && !confirm('La page a bien été relue par les syndicats / la legal team ?')) return;
+    await act(() => api('/api/mod/pages/droits', { method: 'PUT', body: { title: f.title.value, body: f.body.value, ...(v === '0' ? {} : { published: v === '1' }) } }), v === '1' ? 'Page publiée.' : v === '-1' ? 'Page dépubliée.' : 'Brouillon enregistré.');
+    modDroits(el);
+  };
+}

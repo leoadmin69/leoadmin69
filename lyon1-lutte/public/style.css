@@ -448,3 +448,50 @@ button.opt:active { transform: scale(0.98); }
 .story-prev { gap: 8px; overflow-x: auto; justify-content: flex-start; }
 .story-prev img { flex-shrink: 0; height: min(52vh, 480px) !important; width: auto; aspect-ratio: auto; }
 .guide-link { display: block; margin: 0 0 10px; padding: 9px 13px; border-radius: 12px; background: rgba(10,132,255,0.12); border: 0.5px solid rgba(10,132,255,0.4); color: var(--text); font-size: 14px; font-weight: 600; }
+
+/* ===== Signalements, J'y vais, frise, droits, entraide ===== */
+.see-btn { margin-top: 10px; width: 100%; border: 1px dashed rgba(235,235,245,0.25); background: transparent; color: var(--muted, #aaa); border-radius: 10px; padding: 7px 8px; font-size: 13px; cursor: pointer; }
+.see-btn:hover { color: var(--text); border-color: rgba(235,235,245,0.5); }
+.sight-line { margin-top: 6px; font-size: 12px; color: var(--orange); }
+.see-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.see-grid .ab { padding: 16px 6px; font-size: 16px; }
+.sight-card.hot { border-color: rgba(255,159,10,0.6); box-shadow: 0 0 30px rgba(255,159,10,0.15); }
+.sight-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 0; border-top: 1px solid rgba(84,84,88,0.35); }
+.sight-row:first-of-type { border-top: 0; }
+.sight-row .grow { flex: 1; min-width: 180px; }
+.going-btn { background: rgba(48,209,88,0.12); color: var(--green); border: 1px solid rgba(48,209,88,0.35); }
+.going-btn.on { background: var(--green); color: #000; }
+.going-btn b { margin-left: 4px; }
+.frise-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 6px 0 18px; }
+.frise-stats div { background: var(--card, rgba(28,28,30,0.85)); border: 1px solid rgba(84,84,88,0.35); border-radius: 14px; padding: 10px 6px; text-align: center; }
+.frise-stats b { display: block; font-size: 24px; font-family: ui-monospace, Menlo, monospace; }
+.frise-stats span { font-size: 11px; color: var(--muted, #aaa); }
+.frise-stats .win b { color: var(--green); }
+.frise { position: relative; padding-left: 4px; }
+.frise::before { content: ''; position: absolute; left: 25px; top: 6px; bottom: 6px; width: 2px; background: linear-gradient(var(--red), rgba(255,69,58,0.1)); }
+.frise-day { display: flex; gap: 14px; margin-bottom: 18px; position: relative; }
+.frise-num { flex: 0 0 44px; height: 44px; border-radius: 50%; background: #1c1c1e; border: 2px solid var(--red); display: grid; place-items: center; font-size: 13px; font-weight: 700; z-index: 1; }
+.frise-body { flex: 1; min-width: 0; background: var(--card, rgba(28,28,30,0.85)); border: 1px solid rgba(84,84,88,0.35); border-radius: 16px; padding: 10px 14px; }
+.frise-date { font-weight: 700; text-transform: capitalize; margin-bottom: 6px; }
+.frise-item { font-size: 14px; padding: 4px 0; line-height: 1.4; overflow-wrap: anywhere; }
+.frise-item a { color: inherit; }
+.frise-item.win { color: var(--green); font-weight: 600; }
+.frise-item.alerte { color: var(--red); }
+@media (max-width: 520px) { .frise-stats { grid-template-columns: repeat(3, 1fr); } }
+.prose ul { margin: 0 0 1em; padding-left: 1.2em; }
+.prose li { margin: 0.3em 0; }
+.prose .note, .droits .note { background: rgba(255,159,10,0.12); border-left: 3px solid var(--orange); padding: 10px 14px; border-radius: 8px; margin: 1em 0; font-size: 15px; }
+.droits { font-size: 16px; }
+.droits h3 { color: var(--red); font-size: 19px; }
+.chip { border: 1px solid rgba(84,84,88,0.5); background: transparent; color: var(--text); border-radius: 999px; padding: 6px 12px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.chip.on { background: var(--text); color: #000; }
+.ent-filters { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+.card.ent.focus { box-shadow: 0 0 0 2px var(--green); }
+.ent-replies { margin-top: 10px; border-left: 2px solid rgba(84,84,88,0.5); padding-left: 10px; }
+.ent-reply { padding: 6px 0; font-size: 14px; overflow-wrap: anywhere; }
+.ent-reply.off { opacity: 0.45; }
+.ent-form { display: flex; gap: 8px; margin-top: 10px; }
+.ent-form input { flex: 1; min-width: 0; }
+.linklike { background: none; border: 0; padding: 0; cursor: pointer; color: inherit; text-decoration: underline; }
+.card.ent .title { font-weight: 700; font-size: 17px; }
+.card.ent .desc { margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }

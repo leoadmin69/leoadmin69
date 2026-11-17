@@ -17,6 +17,11 @@ Style iOS, sombre, « terminal live » ; marche sur téléphone (barre d'onglets
 | **Revendications** | Liste avec statut (en lutte / obtenu) et bouton « Je soutiens » anonyme. |
 | **Blog & tribunes** | Articles des syndicats + tribunes proposées anonymement par les étudiant·es (relues avant publication). |
 | **Témoignages** | Dépôt anonyme de témoignages de violences avec photos/vidéos, publiés seulement après validation. |
+| **Bâtiments · 👀 Signaler** | Sur place, un·e étudiant·e signale ce qu'il ou elle voit. 3 signalements concordants (appareils différents, 45 min) → encadré chez les modos du site, qui confirment en un tap. Jamais publié automatiquement. |
+| **✋ J'y vais** | Compteur anonyme sur chaque AG/manif ; rappel automatique 1 h avant (notification, Telegram, fil). |
+| **Frise de la lutte** | Jour N de la mobilisation, remplie toute seule : blocages du jour, AG, votes, CR, alertes, revendications obtenues. |
+| **Tes droits** | Absences, examens, bourses, interpellation. Brouillon fourni, publié seulement par l'admin après relecture syndicale. |
+| **Entraide** | « Je propose / Je cherche » (cours, hébergement, repas, trajets…), réponses anonymes, numéros et emails refusés, masqué après 3 signalements, expire en 14 jours. |
 | **Parler à qui ?** | Contacts des syndicats/collectifs + numéros d'urgence et d'écoute. |
 | **Alertes** | **Notifications sur le téléphone** (gratuites, sans compte) et/ou email : bâtiment bloqué, alerte urgente, nouvelles AG/manifs, comptes rendus. Filtre par campus. |
 | **App** | S'installe sur l'écran d'accueil (Android et iPhone), s'ouvre même sans réseau avec les dernières infos. |
@@ -44,7 +49,7 @@ Accès `#/modo`. L'admin crée un compte par personne (mot de passe généré, �
 
 ## Guide des modos et kit de communication
 
-- **Guide PDF** (21 pages, captures d'écran, à faire / à ne jamais faire, sécurité, check-lists) : lien « 📘 Guide des modos » dans l'espace modo, réservé aux modos connecté·es. Source : `docs/guide/guide-modos.html` ; pour le régénérer après une modification : `node docs/guide/build-pdf.cjs`.
+- **Guide PDF** (23 pages, captures d'écran, à faire / à ne jamais faire, sécurité, check-lists) : lien « 📘 Guide des modos » dans l'espace modo, réservé aux modos connecté·es. Source : `docs/guide/guide-modos.html` ; pour le régénérer après une modification : `node docs/guide/build-pdf.cjs`.
 - **Images à publier** (onglet 📸 Story Insta), dessinées par le navigateur, sans IA ni service extérieur : story et publication de promo, carrousel « installer l'app + activer les notifications », statut du site, rendez-vous, compte rendu, story d'un vote (QR code + zone pour le sticker lien) et story des résultats. Le QR code et l'adresse sont ceux du site en ligne.
 - **Votes** : chaque vote a un lien direct (`/#/votes/<id>`) à partager ; à la clôture, les résultats sont publiés automatiquement dans le fil en direct et sur Telegram.
 

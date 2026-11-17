@@ -12,6 +12,7 @@ import { ensureAdmin, hashPassword, verifyPassword, createToken, readToken, cook
 import { mailEnabled, mailProvider, mailQuota, sendMany, renderEmail, SITE_URL, SITE_NAME, INSTAGRAM_URL } from './lib/mail.js';
 import { aiEnabled, aiProviders, analyzePdf } from './lib/ai.js';
 import { registerCommunity, MAX_VIDEO_MB } from './lib/community.js';
+import { registerExtras } from './lib/extras.js';
 import { telegramEnabled, telegramUrl, postTelegram, tgEsc } from './lib/telegram.js';
 import { DEFAULT_SITE, site, siteName, modSites, canSite, siteOf, migrateSites, effectiveBlocus, wantsSite, isAdmin } from './lib/sites.js';
 
@@ -34,6 +35,7 @@ ensureAdmin();
 migrateSites();
 
 const app = express();
+let extras = null; // options (lib/extras.js), branché plus bas
 app.disable('x-powered-by');
 if (process.env.TRUST_PROXY) app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? true : process.env.TRUST_PROXY);
 
@@ -136,7 +138,7 @@ const publicReport = (r) => ({ site: siteOf(r), id: r.id, titre: r.titre, date: 
 const publicDemand = (d) => ({ ...d, support: (db.supports[d.id] || []).length });
 function upcomingEvents() {
   const cutoff = Date.now() - 6 * 3600e3;
-  return db.events.filter((e) => new Date(e.start).getTime() >= cutoff).sort((a, b) => a.start.localeCompare(b.start));
+  return db.events.filter((e) => new Date(e.start).getTime() >= cutoff).sort((a, b) => a.start.localeCompare(b.start)).map(({ going, reminded, ...e }) => ({ ...e, goingCount: Object.keys(going || {}).length }));
 }
 
 // Contrôle de santé pour l'hébergeur (ne révèle rien).
@@ -168,6 +170,8 @@ app.get('/api/state', (req, res) => {
     digestHour: DIGEST_HOUR,
     emailSpots: mailEnabled() ? emailSpots() : 0,
     maxVideoMb: MAX_VIDEO_MB,
+    sightings: extras ? extras.sightingSummary().map(({ building, status, count }) => ({ building, status, count })) : [],
+    droitsPublished: !!db.pages?.droits?.published,
     instagram: INSTAGRAM_URL(),
     mailEnabled: mailEnabled(),
     aiEnabled: aiEnabled(),
@@ -479,6 +483,7 @@ mod.put('/buildings/:id', (req, res) => {
   if (prev !== b.status) {
     feed(`${b.name} (${b.campus}) → ${STATUS_LABEL[b.status]}${b.note ? ' · ' + b.note : ''}`, b.status === 'bloque' ? 'alert' : b.status === 'partiel' ? 'warn' : b.status === 'ouvert' ? 'ok' : 'info');
     if (b.status !== 'inconnu') queueBuildingAlert(b);
+    extras?.onBuilding(b);
   }
   broadcast('buildings', { id: b.id });
   res.json(b);
@@ -510,6 +515,7 @@ mod.put('/buildings-batch', (req, res) => {
     touchedSites.add(siteOf(b));
     if (!changed) continue;
     moved[status].push(b.name);
+    extras?.onBuilding(b);
     if (undo) pendingBuildings.delete(b.id);
     else if (status !== 'inconnu') queueBuildingAlert(b);
   }
@@ -564,7 +570,9 @@ mod.put('/events/:id', (req, res) => {
   if (i < 0) return bad(res, 'Introuvable', 404);
   if (!needSite(req, res, siteOf(db.events[i]))) return;
   if (stale(req, res, db.events[i])) return;
+  const prevStart = db.events[i].start;
   try { db.events[i] = readEvent(req.body, db.events[i]); } catch (err) { return bad(res, err.message); }
+  if (db.events[i].start !== prevStart) delete db.events[i].reminded; // nouvel horaire → nouveau rappel
   touch(req, db.events[i]);
   save(); audit(req.mod, 'événement modifié', db.events[i].title, siteOf(db.events[i])); broadcast('events', {});
   res.json(db.events[i]);
@@ -632,6 +640,7 @@ mod.put('/demands/:id', (req, res) => {
   if (req.body.status !== undefined) {
     const prev = d.status;
     d.status = oneOf(req.body.status, ['en-lutte', 'obtenu', 'refuse'], d.status);
+    if (prev !== d.status) d.obtainedAt = d.status === 'obtenu' ? now() : null;
     if (prev !== d.status && d.status === 'obtenu') feed(`Revendication obtenue : ${d.title}`, 'ok');
   }
   save(); audit(req.mod, 'revendication modifiée', d.title, siteOf(d)); broadcast('demands', {});
@@ -875,6 +884,8 @@ mod.delete('/sites/:id', requireAdmin, (req, res) => {
 
 // ---------- Votes, blog, témoignages ----------
 const community = registerCommunity(app, mod, { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, targetSite, stale, touch });
+// Signalements, « J'y vais », frise, page droits, entraide
+extras = registerExtras(app, mod, { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, sendPush, postTelegram, tgEsc });
 
 // ---------- Site ----------
 // Le service worker doit toujours être relu, sinon les mises à jour de l'app n'arriveraient pas.
