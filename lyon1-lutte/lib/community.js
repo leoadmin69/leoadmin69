@@ -12,6 +12,7 @@ import { SECRET, parseCookies } from './auth.js';
 import { Readable } from 'node:stream';
 import { remoteEnabled, putFile, fetchObject, removeObjects } from './remote.js';
 import { postTelegram, tgEsc } from './telegram.js';
+import { DEFAULT_SITE, site, siteName, siteOf, canSite } from './sites.js';
 
 const UPLOADS = path.join(DATA_DIR, 'uploads');
 fs.mkdirSync(UPLOADS, { recursive: true });
@@ -145,7 +146,9 @@ export function renderRich(text) {
 }
 
 export function registerCommunity(app, mod, ctx) {
-  const { broadcast, feed, audit, visitor, limited, clip, bad, oneOf } = ctx;
+  const { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, targetSite, stale, touch } = ctx;
+  const visible = (req, x) => canSite(req.mod, siteOf(x));
+  const pubSite = (v) => (site(v) ? v : DEFAULT_SITE);
 
   // ================= Téléversement (public) =================
   // Le fichier arrive brut (pas de formulaire multipart) et est écrit directement sur disque.
@@ -233,7 +236,7 @@ export function registerCommunity(app, mod, ctx) {
     const showResults = !open || p.results === 'live' || mine !== undefined;
     const counts = p.options.map((_, i) => Object.values(p.ballots).filter((b) => b === i).length);
     return {
-      id: p.id, question: p.question, description: p.description, options: p.options,
+      id: p.id, site: siteOf(p), ag: p.ag || '', question: p.question, description: p.description, options: p.options,
       opensAt: p.opensAt, closesAt: p.closesAt, open, org: p.org, createdAt: p.createdAt, results: p.results,
       total: Object.keys(p.ballots).length,
       counts: showResults ? counts : null,
@@ -263,7 +266,7 @@ export function registerCommunity(app, mod, ctx) {
   });
 
   const DURATIONS = { '1h': 1, '3h': 3, '6h': 6, '12h': 12, '24h': 24, '48h': 48, '72h': 72, '7j': 168 };
-  mod.get('/polls', (req, res) => res.json(db.polls.map((p) => ({ ...publicPoll(p), counts: p.options.map((_, i) => Object.values(p.ballots).filter((b) => b === i).length), hidden: !!p.hidden, closed: !!p.closed }))));
+  mod.get('/polls', (req, res) => res.json(db.polls.filter((p) => visible(req, p)).map((p) => ({ ...publicPoll(p), counts: p.options.map((_, i) => Object.values(p.ballots).filter((b) => b === i).length), hidden: !!p.hidden, closed: !!p.closed }))));
   mod.post('/polls', (req, res) => {
     const question = clip(req.body.question, 200);
     const options = (Array.isArray(req.body.options) ? req.body.options : []).map((o) => clip(o, 100)).filter(Boolean).slice(0, 8);
@@ -273,31 +276,38 @@ export function registerCommunity(app, mod, ctx) {
     if (req.body.closesAt) closesAt = new Date(req.body.closesAt);
     else closesAt = new Date(Date.now() + (DURATIONS[req.body.duration] || 24) * 3600e3);
     if (Number.isNaN(closesAt.getTime()) || closesAt.getTime() <= Date.now()) return bad(res, 'Date de clôture invalide.');
-    const p = { id: newId(), question, description: clip(req.body.description, 600), options, opensAt: now(), closesAt: closesAt.toISOString(), results: oneOf(req.body.results, ['live', 'after'], 'live'), ballots: {}, org: req.mod.org, createdAt: now() };
+    const psite = targetSite(req);
+    if (!needSite(req, res, psite)) return;
+    // « ag » : l'assemblée générale qui organise ce vote (ex. « AG du 18/11 · Doua »), affichée sur la page des votes
+    const p = { id: newId(), site: psite, ag: clip(req.body.ag, 80) || `AG ${siteName(psite)}`, question, description: clip(req.body.description, 600), options, opensAt: now(), closesAt: closesAt.toISOString(), results: oneOf(req.body.results, ['live', 'after'], 'live'), ballots: {}, org: req.mod.org, createdAt: now() };
     db.polls.push(p); save();
-    audit(req.mod, 'vote créé', question);
-    feed(`Nouveau vote anonyme : « ${question} » · jusqu'au ${closesAt.toLocaleString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' })}`, 'info');
-    postTelegram(`🗳️ <b>Vote anonyme</b> : ${tgEsc(question)}\n${options.map((o) => `• ${tgEsc(o)}`).join('\n')}\n<i>Jusqu'au ${tgEsc(closesAt.toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' }))}, 1 vote par téléphone</i>`, '/#/votes');
+    audit(req.mod, 'vote créé', question, psite);
+    feed(`${p.ag} · Nouveau vote anonyme : « ${question} » · jusqu'au ${closesAt.toLocaleString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' })}`, 'info');
+    postTelegram(`🗳️ <b>Vote anonyme · ${tgEsc(p.ag)}</b>\n${tgEsc(question)}\n${options.map((o) => `• ${tgEsc(o)}`).join('\n')}\n<i>Jusqu'au ${tgEsc(closesAt.toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' }))}, 1 vote par téléphone</i>`, '/#/votes', site(psite)?.telegramChatId);
     broadcast('poll', { id: p.id });
     res.json(publicPoll(p));
   });
   mod.put('/polls/:id', (req, res) => {
     const p = db.polls.find((x) => x.id === req.params.id);
     if (!p) return bad(res, 'Introuvable', 404);
+    if (!needSite(req, res, siteOf(p))) return;
     if (req.body.close) { p.closed = true; p.closesAt = now(); feed(`Vote clos : « ${p.question} » (${Object.keys(p.ballots).length} votes)`, 'ok'); }
     if (req.body.hidden !== undefined) p.hidden = !!req.body.hidden;
     if (req.body.extendHours) { const h = Math.min(168, Number(req.body.extendHours) || 0); p.closesAt = new Date(Math.max(Date.now(), new Date(p.closesAt).getTime()) + h * 3600e3).toISOString(); p.closed = false; }
-    save(); audit(req.mod, 'vote modifié', p.question); broadcast('poll', { id: p.id });
+    save(); audit(req.mod, 'vote modifié', p.question, siteOf(p)); broadcast('poll', { id: p.id });
     res.json({ ok: true });
   });
   mod.delete('/polls/:id', (req, res) => {
+    const pp = db.polls.find((x) => x.id === req.params.id);
+    if (pp && !needSite(req, res, siteOf(pp))) return;
+    audit(req.mod, 'vote supprimé', pp?.question || '', siteOf(pp));
     db.polls = db.polls.filter((p) => p.id !== req.params.id); save(); broadcast('poll', {});
     res.json({ ok: true });
   });
 
   // ================= Blog & tribunes =================
   const publicPost = (p, full = false) => ({
-    id: p.id, title: p.title, excerpt: clip(p.body.replace(/\s+/g, ' '), 220), html: full ? renderRich(p.body) : undefined,
+    id: p.id, site: siteOf(p), title: p.title, excerpt: clip(p.body.replace(/\s+/g, ' '), 220), html: full ? renderRich(p.body) : undefined,
     author: p.author, kind: p.kind, cover: mediaInfo(p.cover ? [p.cover] : [])[0]?.url || null, publishedAt: p.publishedAt, tags: p.tags || [],
   });
   app.get('/api/blog', (req, res) => res.json(db.posts.filter((p) => p.status === 'published').sort((a, b) => b.publishedAt.localeCompare(a.publishedAt)).map((p) => publicPost(p))));
@@ -311,20 +321,22 @@ export function registerCommunity(app, mod, ctx) {
     const title = clip(req.body.title, 140);
     const body = clip(req.body.body, 12000);
     if (title.length < 5 || body.length < 80) return bad(res, 'Titre (5 caractères min.) et texte (80 caractères min.) requis.');
-    db.posts.push({ id: newId(), title, body, author: clip(req.body.signature, 60) || 'Tribune anonyme', kind: 'tribune', status: 'pending', createdAt: now(), tags: [] });
+    db.posts.push({ id: newId(), site: pubSite(req.body.site), title, body, author: clip(req.body.signature, 60) || 'Tribune anonyme', kind: 'tribune', status: 'pending', createdAt: now(), tags: [] });
     save();
     broadcast('mod-queue', {});
     res.json({ ok: true, message: 'Merci ! Ta tribune sera relue par les modos avant publication.' });
   });
-  mod.get('/posts', (req, res) => res.json([...db.posts].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((p) => ({ ...p, coverUrl: p.cover ? `/api/mod/media/${p.cover}` : null }))));
+  mod.get('/posts', (req, res) => res.json(db.posts.filter((p) => visible(req, p)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((p) => ({ ...p, coverUrl: p.cover ? `/api/mod/media/${p.cover}` : null }))));
   mod.post('/posts', (req, res) => {
     const title = clip(req.body.title, 140);
     const body = clip(req.body.body, 30000);
     if (!title || !body) return bad(res, 'Titre et texte requis.');
-    const p = { id: newId(), title, body, author: clip(req.body.author, 60) || req.mod.org, kind: 'article', status: req.body.publish ? 'published' : 'draft', createdAt: now(), tags: [] };
+    const bsite = targetSite(req);
+    if (!needSite(req, res, bsite)) return;
+    const p = { id: newId(), site: bsite, updatedAt: now(), by: req.mod.org, title, body, author: clip(req.body.author, 60) || req.mod.org, kind: 'article', status: req.body.publish ? 'published' : 'draft', createdAt: now(), tags: [] };
     if (req.body.cover) attachCover(p, req.body.cover);
     if (p.status === 'published') { p.publishedAt = now(); feed(`Nouvel article : ${title}`, 'info'); }
-    db.posts.push(p); save(); audit(req.mod, 'article', title); broadcast('blog', {});
+    db.posts.push(p); save(); audit(req.mod, 'article', title, bsite); broadcast('blog', {});
     res.json(p);
   });
   function attachCover(p, mediaId) {
@@ -338,6 +350,9 @@ export function registerCommunity(app, mod, ctx) {
   mod.put('/posts/:id', (req, res) => {
     const p = db.posts.find((x) => x.id === req.params.id);
     if (!p) return bad(res, 'Introuvable', 404);
+    if (!needSite(req, res, siteOf(p))) return;
+    if (stale(req, res, p)) return;
+    touch(req, p);
     if (req.body.title !== undefined) p.title = clip(req.body.title, 140) || p.title;
     if (req.body.body !== undefined) p.body = clip(req.body.body, 30000) || p.body;
     if (req.body.author !== undefined) p.author = clip(req.body.author, 60) || p.author;
@@ -349,11 +364,12 @@ export function registerCommunity(app, mod, ctx) {
     }
     const cover = db.media.find((m) => m.id === p.cover);
     if (cover) cover.public = p.status === 'published';
-    save(); audit(req.mod, `article ${p.status}`, p.title); broadcast('blog', {});
+    save(); audit(req.mod, `article ${p.status}`, p.title, siteOf(p)); broadcast('blog', {});
     res.json(p);
   });
   mod.delete('/posts/:id', (req, res) => {
     const p = db.posts.find((x) => x.id === req.params.id);
+    if (p && !needSite(req, res, siteOf(p))) return;
     if (p?.cover) deleteMedia([p.cover]);
     db.posts = db.posts.filter((x) => x.id !== req.params.id); save(); broadcast('blog', {});
     res.json({ ok: true });
@@ -361,7 +377,7 @@ export function registerCommunity(app, mod, ctx) {
 
   // ================= Témoignages =================
   const CATEGORIES = { police: 'Violences policières', vigiles: 'Vigiles / sécurité', administration: 'Pression de l’administration', agression: 'Agression (militants opposés, passants…)', discrimination: 'Propos ou actes discriminatoires', autre: 'Autre' };
-  const publicTestimony = (t) => ({ id: t.id, text: t.text, place: t.place, date: t.date, category: t.category, categoryLabel: CATEGORIES[t.category], media: mediaInfo(t.media), publishedAt: t.publishedAt, sensitive: t.sensitive !== false });
+  const publicTestimony = (t) => ({ site: siteOf(t), id: t.id, text: t.text, place: t.place, date: t.date, category: t.category, categoryLabel: CATEGORIES[t.category], media: mediaInfo(t.media), publishedAt: t.publishedAt, sensitive: t.sensitive !== false });
   app.get('/api/testimonies', (req, res) => res.json({ categories: CATEGORIES, items: db.testimonies.filter((t) => t.status === 'published').sort((a, b) => b.publishedAt.localeCompare(a.publishedAt)).map(publicTestimony) }));
   app.post('/api/testimonies', (req, res) => {
     if (limited(`tem:${visitor(req)}`, 4, 3600e3)) return bad(res, 'Trop d’envois, réessaie dans une heure.', 429);
@@ -370,7 +386,7 @@ export function registerCommunity(app, mod, ctx) {
     if (!req.body.consent) return bad(res, 'Merci de cocher la case de consentement.');
     const mediaIds = (Array.isArray(req.body.media) ? req.body.media : []).slice(0, 6).filter((id) => db.media.some((m) => m.id === id && m.status === 'tmp'));
     const t = {
-      id: newId(), text, place: clip(req.body.place, 140), date: clip(req.body.date, 10), category: oneOf(req.body.category, Object.keys(CATEGORIES), 'autre'),
+      id: newId(), site: pubSite(req.body.site), text, place: clip(req.body.place, 140), date: clip(req.body.date, 10), category: oneOf(req.body.category, Object.keys(CATEGORIES), 'autre'),
       contact: clip(req.body.contact, 160), media: mediaIds, status: 'pending', createdAt: now(),
     };
     for (const id of mediaIds) {
@@ -382,10 +398,13 @@ export function registerCommunity(app, mod, ctx) {
     broadcast('mod-queue', {});
     res.json({ ok: true, message: 'Témoignage reçu. Il sera relu par les modos avant toute publication. Prends soin de toi.' });
   });
-  mod.get('/testimonies', (req, res) => res.json([...db.testimonies].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((t) => ({ ...t, categoryLabel: CATEGORIES[t.category], media: mediaInfo(t.media, true) }))));
+  mod.get('/testimonies', (req, res) => res.json(db.testimonies.filter((t) => visible(req, t)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((t) => ({ ...t, categoryLabel: CATEGORIES[t.category], media: mediaInfo(t.media, true) }))));
   mod.put('/testimonies/:id', (req, res) => {
     const t = db.testimonies.find((x) => x.id === req.params.id);
     if (!t) return bad(res, 'Introuvable', 404);
+    if (!needSite(req, res, siteOf(t))) return;
+    if (stale(req, res, t)) return;
+    touch(req, t);
     if (req.body.text !== undefined) t.text = clip(req.body.text, 8000) || t.text;
     if (req.body.place !== undefined) t.place = clip(req.body.place, 140);
     if (req.body.sensitive !== undefined) t.sensitive = !!req.body.sensitive;
@@ -404,23 +423,27 @@ export function registerCommunity(app, mod, ctx) {
       if (publishMedia) m.public = t.status === 'published' && publishMedia.includes(id);
       else if (t.status !== 'published') m.public = false;
     }
-    save(); audit(req.mod, `témoignage ${t.status}`, t.text.slice(0, 60)); broadcast('testimonies', {});
+    save(); audit(req.mod, `témoignage ${t.status}`, t.text.slice(0, 60), siteOf(t)); broadcast('testimonies', {});
     res.json({ ok: true });
   });
   mod.delete('/testimonies/:id', (req, res) => {
     const t = db.testimonies.find((x) => x.id === req.params.id);
+    if (t && !needSite(req, res, siteOf(t))) return;
     if (t) deleteMedia(t.media);
     db.testimonies = db.testimonies.filter((x) => x.id !== req.params.id); save(); broadcast('testimonies', {});
-    audit(req.mod, 'témoignage supprimé', '');
+    audit(req.mod, 'témoignage supprimé', '', siteOf(t));
     res.json({ ok: true });
   });
 
   mod.get('/queue', (req, res) => res.json({
-    testimonies: db.testimonies.filter((t) => t.status === 'pending').length,
-    tribunes: db.posts.filter((p) => p.status === 'pending').length,
+    testimonies: db.testimonies.filter((t) => t.status === 'pending' && visible(req, t)).length,
+    tribunes: db.posts.filter((p) => p.status === 'pending' && visible(req, p)).length,
     ffmpeg: HAS_FFMPEG,
   }));
 
-  return { pollsOpen: () => db.polls.filter((p) => !p.hidden && isOpen(p)).length };
+  return {
+    pollsOpen: () => db.polls.filter((p) => !p.hidden && isOpen(p)).length,
+    pollsOpenBySite: () => db.polls.filter((p) => !p.hidden && isOpen(p)).reduce((o, p) => ({ ...o, [siteOf(p)]: (o[siteOf(p)] || 0) + 1 }), {}),
+  };
 }
 

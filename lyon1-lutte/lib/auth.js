@@ -72,4 +72,4 @@ export function ensureAdmin() {
   save();
 }
 
-export const publicMod = (m) => ({ id: m.id, username: m.username, org: m.org, role: m.role, createdAt: m.createdAt, disabled: !!m.disabled });
+export const publicMod = (m) => ({ id: m.id, username: m.username, org: m.org, role: m.role, sites: m.role === 'admin' ? null : (m.sites || []), createdAt: m.createdAt, disabled: !!m.disabled });

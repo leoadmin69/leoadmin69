@@ -17,14 +17,15 @@ function vapid() {
 export const publicKey = () => { const k = vapid(); save(); return k.publicKey; };
 export const pushCount = () => (db.pushSubs || []).length;
 
-export function subscribe({ subscription, kinds, campuses }) {
+export function subscribe({ subscription, kinds, sites }) {
   if (!subscription?.endpoint || !/^https:\/\//.test(subscription.endpoint) || !subscription.keys?.p256dh || !subscription.keys?.auth) throw new Error('Abonnement invalide.');
   db.pushSubs ||= [];
   let s = db.pushSubs.find((x) => x.endpoint === subscription.endpoint);
   if (!s) { s = { id: newId(), endpoint: subscription.endpoint, createdAt: now() }; db.pushSubs.push(s); }
   s.keys = { p256dh: String(subscription.keys.p256dh).slice(0, 200), auth: String(subscription.keys.auth).slice(0, 100) };
   s.kinds = (Array.isArray(kinds) ? kinds : PUSH_KINDS).filter((k) => PUSH_KINDS.includes(k));
-  s.campuses = (Array.isArray(campuses) ? campuses : []).map((c) => String(c).slice(0, 60)).slice(0, 10);
+  s.sites = (Array.isArray(sites) ? sites : []).map((c) => String(c).slice(0, 40)).slice(0, 20);
+  delete s.campuses;
   save();
   return s;
 }

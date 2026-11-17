@@ -7,16 +7,69 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
 
-const state = { data: null, me: null, chatChannel: store.get('l1-channel', 'general'), chatMsgs: [], dirty: false, modTab: 'situation', campus: 'Tous', demandCat: 'Toutes', ctxOpen: false };
+const state = { raw: null, data: null, site: store.get('l1-site', null), modSite: null, me: null, chatChannel: store.get('l1-channel', 'general'), chatMsgs: [], dirty: false, modTab: 'situation', campus: 'Tous', demandCat: 'Toutes', ctxOpen: false };
 
 async function api(path, { method = 'GET', body, raw } = {}) {
   const opt = { method, headers: {}, credentials: 'same-origin' };
+  // Chaque action d'un modo s'applique au site qu'il a choisi en haut de l'espace modo ;
+  // un témoignage ou une tribune est rattaché au site que l'étudiant·e consulte.
+  if (body && typeof body === 'object' && !Array.isArray(body) && body.site === undefined && method !== 'GET') {
+    if (path.startsWith('/api/mod/') && state.modSite) body = { ...body, site: state.modSite };
+    else if (path === '/api/blog/submit' || path === '/api/testimonies') body = { ...body, site: publicSite() };
+  }
   if (body !== undefined) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
   if (method !== 'GET' && body === undefined && !raw) { opt.headers['Content-Type'] = 'application/json'; opt.body = '{}'; }
   const res = await fetch(path, opt);
   const data = await res.json().catch(() => ({}));
+  if (res.status === 409 && path.startsWith('/api/mod/')) setTimeout(async () => { try { await refresh(); render(true); } catch {} }, 600);
   if (!res.ok) throw new Error(data.error || `Erreur ${res.status}`);
   return data;
+}
+
+// ---------- Sites (campus, IUT…) ----------
+// state.raw : toutes les données ; state.data : seulement celles du site affiché
+// (site choisi par l'étudiant·e, ou site de travail du modo dans l'espace modo).
+const ALL = 'all';
+const siteList = () => state.raw?.sites || [];
+const siteShort = (id) => siteList().find((x) => x.id === id)?.short || id;
+const siteFull = (id) => siteList().find((x) => x.id === id)?.name || id;
+const defaultSite = () => state.raw?.defaultSite || 'doua';
+const publicSite = () => (state.site && state.site !== ALL && siteList().some((x) => x.id === state.site) ? state.site : defaultSite());
+const scopeSite = () => (route().startsWith('modo') && state.me ? state.modSite || defaultSite() : state.site && siteList().some((x) => x.id === state.site) ? state.site : state.site === ALL ? ALL : defaultSite());
+const inScope = (x, sc = scopeSite()) => sc === ALL || (x.site || defaultSite()) === sc;
+function applyScope() {
+  const r = state.raw;
+  if (!r) return;
+  const sc = scopeSite();
+  const main = sc === ALL ? defaultSite() : sc;
+  const f = (arr) => (arr || []).filter((x) => inScope(x, sc));
+  state.data = {
+    ...r,
+    scope: sc,
+    buildings: f(r.buildings), events: f(r.events), flashes: f(r.flashes), reports: f(r.reports),
+    demands: f(r.demands), contacts: f(r.contacts),
+    blocus: r.siteStatus?.[main] || { state: 'auto', effective: 'inconnu', auto: true },
+    context: r.contexts?.[main] || null,
+    pollsOpen: sc === ALL ? r.pollsOpen : (r.pollsOpenBySite || {})[sc] || 0,
+  };
+}
+// Pastille du site sur une carte quand on regarde « Tous les sites »
+const siteTag = (x) => (state.data?.scope === ALL ? `<span class="pill grey site-tag">📍 ${esc(siteShort(x.site || defaultSite()))}</span>` : '');
+function renderSiteBar() {
+  const bar = $('#sitebar');
+  if (!bar) return;
+  const r = route().split('/')[0];
+  const show = state.raw && siteList().length > 1 && !['modo', 'chat', 'plus', 'alertes'].includes(r);
+  bar.hidden = !show;
+  if (!show) return;
+  const cur = scopeSite();
+  bar.innerHTML = `<div class="sitebar-inner">${[...siteList().map((x) => [x.id, x.short]), [ALL, 'Tous les sites']].map(([id, label]) => `<button data-site="${esc(id)}" class="${id === cur ? 'on' : ''}">${id === ALL ? '🌐 ' : '📍 '}${esc(label)}</button>`).join('')}</div>`;
+  bar.onclick = (e) => {
+    const id = e.target.closest('[data-site]')?.dataset.site;
+    if (!id) return;
+    state.site = id; store.set('l1-site', id);
+    applyScope(); render(true);
+  };
 }
 
 function toast(msg) {
@@ -162,8 +215,10 @@ function render(force = false) {
   const active = document.activeElement;
   if (!force && active && view().contains(active) && /INPUT|TEXTAREA|SELECT/.test(active.tagName)) { state.dirty = true; return; }
   state.dirty = false;
+  applyScope();
   renderNav();
   renderAlertBar();
+  renderSiteBar();
   const [r, arg] = route().split('/');
   if (!state.data) { view().innerHTML = '<div class="empty"><div class="big typing mono">_</div>Connexion au flux…</div>'; return; }
   const views = { '': viewLive, batiments: viewBuildings, agenda: viewAgenda, chat: viewChat, cr: arg ? () => viewReport(arg) : viewReports, revendications: viewDemands, votes: viewPolls, blog: () => viewBlog(arg), temoignages: viewTestimonies, contacts: viewContacts, alertes: viewAlerts, plus: viewPlus, modo: viewModo };
@@ -183,7 +238,7 @@ function viewLive() {
   const lastReport = d.reports[0];
   view().innerHTML = `
     <section class="hero ${esc(blocusNow(b))}">
-      <div class="kicker">Lyon 1 · La Doua en lutte</div>
+      <div class="kicker">${d.scope === ALL ? 'Lyon 1 · tous les sites' : esc(siteFull(d.scope))}</div>
       <div class="state" data-glitch="${esc(BLOCUS[blocusNow(b)])}">${esc(BLOCUS[blocusNow(b)])}</div>
       ${b.message ? `<div class="msg">${esc(b.message)}</div>` : '<div class="msg muted">Les infos sont mises à jour en direct par les étudiant·es syndiqué·es.</div>'}
       <div class="meta">MAJ ${esc(ago(b.updatedAt))}${b.by ? ' · ' + esc(b.by) : ''}</div>
@@ -303,7 +358,7 @@ function viewAgenda() {
         <div class="card event">
           <div class="time"><b>${esc(hhmm(e.start))}</b><span>${esc(fmt(e.start, { day: 'numeric', month: 'short' }))}</span></div>
           <div class="grow" style="flex:1;min-width:0">
-            <span class="pill ${EVENT_TYPE[e.type][1]}">${EVENT_TYPE[e.type][0]}</span>
+            <span class="pill ${EVENT_TYPE[e.type][1]}">${EVENT_TYPE[e.type][0]}</span> ${siteTag(e)}
             <div class="title" style="margin-top:6px">${esc(e.title)}</div>
             <div class="place">${icon('pin', 14)} ${esc(e.place || 'Lieu à confirmer')}${e.address ? ' · ' + esc(e.address) : ''}</div>
             ${e.description ? `<div class="desc">${esc(e.description)}</div>` : ''}
@@ -398,6 +453,7 @@ function viewDemands() {
           ${d.status !== 'en-lutte' ? `<div class="chips"><span class="pill ${DEMAND_STATUS[d.status][1]}">${DEMAND_STATUS[d.status][0]}</span></div>` : ''}
           <h3>${esc(d.title)}</h3>
           ${d.text ? `<p>${esc(d.text)}</p>` : ''}
+          ${siteTag(d)}
         </div>
         <button class="support ${mine.includes(d.id) ? 'done' : ''}" data-id="${esc(d.id)}" aria-label="Soutenir"><span>✊</span><b>${d.support}</b><span>${mine.includes(d.id) ? 'soutenu' : 'soutenir'}</span></button>
       </div>`;
@@ -539,8 +595,9 @@ function viewContacts() {
 // ===== Alertes : notifications sur le téléphone + email =====
 async function viewAlerts() {
   const d = state.data;
-  const campuses = [...new Set(d.buildings.map((b) => b.campus))];
+  const sitesAll = siteList();
   const saved = store.get('l1-push', null);
+  const savedSites = saved?.sites || [publicSite()];
   const sub = await currentPushSub().catch(() => null);
   const on = !!sub && !!saved;
   const kinds = saved?.kinds || ['buildings', 'urgent', 'events', 'reports'];
@@ -553,8 +610,8 @@ async function viewAlerts() {
       <div class="kicker">📳 Notifications sur ton téléphone <span class="pill ${on ? 'green' : 'grey'}" style="margin-left:6px">${on ? 'activées' : 'désactivées'}</span></div>
       ${iosNeedsInstall ? `<p class="notice" style="margin-top:10px">Sur iPhone, il faut d’abord <b>ajouter l’app à l’écran d’accueil</b>, puis l’ouvrir depuis l’icône pour activer les notifications.</p><button class="btn red" data-install type="button">📲 Comment l’installer</button>` : `
       <div style="margin-top:8px">${KINDS.map(([k, l]) => `<label class="check"><input type="checkbox" name="pk" value="${k}" ${kinds.includes(k) ? 'checked' : ''}> ${l}</label>`).join('')}</div>
-      <div class="field" style="margin-top:6px"><label>Campus (aucun coché = tous)</label></div>
-      ${campuses.map((c) => `<label class="check"><input type="checkbox" name="pc" value="${esc(c)}" ${saved?.campuses?.includes(c) ? 'checked' : ''}> ${esc(c)}</label>`).join('')}
+      <div class="field" style="margin-top:6px"><label>Sites suivis (aucun coché = tous)</label></div>
+      ${sitesAll.map((x) => `<label class="check"><input type="checkbox" name="pc" value="${esc(x.id)}" ${savedSites.includes(x.id) ? 'checked' : ''}> ${esc(x.name)}</label>`).join('')}
       <div class="btn-row" style="margin-top:10px">
         <button class="btn ${on ? 'green' : 'red'}" id="pushOn" type="button">${on ? '✓ Mettre à jour' : '🔔 Activer les notifications'}</button>
         ${on ? '<button class="btn ghost" id="pushTest" type="button">Tester</button><button class="btn ghost" id="pushOff" type="button">Désactiver</button>' : ''}
@@ -568,8 +625,8 @@ async function viewAlerts() {
       ${d.mailEnabled && d.emailSpots <= 0 ? '<p class="muted" style="margin:0">📭 La liste email est <b>complète</b> (places limitées par la version gratuite). Active les notifications ci-dessus ou rejoins la chaîne Telegram : c’est gratuit et sans limite.</p>' : d.mailEnabled ? `<p class="muted small" style="margin:0 0 10px">${d.emailMode === 'digest' ? `Un seul email chaque matin vers ${d.digestHour} h : bâtiments bloqués, AG et manifs du jour, alertes de la veille.` : 'Un email à chaque changement.'} <b>${d.emailSpots} place${d.emailSpots > 1 ? 's' : ''} restante${d.emailSpots > 1 ? 's' : ''}.</b></p><form class="form" id="sub">
         <div class="field"><label for="email">Ton email (perso ou étudiant)</label><input type="email" id="email" required autocomplete="email" placeholder="prenom.nom@exemple.fr"></div>
         <div>${[['buildings', '🔴 Bâtiments bloqués / rouverts et blocus'], ['events', '📣 Nouvelles AG, manifs, rassemblements'], ['reports', '📝 Comptes rendus d’AG']].map(([k, l]) => `<label class="check"><input type="checkbox" name="a" value="${k}" checked> ${l}</label>`).join('')}</div>
-        <div><div class="field"><label>Campus (aucun coché = tous)</label></div>
-          ${campuses.map((c) => `<label class="check"><input type="checkbox" name="c" value="${esc(c)}"> ${esc(c)}</label>`).join('')}
+        <div><div class="field"><label>Sites suivis (aucun coché = tous)</label></div>
+          ${sitesAll.map((x) => `<label class="check"><input type="checkbox" name="c" value="${esc(x.id)}" ${x.id === publicSite() ? 'checked' : ''}> ${esc(x.name)}</label>`).join('')}
         </div>
         <button class="btn ghost">✉️ M’inscrire par email</button>
         <p class="faint small">Ton email sert uniquement à ces alertes. Il n’est jamais affiché ni transmis. Tu recevras un email de confirmation. Les emails gratuits sont limités par jour : les notifications restent le moyen le plus sûr.</p>
@@ -589,7 +646,7 @@ async function viewAlerts() {
   if ($('#pushOff')) $('#pushOff').onclick = async () => { await disablePush(); toast('Notifications désactivées.'); viewAlerts(); };
   if ($('#pushTest')) $('#pushTest').onclick = async () => {
     const s2 = await currentPushSub();
-    try { await api('/api/push/subscribe', { method: 'POST', body: { subscription: s2.toJSON(), kinds: pick('pk'), campuses: pick('pc') } }); } catch {}
+    try { await api('/api/push/subscribe', { method: 'POST', body: { subscription: s2.toJSON(), kinds: pick('pk'), sites: pick('pc') } }); } catch {}
     const reg = await navigator.serviceWorker.getRegistration();
     reg?.showNotification('Test · La Doua en lutte', { body: 'Les notifications marchent ✊', icon: '/icons/icon-192.png', badge: '/icons/badge-96.png' });
   };
@@ -598,7 +655,7 @@ async function viewAlerts() {
     const btn = $('#sub button');
     btn.disabled = true;
     try {
-      const r = await api('/api/subscribe', { method: 'POST', body: { email: $('#email').value, alerts: pick('a'), campuses: pick('c') } });
+      const r = await api('/api/subscribe', { method: 'POST', body: { email: $('#email').value, alerts: pick('a'), sites: pick('c') } });
       $('#sub').innerHTML = `<div class="empty"><div class="big">✅</div>${esc(r.message)}</div>`;
     } catch (err) { toast(err.message); btn.disabled = false; }
   };
@@ -629,7 +686,7 @@ function sheet(html, setup) {
 // =====================================================================
 const MOD_TABS = [
   ['situation', '🚧 Bâtiments'], ['story', '📸 Story Insta'], ['agenda', '📅 Agenda'], ['cr', '🤖 CR + IA'], ['flash', '⚡ Flash'],
-  ['votes', '🗳️ Votes'], ['blog', '✍️ Blog'], ['temoignages', '🛡️ Témoignages'], ['revendications', '✊ Revendications'], ['contacts', '📇 Contacts'], ['chat', '🛡️ Chat'], ['comptes', '👥 Comptes'], ['journal', '📜 Journal'], ['moi', '🔑 Mon compte'],
+  ['votes', '🗳️ Votes'], ['blog', '✍️ Blog'], ['temoignages', '🛡️ Témoignages'], ['revendications', '✊ Revendications'], ['contacts', '📇 Contacts'], ['chat', '🛡️ Chat'], ['comptes', '👥 Comptes'], ['sites', '📍 Sites'], ['journal', '📜 Journal'], ['moi', '🔑 Mon compte'],
 ];
 async function viewModo() {
   if (!state.me) {
@@ -650,17 +707,36 @@ async function viewModo() {
     };
     return;
   }
-  const tabs = MOD_TABS.filter(([id]) => id !== 'comptes' || state.me.role === 'admin');
+  const isAdm = state.me.role === 'admin';
+  const tabs = MOD_TABS.filter(([id]) => !['comptes', 'sites'].includes(id) || isAdm);
+  // Sites où ce modo peut agir (l'admin : tous). Le site de travail est choisi ici et s'applique à tous les onglets.
+  const mySites = isAdm ? siteList().map((x) => x.id) : (state.me.sites || []).filter((id) => siteList().some((x) => x.id === id));
+  if (!mySites.includes(state.modSite)) { state.modSite = mySites.includes(store.get('l1-modsite', '')) ? store.get('l1-modsite', '') : mySites[0] || defaultSite(); applyScope(); }
   view().innerHTML = `
     <h1 class="large-title">Espace modos</h1>
-    <p class="subtitle mono small">${esc(state.me.username)} · ${esc(state.me.org)} · ${state.me.role === 'admin' ? 'admin' : 'modo'} · <span id="mstats">…</span></p>
+    <p class="subtitle mono small">${esc(state.me.username)} · ${esc(state.me.org)} · ${isAdm ? 'admin (tous les sites)' : 'modo'} · <span id="mstats">…</span></p>
+    <div class="modsites" id="msites"><span class="faint small">Tu agis sur :</span>${mySites.map((id) => `<button data-ms="${esc(id)}" class="${id === state.modSite ? 'on' : ''}">📍 ${esc(siteShort(id))}</button>`).join('')}</div>
+    <div class="presence" id="presence" hidden></div>
     <div class="tabs-inline" id="mtabs">${tabs.map(([id, l]) => `<button data-t="${id}" class="${id === state.modTab ? 'on' : ''}">${l}</button>`).join('')}</div>
     <div id="mod"></div>`;
   $('#mtabs').onclick = (e) => { if (e.target.dataset.t) { state.modTab = e.target.dataset.t; render(true); } };
+  $('#msites').onclick = (e) => { const id = e.target.closest('[data-ms]')?.dataset.ms; if (id) { state.modSite = id; store.set('l1-modsite', id); applyScope(); render(true); } };
+  showPresence();
   api('/api/mod/stats').then((s) => { const el = $('#mstats'); if (el) el.innerHTML = `${s.pushSubs} téléphone(s) · ${s.subscribers} email(s) · IA ${esc(s.aiEnabled ? s.aiProviders.join(' → ') : 'sans IA')} · emails ${s.mailProvider ? `${esc(s.mailProvider)} ${s.mailQuota.used}/${s.mailQuota.limit} aujourd’hui` : 'OFF'} · stockage ${s.storage === 'temporaire' ? '<b style="color:var(--red)">TEMPORAIRE (configure Supabase !)</b>' : esc(s.storage)}${s.reported ? ` · ${s.reported} msg signalé(s)` : ''}`; }).catch(() => {});
-  const fn = { story: modStory, votes: modPolls, blog: modBlog, temoignages: modTestimonies, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, journal: modJournal, moi: modMe }[state.modTab] || modSituation;
+  const fn = { story: modStory, votes: modPolls, blog: modBlog, temoignages: modTestimonies, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, sites: modSites, journal: modJournal, moi: modMe }[state.modTab] || modSituation;
   try { await fn($('#mod')); } catch (err) { if (/Connexion modo/.test(err.message)) { state.me = null; render(true); } else toast(err.message); }
 }
+// Autres modos connectés sur les mêmes sites : on le voit pour ne pas se marcher dessus
+async function showPresence() {
+  try {
+    const list = await api('/api/mod/presence');
+    const el = $('#presence');
+    if (!el) return;
+    el.hidden = !list.length;
+    el.innerHTML = list.length ? `👥 Aussi connecté·e${list.length > 1 ? 's' : ''} en ce moment : ${list.map((x) => `<b>${esc(x.org)}</b> (${esc(x.sites.join(', '))})`).join(' · ')}. Si vous modifiez la même chose, le site empêche d'écraser le travail de l'autre.` : '';
+  } catch {}
+}
+setInterval(() => { if (route().startsWith('modo') && state.me && !document.hidden) showPresence(); }, 45000);
 const act = async (fn, ok) => { try { const r = await fn(); if (ok) toast(ok); return r; } catch (e) { toast(e.message); throw e; } };
 
 // ----- Situation : mise à jour éclair des bâtiments -----
@@ -750,8 +826,16 @@ function showUndo(previous, label) {
 }
 async function applyChanges(list, label) {
   if (!list.length) return toast('Rien à changer.');
+  // « from » : ce que ce modo voyait. Si quelqu'un l'a changé entre-temps, le serveur ne l'écrase pas.
+  list = list.map((c) => ({ ...c, from: state.raw.buildings.find((b) => b.id === c.id)?.status }));
   const r = await act(() => api('/api/mod/buildings-batch', { method: 'PUT', body: { changes: list } }));
-  if (!r.changed) return toast('Déjà à jour.');
+  if (r.conflicts?.length) {
+    toast(`⚠️ Déjà changé par un·e autre modo : ${r.conflicts.map((c) => `${c.name} → ${STATUS[c.status].label} (${c.by})`).join(', ')}`);
+    for (const c of r.conflicts) { const b = state.raw.buildings.find((x) => x.id === c.id); if (b) b.status = c.status; }
+    window.drawTiles?.();
+    list = list.filter((c) => !r.conflicts.some((x) => x.id === c.id));
+  }
+  if (!r.changed) { if (!r.conflicts?.length) toast('Déjà à jour.'); return; }
   for (const c of list) { const b = state.data.buildings.find((x) => x.id === c.id); if (b) b.status = c.status; }
   window.drawTiles?.();
   showUndo(r.previous, `${label} · ${r.changed} bâtiment${r.changed > 1 ? 's' : ''}`);
@@ -764,7 +848,7 @@ function modSituation(el) {
   const canDictate = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
   el.innerHTML = `
     <div class="card">
-      <div class="kicker">Titre de l’accueil · un tap = publié</div>
+      <div class="kicker">Titre de l’accueil · ${esc(siteShort(state.modSite))} · un tap = publié</div>
       <div class="segmented status-seg" id="bstate" style="margin-top:10px">${['auto', 'actif', 'partiel', 'leve'].map((k) => `<button data-s="${k}" class="${(b.auto ? 'auto' : b.state) === k ? 'on ' + ({ auto: 'auto', actif: 'bloque', partiel: 'partiel', leve: 'ouvert' }[k]) : ''}">${{ auto: '🤖 Auto', actif: '🔴 Blocus', partiel: '🟠 Partiel', leve: '🟢 Levé' }[k]}</button>`).join('')}</div>
       <p class="faint small" id="bhint" style="margin:6px 2px 0">${b.auto ? `Automatique : le titre suit les bâtiments (actuellement « ${esc(BLOCUS[blocusNow(b)])} »).` : 'Choisi à la main : il ne bouge plus avec les bâtiments. Touche « Auto » pour qu’il les suive.'}</p>
       <div class="field"><input type="text" id="bmsg" maxlength="400" placeholder="Message court (ex : AG 12h au Déambu, piquet dès 7h)" value="${esc(b.message)}"></div>
@@ -789,10 +873,9 @@ function modSituation(el) {
     <h2 class="section">Bâtiments <span class="faint small">touche pour sélectionner, puis choisis la couleur</span></h2>
     <div id="tiles"></div>
 
-    <details class="card" style="margin-top:14px"><summary class="kicker" style="cursor:pointer">＋ Ajouter un bâtiment</summary>
+    <details class="card" style="margin-top:14px" ${d.buildings.length ? "" : "open"}><summary class="kicker" style="cursor:pointer">＋ Ajouter un bâtiment</summary>
       <form class="form" id="addb" style="margin-top:10px">
-        <div class="grid cols-2"><div class="field"><label>Nom</label><input type="text" id="bn" required maxlength="80"></div>
-        <div class="field"><label>Campus</label><input type="text" id="bc" list="campuses" maxlength="60" required><datalist id="campuses">${[...new Set(d.buildings.map((x) => x.campus))].map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div></div>
+        <div class="field"><label>Nom du bâtiment (ajouté à ${esc(siteShort(state.modSite))})</label><input type="text" id="bn" required maxlength="80"></div>
         <button class="btn small">Ajouter</button></form></details>
 
     <div class="actionbar" id="abar" hidden>
@@ -809,13 +892,14 @@ function modSituation(el) {
     const s = e.target.closest('[data-s]')?.dataset.s;
     if (!s) return;
     $$('#bstate button').forEach((x) => (x.className = x.dataset.s === s ? 'on ' + ({ auto: 'auto', actif: 'bloque', partiel: 'partiel', leve: 'ouvert' }[s] || '') : ''));
-    const r = await act(() => api('/api/mod/blocus', { method: 'PUT', body: { state: s, message: $('#bmsg').value, notify: $('#bnotify').checked } }));
+    const r = await act(() => api('/api/mod/blocus', { method: 'PUT', body: { state: s, from: state.data.blocus.state, message: $('#bmsg').value, notify: $('#bnotify').checked } }));
     Object.assign(state.data.blocus, r, { auto: s === 'auto' });
     toast(s === 'auto' ? `Automatique : « ${BLOCUS[r.effective]} »` : BLOCUS[s]);
     const h = $('#bhint');
     if (h) h.textContent = s === 'auto' ? `Automatique : le titre suit les bâtiments (actuellement « ${BLOCUS[r.effective]} »).` : 'Choisi à la main : il ne bouge plus avec les bâtiments. Touche « Auto » pour qu’il les suive.';
   };
   $('#bmsg').onchange = () => act(() => api('/api/mod/blocus', { method: 'PUT', body: { state: state.data.blocus.state, message: $('#bmsg').value, notify: false } }), 'Message publié.');
+  if (!d.buildings.length) $('#tiles').insertAdjacentHTML('beforebegin', `<div class="card muted">Aucun bâtiment pour ${esc(siteShort(state.modSite))}. Ajoute-les en bas de la page (« ＋ Ajouter un bâtiment »).</div>`);
 
   // Saisie éclair
   const qt = $('#qtext');
@@ -915,7 +999,7 @@ function modSituation(el) {
     for (const c of prev) { const x = state.data.buildings.find((y) => y.id === c.id); if (x) x.status = c.status; }
     drawTiles();
   };
-  $('#addb').onsubmit = async (e) => { e.preventDefault(); await act(() => api('/api/mod/buildings', { method: 'POST', body: { name: $('#bn').value, campus: $('#bc').value } }), 'Bâtiment ajouté.'); await refresh(); render(true); };
+  $('#addb').onsubmit = async (e) => { e.preventDefault(); await act(() => api('/api/mod/buildings', { method: 'POST', body: { name: $('#bn').value } }), 'Bâtiment ajouté.'); await refresh(); render(true); };
 }
 function editBuilding(id) {
   const x = state.data.buildings.find((y) => y.id === id);
@@ -999,7 +1083,7 @@ function storyCampus(ctx, W, H) {
   const color = { actif: '#ff453a', partiel: '#ff9f0a', leve: '#30d158', inconnu: '#a1a1aa' }[st];
   storyFrame(ctx, W, H, color);
   let y = 420;
-  pill(ctx, 80, y - 70, '● LIVE · STATUT DU CAMPUS', 'rgba(255,69,58,0.18)', '#ff453a');
+  pill(ctx, 80, y - 70, `● LIVE · ${(state.data.scope === ALL ? 'TOUS LES SITES' : siteShort(state.data.scope)).toUpperCase()}`, 'rgba(255,69,58,0.18)', '#ff453a');
   const title = BLOCUS[st];
   const size = fitFont(ctx, title, W - 160, 150, 80);
   ctx.save(); ctx.shadowColor = color; ctx.shadowBlur = 40;
@@ -1137,7 +1221,7 @@ async function modStory(el) {
 }
 
 async function modAgenda(el) {
-  const all = await api('/api/mod/events/all');
+  const all = (await api('/api/mod/events/all')).filter((x) => inScope(x));
   let editing = null;
   const local = (iso) => { const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
   el.innerHTML = `
@@ -1161,7 +1245,7 @@ async function modAgenda(el) {
       <button class="icon-btn" data-edit="${esc(e.id)}">${icon('edit', 18)}</button><button class="icon-btn" data-del="${esc(e.id)}">${icon('trash', 18)}</button></div>`).join('') || '<div class="empty">Aucun.</div>'}</div>`;
   $('#ev').onsubmit = async (e) => {
     e.preventDefault();
-    const body = { type: $('#et').value, start: new Date($('#ed').value).toISOString(), title: $('#eti').value, place: $('#ep').value, address: $('#ea').value, description: $('#eds').value, notify: $('#en').checked };
+    const body = { version: editing ? all.find((y) => y.id === editing)?.updatedAt : undefined, type: $('#et').value, start: new Date($('#ed').value).toISOString(), title: $('#eti').value, place: $('#ep').value, address: $('#ea').value, description: $('#eds').value, notify: $('#en').checked };
     await act(() => (editing ? api(`/api/mod/events/${editing}`, { method: 'PUT', body }) : api('/api/mod/events', { method: 'POST', body })), editing ? 'Modifié.' : 'Publié.');
     render(true);
   };
@@ -1183,7 +1267,7 @@ async function modAgenda(el) {
 
 // ----- Comptes rendus : PDF → IA en direct → relecture → publication -----
 async function modReports(el) {
-  const reports = await api('/api/mod/reports');
+  const reports = (await api('/api/mod/reports')).filter((x) => inScope(x));
   el.innerHTML = `
     <div class="card">
       <div class="kicker">Importer un compte rendu d’AG</div>
@@ -1216,7 +1300,7 @@ async function analyze(file, el) {
   let streamed = '';
   line(`> upload ${file.name}…`, 'info');
   try {
-    const res = await fetch('/api/mod/reports/analyze', { method: 'POST', headers: { 'Content-Type': 'application/pdf', 'X-File-Name': encodeURIComponent(file.name) }, body: file, credentials: 'same-origin' });
+    const res = await fetch('/api/mod/reports/analyze', { method: 'POST', headers: { 'Content-Type': 'application/pdf', 'X-File-Name': encodeURIComponent(file.name), 'X-Site': state.modSite || '' }, body: file, credentials: 'same-origin' });
     if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || `Erreur ${res.status}`); }
     const reader = res.body.getReader();
     const dec = new TextDecoder();
@@ -1291,7 +1375,7 @@ function openEditor(r) {
   box.scrollIntoView({ behavior: 'smooth', block: 'start' });
   box.oninput = (e) => { const k = e.target.dataset.k; if (k) setPath(draft, k, e.target.value); };
   box.onchange = box.oninput;
-  const save = (extra = {}) => api(`/api/mod/reports/${draft.id}`, { method: 'PUT', body: { ...draft, ...extra } });
+  const save = async (extra = {}) => { const r = await api(`/api/mod/reports/${draft.id}`, { method: 'PUT', body: { ...draft, version: draft.updatedAt, ...extra } }); draft.updatedAt = r.updatedAt; return r; };
   box.onclick = async (e) => {
     const rm = e.target.closest('[data-rm]')?.dataset.rm;
     if (rm) { const [k, i] = rm.split('.'); draft[k].splice(Number(i), 1); draw(); return; }
@@ -1343,7 +1427,7 @@ function modDemands(el) {
       <button class="icon-btn" data-del>${icon('trash', 18)}</button></div>`).join('') || '<div class="empty">Aucune.</div>'}</div>`;
   $('#ctxf').onsubmit = async (e) => { e.preventDefault(); await act(() => api('/api/mod/context', { method: 'PUT', body: { title: $('#cxt').value, text: $('#cxx').value, call: $('#cxc').value, closing: $('#cxe').value, source: $('#cxs').value } }), 'Texte enregistré.'); await refresh(); };
   $('#df').onsubmit = async (e) => { e.preventDefault(); await act(() => api('/api/mod/demands', { method: 'POST', body: { title: $('#dt').value, category: $('#dc').value, text: $('#dx').value } }), 'Ajoutée.'); await refresh(); render(true); };
-  el.querySelector('.list').onchange = (e) => { if (e.target.matches('[data-status]')) act(() => api(`/api/mod/demands/${e.target.closest('.row').dataset.id}`, { method: 'PUT', body: { status: e.target.value } }), 'Statut mis à jour.'); };
+  el.querySelector('.list').onchange = (e) => { if (e.target.matches('[data-status]')) act(() => api(`/api/mod/demands/${e.target.closest('.row').dataset.id}`, { method: 'PUT', body: { status: e.target.value, version: state.raw.demands.find((x) => x.id === e.target.closest('.row').dataset.id)?.updatedAt } }), 'Statut mis à jour.'); };
   el.querySelector('.list').onclick = async (e) => { if (e.target.closest('[data-del]') && confirm('Supprimer ?')) { await act(() => api(`/api/mod/demands/${e.target.closest('.row').dataset.id}`, { method: 'DELETE' }), 'Supprimée.'); await refresh(); render(true); } };
 }
 
@@ -1379,24 +1463,63 @@ async function modAccounts(el) {
   el.innerHTML = `
     <div class="card"><form class="form" id="mf">
       <div class="kicker">Créer un accès modo (un par personne)</div>
-      <div class="grid cols-2"><div class="field"><label>Identifiant</label><input type="text" id="mu" required pattern="[a-z0-9._\\-]{3,40}" placeholder="solidaires.marie"></div>
-      <div class="field"><label>Organisation (affichée publiquement)</label><input type="text" id="mo" required maxlength="80" placeholder="Solidaires Étudiant·es"></div></div>
-      <label class="check"><input type="checkbox" id="ma"> Admin (peut créer d’autres comptes)</label>
+      <div class="grid cols-2"><div class="field"><label>Identifiant</label><input type="text" id="mu" required pattern="[a-z0-9._\\-]{3,40}" placeholder="ag.doua.marie"></div>
+      <div class="field"><label>Nom affiché publiquement (AG, syndicat…)</label><input type="text" id="mo" required maxlength="80" placeholder="AG Doua · Solidaires"></div></div>
+      <div class="field"><label>Sites où ce modo peut agir</label></div>
+      <div class="chips" id="msitesNew">${siteList().map((x) => `<label class="check" style="padding:2px 8px 2px 0"><input type="checkbox" name="ns" value="${esc(x.id)}" ${x.id === state.modSite ? 'checked' : ''}> ${esc(x.short)}</label>`).join('')}</div>
+      <label class="check"><input type="checkbox" id="ma"> Admin : tous les sites, comptes et réglages</label>
       <button class="btn">Créer et générer le mot de passe</button></form></div>
-    <div class="list" style="margin-top:14px">${mods.map((m) => `<div class="row"><div class="grow"><div class="title">${esc(m.username)} ${m.role === 'admin' ? '<span class="pill purple">admin</span>' : ''} ${m.disabled ? '<span class="pill grey">désactivé</span>' : ''}</div><div class="sub">${esc(m.org)}</div></div>
-      <button class="btn small ghost" data-reset="${esc(m.id)}">Nouveau mdp</button>${m.disabled || m.id === state.me.id ? '' : `<button class="btn small red" data-off="${esc(m.id)}">Désactiver</button>`}</div>`).join('')}</div>`;
+    <div class="list" style="margin-top:14px">${mods.map((m) => `<div class="row"><div class="grow"><div class="title">${esc(m.username)} ${m.role === 'admin' ? '<span class="pill purple">admin</span>' : ''} ${m.disabled ? '<span class="pill grey">désactivé</span>' : ''}</div><div class="sub">${esc(m.org)} · ${m.role === 'admin' ? 'tous les sites' : esc((m.sites || []).map(siteShort).join(', ') || 'aucun site')}</div></div>
+      ${m.id === state.me.id ? '' : `<button class="btn small ghost" data-edit="${esc(m.id)}">Modifier</button>`}<button class="btn small ghost" data-reset="${esc(m.id)}">Nouveau mdp</button>${m.disabled || m.id === state.me.id ? '' : `<button class="btn small red" data-off="${esc(m.id)}">Désactiver</button>`}</div>`).join('')}</div>`;
   const showPw = (m) => sheet(`<h3>Accès pour ${esc(m.username)}</h3><p class="muted">Transmets-le en main propre ou par messagerie chiffrée (Signal). Il ne sera plus affiché.</p><div class="secret">${esc(m.password)}</div><p class="faint small">La personne pourra le changer dans « Mon compte ».</p>`);
-  $('#mf').onsubmit = async (e) => { e.preventDefault(); const m = await act(() => api('/api/mod/mods', { method: 'POST', body: { username: $('#mu').value, org: $('#mo').value, role: $('#ma').checked ? 'admin' : 'mod' } })); showPw(m); await modAccounts(el); };
+  $('#mf').onsubmit = async (e) => { e.preventDefault(); const m = await act(() => api('/api/mod/mods', { method: 'POST', body: { username: $('#mu').value, org: $('#mo').value, role: $('#ma').checked ? 'admin' : 'mod', sites: $$('input[name=ns]:checked').map((x) => x.value) } })); showPw(m); await modAccounts(el); };
   el.querySelector('.list').onclick = async (e) => {
-    const r = e.target.dataset.reset; const o = e.target.dataset.off;
+    const r = e.target.dataset.reset; const o = e.target.dataset.off; const ed = e.target.dataset.edit;
+    if (ed) {
+      const m = mods.find((x) => x.id === ed);
+      sheet(`<h3>${esc(m.username)}</h3><form class="form" id="emf">
+        <div class="field"><label>Nom affiché</label><input type="text" id="emo" maxlength="80" value="${esc(m.org)}"></div>
+        <div class="field"><label>Sites</label></div>
+        ${siteList().map((x) => `<label class="check"><input type="checkbox" name="es" value="${esc(x.id)}" ${(m.sites || []).includes(x.id) ? 'checked' : ''}> ${esc(x.name)}</label>`).join('')}
+        <label class="check"><input type="checkbox" id="ema" ${m.role === 'admin' ? 'checked' : ''}> Admin (tous les sites)</label>
+        <button class="btn">Enregistrer</button></form>`, (root, close) => {
+        $('#emf', root).onsubmit = async (ev) => { ev.preventDefault(); await act(() => api(`/api/mod/mods/${ed}`, { method: 'PUT', body: { org: $('#emo', root).value, role: $('#ema', root).checked ? 'admin' : 'mod', sites: $$('input[name=es]:checked', root).map((x) => x.value) } }), 'Compte mis à jour.'); close(); await modAccounts(el); };
+      });
+    }
     if (r && confirm('Générer un nouveau mot de passe ? L’ancien ne marchera plus.')) { showPw(await act(() => api(`/api/mod/mods/${r}/reset`, { method: 'POST' }))); await modAccounts(el); }
     if (o && confirm('Désactiver ce compte ?')) { await act(() => api(`/api/mod/mods/${o}`, { method: 'DELETE' }), 'Désactivé.'); await modAccounts(el); }
   };
 }
 
+async function modSites(el) {
+  el.innerHTML = `
+    <p class="muted small">Chaque site a ses bâtiments, son titre d’accueil, ses votes d’AG, ses revendications, son blog et ses notifications. Les modos ne voient et ne modifient que les sites que tu leur donnes (onglet Comptes). Le site principal s’affiche par défaut aux étudiant·es.</p>
+    <div class="list">${siteList().map((x) => `<div class="row" data-id="${esc(x.id)}"><div class="grow"><div class="title">${esc(x.name)} ${x.id === defaultSite() ? '<span class="pill red">principal</span>' : ''}</div><div class="sub">Nom court : ${esc(x.short)} · ${state.raw.buildings.filter((b) => b.site === x.id).length} bâtiment(s)</div></div>
+      <button class="btn small ghost" data-edit>Modifier</button>${x.id === defaultSite() ? '' : '<button class="icon-btn" data-del>' + icon('trash', 18) + '</button>'}</div>`).join('')}</div>
+    <div class="card" style="margin-top:14px"><form class="form" id="sf">
+      <div class="kicker">Ajouter un site</div>
+      <div class="grid cols-2"><div class="field"><label>Nom complet</label><input type="text" id="sn" required maxlength="80" placeholder="IUT Lyon 1 · Bourg-en-Bresse"></div>
+      <div class="field"><label>Nom court (onglets)</label><input type="text" id="ss" maxlength="30" placeholder="IUT Bourg"></div></div>
+      <button class="btn">Ajouter</button></form></div>`;
+  $('#sf').onsubmit = async (e) => { e.preventDefault(); await act(() => api('/api/mod/sites', { method: 'POST', body: { name: $('#sn').value, short: $('#ss').value } }), 'Site ajouté.'); await refresh(); render(true); };
+  el.querySelector('.list').onclick = async (e) => {
+    const row = e.target.closest('[data-id]');
+    if (!row) return;
+    const x = siteList().find((y) => y.id === row.dataset.id);
+    if (e.target.closest('[data-del]') && confirm(`Supprimer le site « ${x.name} » ? (seulement s’il est vide)`)) { await act(() => api(`/api/mod/sites/${x.id}`, { method: 'DELETE' }), 'Supprimé.'); await refresh(); render(true); }
+    if (e.target.closest('[data-edit]')) sheet(`<h3>${esc(x.name)}</h3><form class="form" id="esf">
+      <div class="field"><label>Nom complet</label><input type="text" id="esn" maxlength="80" value="${esc(x.name)}"></div>
+      <div class="field"><label>Nom court</label><input type="text" id="ess" maxlength="30" value="${esc(x.short)}"></div>
+      <div class="field"><label>Chaîne Telegram propre à ce site (facultatif : @nom ou -100…)</label><input type="text" id="est" maxlength="60" placeholder="vide = chaîne principale"></div>
+      <button class="btn">Enregistrer</button></form>`, (root, close) => {
+      $('#esf', root).onsubmit = async (ev) => { ev.preventDefault(); await act(() => api(`/api/mod/sites/${x.id}`, { method: 'PUT', body: { name: $('#esn', root).value, short: $('#ess', root).value, ...($('#est', root).value ? { telegramChatId: $('#est', root).value } : {}) } }), 'Site mis à jour.'); close(); await refresh(); render(true); };
+    });
+  };
+}
+
 async function modJournal(el) {
   const list = await api('/api/mod/audit');
-  el.innerHTML = `<div class="terminal"><div class="bar"><i></i><i></i><i></i><span>audit.log</span></div><div class="body" style="max-height:none">${list.map((a) => `<div class="line"><span class="t">[${esc(fmt(a.at, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}]</span> ${esc(a.by)} (${esc(a.org)}) · ${esc(a.action)} · ${esc(a.detail)}</div>`).join('') || '<div class="line">vide</div>'}</div></div>`;
+  el.innerHTML = `<div class="terminal"><div class="bar"><i></i><i></i><i></i><span>audit.log</span></div><div class="body" style="max-height:none">${list.map((a) => `<div class="line"><span class="t">[${esc(fmt(a.at, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}]</span> ${a.siteName ? `<b>[${esc(a.siteName)}]</b> ` : ''}${esc(a.by)} (${esc(a.org)}) · ${esc(a.action)} · ${esc(a.detail)}</div>`).join('') || '<div class="line">vide</div>'}</div></div>`;
 }
 
 function modMe(el) {
@@ -1425,7 +1548,7 @@ function pollHtml(p) {
   const voted = p.myVote !== null;
   const total = p.counts ? p.counts.reduce((a, b) => a + b, 0) : p.total;
   return `<div class="card poll" data-poll="${esc(p.id)}">
-    <div class="chips"><span class="pill ${p.open ? 'red' : 'grey'}">${p.open ? `● EN COURS · clôture dans ${esc(remaining(p.closesAt))}` : 'CLOS'}</span><span class="pill grey">${p.total} vote${p.total > 1 ? 's' : ''}</span></div>
+    <div class="chips">${siteTag(p)}<span class="pill ${p.open ? 'red' : 'grey'}">${p.open ? `● EN COURS · clôture dans ${esc(remaining(p.closesAt))}` : 'CLOS'}</span><span class="pill grey">${p.total} vote${p.total > 1 ? 's' : ''}</span></div>
     <h3 style="margin:10px 0 4px;font-size:20px">${esc(p.question)}</h3>
     ${p.description ? `<p class="muted" style="margin:0 0 6px">${esc(p.description)}</p>` : ''}
     <div class="opts">${p.options.map((o, i) => {
@@ -1447,7 +1570,9 @@ async function viewPolls() {
     const polls = await api('/api/polls');
     const box = $('#polls');
     if (!box) return;
-    box.innerHTML = polls.length ? polls.map(pollHtml).join('') : '<div class="card empty"><div class="big">🗳️</div>Aucun vote en cours. Les modos en lanceront ici.</div>';
+    const mine = polls.filter((p) => inScope(p));
+    const ags = [...new Set(mine.map((p) => p.ag || 'Vote'))];
+    box.innerHTML = mine.length ? ags.map((ag) => `<div class="ag-head">🗳️ ${esc(ag)}</div>${mine.filter((p) => (p.ag || 'Vote') === ag).map(pollHtml).join('')}`).join('') : `<div class="card empty"><div class="big">🗳️</div>Aucun vote ${state.data.scope === ALL ? '' : 'pour ' + esc(siteShort(state.data.scope)) + ' '}pour le moment. Chaque AG lance ses votes ici.</div>`;
     box.onclick = async (e) => {
       const opt = e.target.closest('[data-opt]');
       if (!opt) return;
@@ -1503,7 +1628,7 @@ async function viewBlog(id) {
     };
   });
   try {
-    const posts = await api('/api/blog');
+    const posts = (await api('/api/blog')).filter((p) => inScope(p));
     const box = $('#posts');
     if (!box) return;
     box.innerHTML = posts.length ? `<div class="grid cols-2">${posts.map((p) => `
@@ -1581,6 +1706,7 @@ async function viewTestimonies() {
     cats = r.categories;
     const box = $('#tems');
     if (!box) return;
+    r.items = r.items.filter((t) => inScope(t));
     box.innerHTML = r.items.length ? r.items.map((t) => `
       <div class="card testimony">
         <div class="chips"><span class="pill red">${esc(t.categoryLabel)}</span>${t.date ? `<span class="pill grey">${esc(isoDate(t.date))}</span>` : ''}${t.place ? `<span class="pill grey">${icon('pin', 12)} ${esc(t.place)}</span>` : ''}</div>
@@ -1637,10 +1763,11 @@ function openTestimonyForm(cats) {
 
 // ----- Modos : votes -----
 async function modPolls(el) {
-  const polls = await api('/api/mod/polls');
+  const polls = (await api('/api/mod/polls')).filter((x) => inScope(x));
   el.innerHTML = `
     <div class="card"><form class="form" id="pf">
-      <div class="kicker">Nouveau vote anonyme</div>
+      <div class="kicker">Nouveau vote anonyme · ${esc(siteShort(state.modSite))}</div>
+      <div class="field"><label>Assemblée générale qui organise ce vote</label><input type="text" id="pag" maxlength="80" value="${esc(store.get('l1-ag-' + state.modSite, `AG ${siteShort(state.modSite)}`))}" placeholder="AG du 18/11 · ${esc(siteShort(state.modSite))}"></div>
       <div class="field"><label>Question</label><input type="text" id="pq" maxlength="200" required placeholder="Faut-il reconduire le blocus demain ?"></div>
       <div class="field"><label>Précision (facultatif)</label><input type="text" id="pd" maxlength="600"></div>
       <div class="field"><label>Choix (un par ligne, 2 à 8)</label><textarea id="po" required>Pour\nContre\nAbstention</textarea></div>
@@ -1653,7 +1780,8 @@ async function modPolls(el) {
     <h2 class="section">Votes</h2>
     ${polls.map((p) => `<div class="card" data-id="${esc(p.id)}">
       <div class="chips"><span class="pill ${p.open ? 'red' : 'grey'}">${p.open ? 'En cours · ' + esc(remaining(p.closesAt)) : 'Clos'}</span>${p.hidden ? '<span class="pill grey">masqué</span>' : ''}<span class="pill grey">${p.total} votes</span></div>
-      <b style="display:block;margin:8px 0">${esc(p.question)}</b>
+      <div class="faint small" style="margin-top:6px">${esc(p.ag || '')} · ${esc(p.org)}</div>
+      <b style="display:block;margin:4px 0 8px">${esc(p.question)}</b>
       ${p.options.map((o, i) => `<div class="kv"><span>${esc(o)}</span><b class="mono">${p.counts[i]}</b></div>`).join('')}
       <div class="btn-row" style="margin-top:8px">${p.open ? '<button class="btn small red" data-a="close">Clore maintenant</button>' : ''}<button class="btn small ghost" data-a="extend">+24 h</button><button class="btn small ghost" data-a="hide">${p.hidden ? 'Afficher' : 'Masquer'}</button><button class="btn small ghost" data-a="del">Supprimer</button></div>
     </div>`).join('') || '<div class="empty">Aucun vote.</div>'}`;
@@ -1661,7 +1789,7 @@ async function modPolls(el) {
   $('#pf').onsubmit = async (e) => {
     e.preventDefault();
     const custom = $('#pdur').value === 'custom';
-    await act(() => api('/api/mod/polls', { method: 'POST', body: { question: $('#pq').value, description: $('#pd').value, options: $('#po').value.split('\n'), duration: $('#pdur').value, closesAt: custom && $('#pc').value ? new Date($('#pc').value).toISOString() : undefined, results: $('#plive').checked ? 'live' : 'after' } }), 'Vote lancé.');
+    await act(() => api('/api/mod/polls', { method: 'POST', body: { ag: (store.set('l1-ag-' + state.modSite, $('#pag').value), $('#pag').value), question: $('#pq').value, description: $('#pd').value, options: $('#po').value.split('\n'), duration: $('#pdur').value, closesAt: custom && $('#pc').value ? new Date($('#pc').value).toISOString() : undefined, results: $('#plive').checked ? 'live' : 'after' } }), 'Vote lancé.');
     render(true);
   };
   el.onclick = async (e) => {
@@ -1680,7 +1808,7 @@ async function modPolls(el) {
 
 // ----- Modos : blog -----
 async function modBlog(el) {
-  const posts = await api('/api/mod/posts');
+  const posts = (await api('/api/mod/posts')).filter((x) => inScope(x));
   const pending = posts.filter((p) => p.status === 'pending');
   const ST = { draft: ['Brouillon', 'grey'], pending: ['À relire', 'orange'], published: ['Publié', 'green'], rejected: ['Refusé', 'red'] };
   el.innerHTML = `
@@ -1719,7 +1847,8 @@ async function modBlog(el) {
 
 // ----- Modos : témoignages -----
 async function modTestimonies(el) {
-  const [items, q] = await Promise.all([api('/api/mod/testimonies'), api('/api/mod/queue')]);
+  const [itemsAll, q] = await Promise.all([api('/api/mod/testimonies'), api('/api/mod/queue')]);
+  const items = itemsAll.filter((x) => inScope(x));
   const ST = { pending: ['À relire', 'orange'], published: ['Publié', 'green'], rejected: ['Refusé', 'grey'] };
   el.innerHTML = `
     <p class="muted small">Rien n’est public sans ta validation. Retire tout nom, visage reconnaissable d’un tiers ou détail identifiant. Tu peux publier le texte sans les médias (décoche-les).${q.ffmpeg ? '' : ' <b style="color:var(--orange)">ffmpeg absent : les métadonnées des vidéos ne sont pas retirées.</b>'}</p>
@@ -1756,6 +1885,7 @@ async function modTestimonies(el) {
     if (a === 'delete') { if (confirm('Supprimer ce témoignage et ses fichiers ?')) { await act(() => api(`/api/mod/testimonies/${id}`, { method: 'DELETE' }), 'Supprimé.'); render(true); } return; }
     if (a === 'published' && !confirm('Publier ce témoignage ? Vérifie qu’aucune personne n’est identifiable.')) return;
     await act(() => api(`/api/mod/testimonies/${id}`, { method: 'PUT', body: {
+      version: items.find((x) => x.id === id)?.updatedAt,
       status: a, text: $('[data-f=text]', card).value, place: $('[data-f=place]', card).value, sensitive: $('[data-f=sensitive]', card).checked,
       publishMedia: $$('[data-m]', card).filter((c) => c.checked).map((c) => c.dataset.m),
     } }), 'Enregistré.');
@@ -1765,10 +1895,11 @@ async function modTestimonies(el) {
 
 // ---------- Données + temps réel ----------
 async function refresh() {
-  state.data = await api('/api/state');
+  state.raw = await api('/api/state');
+  applyScope();
   const ig = document.getElementById('ig-side');
   if (ig) { ig.href = igUrl(); ig.querySelector('b').textContent = igHandle(); }
-  setOnline(state.data.online);
+  setOnline(state.raw.online);
 }
 let refreshTimer = null;
 function scheduleRefresh() {
@@ -1860,7 +1991,7 @@ function b64ToBytes(b64) {
   const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
 }
-async function enablePush(kinds, campuses) {
+async function enablePush(kinds, sites) {
   if (!pushSupported()) {
     if (isIOS && !isStandalone()) { showInstallHelp(true); return false; }
     toast('Ce navigateur ne gère pas les notifications. Essaie Chrome ou Safari.');
@@ -1873,8 +2004,8 @@ async function enablePush(kinds, campuses) {
   const { key } = await api('/api/push/key');
   let sub = await reg.pushManager.getSubscription();
   if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) });
-  await api('/api/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON(), kinds, campuses } });
-  store.set('l1-push', { kinds, campuses });
+  await api('/api/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON(), kinds, sites } });
+  store.set('l1-push', { kinds, sites });
   return true;
 }
 async function disablePush() {

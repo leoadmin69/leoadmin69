@@ -21,14 +21,14 @@ async function run() {
   if (running) return;
   running = true;
   while (queue.length) {
-    const { html, url, tries } = queue.shift();
+    const { html, url, chat, tries } = queue.shift();
     try {
       const res = await fetch(`${BASE()}/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
         method: 'POST',
         signal: AbortSignal.timeout(20000),
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          chat_id: process.env.TELEGRAM_CHAT_ID,
+          chat_id: chat,
           text: html,
           parse_mode: 'HTML',
           link_preview_options: { is_disabled: true },
@@ -37,7 +37,7 @@ async function run() {
       });
       const data = await res.json().catch(() => ({}));
       if (res.status === 429 && tries < 3) {
-        queue.unshift({ html, url, tries: tries + 1 });
+        queue.unshift({ html, url, chat, tries: tries + 1 });
         await new Promise((r) => setTimeout(r, ((data.parameters?.retry_after || 5) + 1) * 1000));
         continue;
       }
@@ -51,11 +51,12 @@ async function run() {
 }
 
 // html : texte déjà mis en forme (balises <b>, <i>) ; path : page du site à ouvrir (ex. '/#/batiments')
-export function postTelegram(html, path = '/') {
+// chatId : chaîne propre à un site (sinon la chaîne principale TELEGRAM_CHAT_ID)
+export function postTelegram(html, path = '/', chatId = null) {
   if (!telegramEnabled()) return;
   const site = SITE_URL();
   // Telegram refuse les boutons vers des adresses locales (http://localhost) : on n'en met que si le site est en https.
   const url = site.startsWith('https://') ? `${site}${path}` : null;
-  queue.push({ html: String(html).slice(0, 4000), url, tries: 0 });
+  queue.push({ html: String(html).slice(0, 4000), url, chat: chatId || process.env.TELEGRAM_CHAT_ID, tries: 0 });
   run();
 }

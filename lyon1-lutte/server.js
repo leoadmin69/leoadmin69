@@ -13,6 +13,7 @@ import { mailEnabled, mailProvider, mailQuota, sendMany, renderEmail, SITE_URL, 
 import { aiEnabled, aiProviders, analyzePdf } from './lib/ai.js';
 import { registerCommunity, MAX_VIDEO_MB } from './lib/community.js';
 import { telegramEnabled, telegramUrl, postTelegram, tgEsc } from './lib/telegram.js';
+import { DEFAULT_SITE, site, siteName, modSites, canSite, siteOf, migrateSites, effectiveBlocus, wantsSite, isAdmin } from './lib/sites.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -30,6 +31,7 @@ try {
 if (process.env.RENDER && !remoteEnabled()) console.warn('\n⚠️  Hébergement sans disque et Supabase non configuré : les données seront PERDUES au prochain redémarrage.\n');
 seed();
 ensureAdmin();
+migrateSites();
 
 const app = express();
 app.disable('x-powered-by');
@@ -85,8 +87,8 @@ function feed(text, level = 'info') {
   db.feed = db.feed.slice(0, 200);
   broadcast('feed', item);
 }
-function audit(mod, action, detail = '') {
-  db.audit.unshift({ at: now(), by: mod.username, org: mod.org, action, detail: clip(detail, 300) });
+function audit(mod, action, detail = '', siteId = '') {
+  db.audit.unshift({ at: now(), by: mod.username, org: mod.org, action, detail: clip(detail, 300), site: siteId });
   db.audit = db.audit.slice(0, 2000);
 }
 
@@ -98,28 +100,39 @@ function requireMod(req, res, next) {
   // Protection CSRF : les requêtes d'écriture viennent du site lui-même (JSON ou PDF, jamais un formulaire externe).
   if (req.method !== 'GET' && !/^(application\/json|application\/pdf)/.test(req.headers['content-type'] || '') && req.method !== 'DELETE') return bad(res, 'Type de contenu refusé.', 415);
   req.mod = mod;
+  presence.set(mod.id, Date.now());
   next();
 }
+// Qui est connecté·e en ce moment dans l'espace modo (pour savoir qu'on n'est pas seul·e à modifier)
+const presence = new Map();
+// Refuse si le modo n'a pas les droits sur ce site. Renvoie false si la réponse est déjà partie.
+function needSite(req, res, id) {
+  if (!site(id)) { bad(res, 'Site inconnu.'); return false; }
+  if (!canSite(req.mod, id)) { bad(res, `Tu n'as pas les droits sur « ${siteName(id)} ». Demande à l'admin.`, 403); return false; }
+  return true;
+}
+// Site visé par une création : celui demandé, sinon le premier site du modo
+const targetSite = (req) => req.body?.site || req.headers['x-site'] || modSites(req.mod)[0] || DEFAULT_SITE;
+// Anti-écrasement : si quelqu'un d'autre a modifié l'élément depuis que le modo l'a ouvert, on refuse.
+function stale(req, res, item) {
+  const v = req.body?.version;
+  if (v && item.updatedAt && v !== item.updatedAt) {
+    bad(res, `Modifié entre-temps par ${item.by || item.org || 'un·e autre modo'} (${new Date(item.updatedAt).toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' })}). La page a été rechargée : vérifie puis recommence.`, 409);
+    return true;
+  }
+  return false;
+}
+const touch = (req, item) => { item.updatedAt = now(); item.by = req.mod.org; };
 const requireAdmin = (req, res, next) => (req.mod.role === 'admin' ? next() : bad(res, 'Réservé aux admins.', 403));
 
 // ---------- Lecture publique ----------
 const STATUS = ['bloque', 'partiel', 'ouvert', 'inconnu'];
 const STATUS_LABEL = { bloque: 'BLOQUÉ', partiel: 'PARTIELLEMENT BLOQUÉ', ouvert: 'OUVERT', inconnu: 'NON RENSEIGNÉ' };
 const BLOCUS = ['auto', 'actif', 'partiel', 'leve', 'inconnu'];
-// Statut affiché : choisi à la main par un modo, ou « auto » = déduit des bâtiments (par défaut).
-// « inconnu » (ancien réglage par défaut) est traité comme « auto ».
-function effectiveBlocus() {
-  const s = db.settings.blocus.state;
-  if (s !== 'auto' && s !== 'inconnu') return s;
-  if (db.buildings.some((x) => x.status === 'bloque')) return 'actif';
-  if (db.buildings.some((x) => x.status === 'partiel')) return 'partiel';
-  if (db.buildings.some((x) => x.status === 'ouvert')) return 'leve';
-  return 'inconnu';
-}
 const BLOCUS_LABEL = { actif: 'BLOCUS EN COURS', partiel: 'BLOCUS PARTIEL', leve: 'PAS DE BLOCUS', inconnu: 'SITUATION NON CONFIRMÉE', auto: 'AUTOMATIQUE' };
 const EVENT_TYPES = ['AG', 'manif', 'rassemblement', 'action', 'autre'];
 
-const publicReport = (r) => ({ id: r.id, titre: r.titre, date: r.date, lieu: r.lieu, participants: r.participants, resume: r.resume, flashs: r.flashs, votes: r.votes, rdv: r.rdv, batiments_bloques: r.batiments_bloques, revendications: r.revendications, publishedAt: r.publishedAt, org: r.org, source: r.source });
+const publicReport = (r) => ({ site: siteOf(r), id: r.id, titre: r.titre, date: r.date, lieu: r.lieu, participants: r.participants, resume: r.resume, flashs: r.flashs, votes: r.votes, rdv: r.rdv, batiments_bloques: r.batiments_bloques, revendications: r.revendications, publishedAt: r.publishedAt, org: r.org, source: r.source });
 const publicDemand = (d) => ({ ...d, support: (db.supports[d.id] || []).length });
 function upcomingEvents() {
   const cutoff = Date.now() - 6 * 3600e3;
@@ -131,7 +144,13 @@ app.get('/api/health', (req, res) => res.json({ ok: true }));
 
 app.get('/api/state', (req, res) => {
   res.json({
-    blocus: { ...db.settings.blocus, effective: effectiveBlocus(), auto: ['auto', 'inconnu'].includes(db.settings.blocus.state) },
+    defaultSite: DEFAULT_SITE,
+    sites: db.sites.map(({ id, name, short }) => ({ id, name, short })),
+    siteStatus: Object.fromEntries(db.sites.map((x) => { const st = db.siteStatus[x.id] || {}; return [x.id, { ...st, effective: effectiveBlocus(x.id), auto: !st.state || ['auto', 'inconnu'].includes(st.state) }]; })),
+    contexts: db.contexts || {},
+    // Anciens champs gardés pour les apps pas encore mises à jour (site principal)
+    blocus: { ...(db.siteStatus[DEFAULT_SITE] || {}), effective: effectiveBlocus(DEFAULT_SITE), auto: ['auto', 'inconnu'].includes(db.siteStatus[DEFAULT_SITE]?.state || 'auto') },
+    context: db.contexts?.[DEFAULT_SITE] || null,
     buildings: db.buildings,
     events: upcomingEvents(),
     flashes: db.flashes.slice(0, 20),
@@ -143,7 +162,7 @@ app.get('/api/state', (req, res) => {
     subscribers: db.subscribers.filter((s) => s.confirmed).length,
     online: clients.size,
     pollsOpen: community.pollsOpen(),
-    context: db.settings.context || null,
+    pollsOpenBySite: community.pollsOpenBySite(),
     telegramUrl: telegramUrl(),
     emailMode: EMAIL_MODE,
     digestHour: DIGEST_HOUR,
@@ -224,12 +243,12 @@ app.post('/api/subscribe', async (req, res) => {
   if (!EMAIL.test(email)) return bad(res, 'Adresse email invalide.');
   if (limited(`sub:${visitor(req)}`, 5, 3600e3)) return bad(res, 'Trop de tentatives, réessaie plus tard.', 429);
   const alerts = Array.isArray(req.body.alerts) ? req.body.alerts.filter((a) => ALERTS.includes(a)) : ALERTS;
-  const campuses = Array.isArray(req.body.campuses) ? req.body.campuses.map((c) => clip(c, 60)).slice(0, 10) : [];
+  const sitesWanted = (Array.isArray(req.body.sites) ? req.body.sites : []).filter((x) => site(x)).slice(0, 20);
   let s = db.subscribers.find((x) => x.email === email);
   if (!s && emailSpots() <= 0) return bad(res, 'La liste email est complète (places limitées par la version gratuite). Active plutôt les notifications de l’app ou rejoins la chaîne Telegram : c’est gratuit et sans limite.', 409);
   if (!s) { s = { id: newId(), email, token: crypto.randomBytes(18).toString('base64url'), confirmed: false, createdAt: now() }; db.subscribers.push(s); }
   s.alerts = alerts.length ? alerts : ALERTS;
-  s.campuses = campuses;
+  s.sites = sitesWanted;
   if (!mailEnabled()) {
     // Sans service d'email, pas de confirmation possible : l'inscription est enregistrée telle quelle.
     s.confirmed = true;
@@ -267,48 +286,44 @@ function queueBuildingAlert(b) {
   alertTimer = setTimeout(flushBuildingAlert, ALERT_DELAY_MS);
 }
 async function flushBuildingAlert() {
-  const changed = [...pendingBuildings.values()];
+  const changedAll = [...pendingBuildings.values()];
   pendingBuildings = new Map();
-  if (!changed.length) return;
-  const blocked = db.buildings.filter((b) => b.status === 'bloque' || b.status === 'partiel');
-  const anyBlocked = changed.some((b) => b.status === 'bloque' || b.status === 'partiel');
+  if (!changedAll.length) return;
   const tone = { bloque: 'red', partiel: 'orange', ouvert: 'green', inconnu: 'grey' };
-  const title = anyBlocked ? `🔴 ${blocked.length} bâtiment${blocked.length > 1 ? 's' : ''} bloqué${blocked.length > 1 ? 's' : ''}` : '🟢 Bâtiments rouverts';
-  const subject = anyBlocked
-    ? `🔴 BLOQUÉ : ${changed.filter((b) => b.status !== 'ouvert').map((b) => b.name).slice(0, 4).join(', ')}`
-    : `🟢 OUVERT : ${changed.map((b) => b.name).slice(0, 4).join(', ')}`;
-  const recipients = db.subscribers.filter((s) => s.confirmed && s.alerts?.includes('buildings'));
   const messages = [];
-  for (const s of recipients) {
-    const relevant = s.campuses?.length ? changed.filter((b) => s.campuses.includes(b.campus)) : changed;
-    if (!relevant.length) continue;
-    const items = relevant.map((b) => ({ label: `${b.name} : ${STATUS_LABEL[b.status]}`, value: b.campus, tone: tone[b.status] }));
-    const { html, text } = renderEmail({ tone: anyBlocked ? 'red' : 'green', kicker: `LYON 1 · LA DOUA EN LUTTE · ${BLOCUS_LABEL[effectiveBlocus()]}`, title, items, body: relevant.map((b) => b.note).filter(Boolean).join('\n'), token: s.token });
-    messages.push({ to: s.email, subject, html, text });
-  }
-  // Notification téléphone : la plus rapide, gratuite et sans limite. Ciblée par campus si l'abonné·e l'a choisi.
-  const campuses = [...new Set(changed.map((b) => b.campus))];
-  for (const campus of [null, ...campuses]) {
-    const list = campus ? changed.filter((b) => b.campus === campus) : changed;
-    const names = (st) => list.filter((b) => b.status === st).map((b) => b.name);
+  for (const sid of [...new Set(changedAll.map(siteOf))]) {
+    const changed = changedAll.filter((b) => siteOf(b) === sid);
+    const label = siteName(sid);
+    const blocked = db.buildings.filter((b) => siteOf(b) === sid && (b.status === 'bloque' || b.status === 'partiel'));
+    const anyBlocked = changed.some((b) => b.status === 'bloque' || b.status === 'partiel');
+    const title = anyBlocked ? `🔴 ${label} : ${blocked.length} bâtiment${blocked.length > 1 ? 's' : ''} bloqué${blocked.length > 1 ? 's' : ''}` : `🟢 ${label} : bâtiments rouverts`;
+    const names = (st) => changed.filter((b) => b.status === st).map((b) => b.name);
     const parts = [['bloque', '🔴 Bloqué'], ['partiel', '🟠 Partiel'], ['ouvert', '🟢 Ouvert']].filter(([k]) => names(k).length).map(([k, l]) => `${l} : ${names(k).join(', ')}`);
-    const filter = campus ? (s) => s.campuses?.length && s.campuses.includes(campus) : (s) => !s.campuses?.length;
-    sendPush('buildings', { title: anyBlocked ? `🔴 ${title.replace(/^🔴 /, '')}` : title, body: parts.join(' · ').slice(0, 220), url: '/#/batiments', tag: 'batiments' }, filter).catch((e) => console.error('[push]', e.message));
+    // Notification téléphone : seulement aux personnes qui suivent ce site
+    sendPush('buildings', { title, body: parts.join(' · ').slice(0, 220), url: '/#/batiments', tag: `batiments-${sid}` }, (sub) => wantsSite(sub, sid)).catch((e) => console.error('[push]', e.message));
+    // Telegram : la chaîne du site si elle existe, sinon la chaîne principale (avec le nom du site)
+    const tgNames = (st) => names(st).map(tgEsc);
+    const tgLines = [['bloque', '🔴 <b>BLOQUÉ</b>'], ['partiel', '🟠 <b>PARTIEL</b>'], ['ouvert', '🟢 <b>OUVERT</b>']].filter(([k]) => tgNames(k).length).map(([k, l]) => `${l} : ${tgNames(k).join(', ')}`);
+    const tgNotes = changed.filter((b) => b.note).map((b) => `<i>${tgEsc(b.name)} : ${tgEsc(b.note)}</i>`);
+    postTelegram([`📍 <b>${tgEsc(label)}</b> · ${tgEsc(BLOCUS_LABEL[effectiveBlocus(sid)])}`, ...tgLines, ...tgNotes].join('\n'), '/#/batiments', site(sid)?.telegramChatId);
+    if (EMAIL_MODE !== 'instant') continue; // les emails partent dans le récapitulatif du matin
+    for (const s of db.subscribers.filter((x) => x.confirmed && x.alerts?.includes('buildings') && wantsSite(x, sid))) {
+      const items = changed.map((b) => ({ label: `${b.name} : ${STATUS_LABEL[b.status]}`, value: label, tone: tone[b.status] }));
+      const { html, text } = renderEmail({ tone: anyBlocked ? 'red' : 'green', kicker: `${label.toUpperCase()} · ${BLOCUS_LABEL[effectiveBlocus(sid)]}`, title, items, body: changed.map((b) => b.note).filter(Boolean).join('\n'), token: s.token });
+      messages.push({ to: s.email, subject: title, html, text });
+    }
   }
-  // Chaîne Telegram : un message lisible d'un coup d'œil
-  const tgNames = (st) => changed.filter((b) => b.status === st).map((b) => tgEsc(b.name));
-  const tgLines = [['bloque', '🔴 <b>BLOQUÉ</b>'], ['partiel', '🟠 <b>PARTIEL</b>'], ['ouvert', '🟢 <b>OUVERT</b>']].filter(([k]) => tgNames(k).length).map(([k, l]) => `${l} : ${tgNames(k).join(', ')}`);
-  const tgNotes = changed.filter((b) => b.note).map((b) => `<i>${tgEsc(b.name)} : ${tgEsc(b.note)}</i>`);
-  postTelegram([`<b>${tgEsc(BLOCUS_LABEL[effectiveBlocus()])}</b>`, ...tgLines, ...tgNotes].join('\n'), '/#/batiments');
-  if (EMAIL_MODE !== 'instant') return; // les emails partent dans le récapitulatif du matin
-  const r = await sendMany(messages);
-  console.log(`[alertes] bâtiments : ${messages.length} email(s), ${r.sent} envoyé(s)`);
+  if (messages.length) {
+    const r = await sendMany(messages);
+    console.log(`[alertes] bâtiments : ${messages.length} email(s), ${r.sent} envoyé(s)`);
+  }
 }
-async function notify(kind, { subject, kicker, title, body, items, tone, url = '/' }) {
-  sendPush(kind, { title: subject, body: String(body || '').replace(/\s+/g, ' ').slice(0, 200), url, tag: kind }).catch((e) => console.error('[push]', e.message));
-  postTelegram(`<b>${tgEsc(subject)}</b>${body ? '\n' + tgEsc(String(body).trim()).slice(0, 1500) : ''}${items?.length ? '\n' + items.map((i) => `• ${tgEsc(i.label)}`).join('\n') : ''}`, url);
+async function notify(kind, { subject, kicker, title, body, items, tone, url = '/', site: sid = DEFAULT_SITE }) {
+  if (sid !== DEFAULT_SITE) subject = `${siteName(sid)} · ${subject}`;
+  sendPush(kind, { title: subject, body: String(body || '').replace(/\s+/g, ' ').slice(0, 200), url, tag: `${kind}-${sid}` }, (sub) => wantsSite(sub, sid)).catch((e) => console.error('[push]', e.message));
+  postTelegram(`📍 ${tgEsc(siteName(sid))}\n<b>${tgEsc(subject)}</b>${body ? '\n' + tgEsc(String(body).trim()).slice(0, 1500) : ''}${items?.length ? '\n' + items.map((i) => `• ${tgEsc(i.label)}`).join('\n') : ''}`, url, site(sid)?.telegramChatId);
   if (EMAIL_MODE !== 'instant') return;
-  const recipients = db.subscribers.filter((s) => s.confirmed && s.alerts?.includes(kind));
+  const recipients = db.subscribers.filter((s) => s.confirmed && s.alerts?.includes(kind) && wantsSite(s, sid));
   const messages = recipients.map((s) => ({ to: s.email, subject, ...renderEmail({ tone, kicker, title, body, items, token: s.token }) }));
   sendMany(messages).then((r) => console.log(`[alertes] ${kind} : ${r.sent ?? 0} envoyé(s)`)).catch((e) => console.error('[alertes]', e.message));
 }
@@ -323,24 +338,27 @@ async function sendDigest() {
   db.settings.lastDigestAt = now();
   save();
   const tone = { bloque: 'red', partiel: 'orange' };
-  const b = db.settings.blocus;
-  const soon = db.events.filter((e) => { const t = new Date(e.start).getTime(); return t > Date.now() - 3600e3 && t < Date.now() + 36 * 3600e3; }).sort((x, y) => x.start.localeCompare(y.start));
-  const reports = db.reports.filter((r) => r.status === 'published' && r.publishedAt > since);
-  const alerts = db.flashes.filter((f) => f.level === 'alerte' && f.at > since);
+  const soonAll = db.events.filter((e) => { const t = new Date(e.start).getTime(); return t > Date.now() - 3600e3 && t < Date.now() + 36 * 3600e3; }).sort((x, y) => x.start.localeCompare(y.start));
+  const reportsAll = db.reports.filter((r) => r.status === 'published' && r.publishedAt > since);
+  const alertsAll = db.flashes.filter((f) => f.level === 'alerte' && f.at > since);
   const fmt = (iso) => new Date(iso).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', weekday: 'long', hour: '2-digit', minute: '2-digit' });
   const messages = [];
   for (const s of db.subscribers.filter((x) => x.confirmed)) {
-    const blds = db.buildings.filter((x) => (x.status === 'bloque' || x.status === 'partiel') && (!s.campuses?.length || s.campuses.includes(x.campus)));
+    const mine = (x) => wantsSite(s, siteOf(x));
+    const main = s.sites?.[0] || DEFAULT_SITE;
+    const b = db.siteStatus[main] || {};
+    const soon = soonAll.filter(mine); const reports = reportsAll.filter(mine); const alerts = alertsAll.filter(mine);
+    const blds = db.buildings.filter((x) => (x.status === 'bloque' || x.status === 'partiel') && mine(x));
     const nBlocked = blds.filter((x) => x.status === 'bloque').length;
-    const title = nBlocked ? `🔴 ${nBlocked} bâtiment${nBlocked > 1 ? 's' : ''} bloqué${nBlocked > 1 ? 's' : ''} ce matin` : effectiveBlocus() === 'actif' ? '🔴 Blocus en cours' : '🟢 Aucun bâtiment signalé bloqué';
+    const title = nBlocked ? `🔴 ${nBlocked} bâtiment${nBlocked > 1 ? 's' : ''} bloqué${nBlocked > 1 ? 's' : ''} ce matin` : effectiveBlocus(main) === 'actif' ? '🔴 Blocus en cours' : '🟢 Aucun bâtiment signalé bloqué';
     const lines = [];
     if (b.message) lines.push(b.message);
     if (alerts.length) lines.push('', '🚨 Alertes d’hier :', ...alerts.map((f) => `• ${f.text}`));
     if (s.alerts?.includes('events') && soon.length) lines.push('', '📣 À venir :', ...soon.map((e) => `• ${e.type} · ${e.title} · ${fmt(e.start)}${e.place ? ' · ' + e.place : ''}`));
     if (s.alerts?.includes('reports') && reports.length) lines.push('', '📝 Nouveaux comptes rendus :', ...reports.map((r) => `• ${r.titre}`));
     lines.push('', 'Pour être prévenu·e tout de suite dans la journée : notifications de l’app ou chaîne Telegram.');
-    const items = s.alerts?.includes('buildings') ? blds.map((x) => ({ label: `${x.name} : ${STATUS_LABEL[x.status]}`, value: x.campus, tone: tone[x.status] })) : [];
-    const { html, text } = renderEmail({ tone: nBlocked || effectiveBlocus() === 'actif' ? 'red' : 'green', kicker: `LYON 1 · LA DOUA EN LUTTE · ${BLOCUS_LABEL[effectiveBlocus()]}`, title, items, body: lines.join('\n').trim(), token: s.token });
+    const items = s.alerts?.includes('buildings') ? blds.map((x) => ({ label: `${x.name} : ${STATUS_LABEL[x.status]}`, value: siteName(siteOf(x)), tone: tone[x.status] })) : [];
+    const { html, text } = renderEmail({ tone: nBlocked || effectiveBlocus(main) === 'actif' ? 'red' : 'green', kicker: `LYON 1 · LA DOUA EN LUTTE · ${BLOCUS_LABEL[effectiveBlocus(main)]}`, title, items, body: lines.join('\n').trim(), token: s.token });
     messages.push({ to: s.email, subject: `☀️ Ce matin à Lyon 1 · ${title.replace(/^[^ ]+ /, '').replace(/ ce matin$/, '')}`, html, text });
   }
   const r = await sendMany(messages);
@@ -366,7 +384,7 @@ setInterval(() => {
 app.get('/api/push/key', (req, res) => res.json({ key: publicKey(), kinds: PUSH_KINDS }));
 app.post('/api/push/subscribe', (req, res) => {
   if (limited(`push:${visitor(req)}`, 20, 3600e3)) return bad(res, 'Trop de tentatives.', 429);
-  try { pushSubscribe(req.body || {}); res.json({ ok: true }); } catch (e) { bad(res, e.message); }
+  try { pushSubscribe({ ...(req.body || {}), sites: (Array.isArray(req.body?.sites) ? req.body.sites : []).filter((x) => site(x)) }); res.json({ ok: true }); } catch (e) { bad(res, e.message); }
 });
 app.post('/api/push/unsubscribe', (req, res) => { pushUnsubscribe(String(req.body?.endpoint || '')); res.json({ ok: true }); });
 
@@ -404,46 +422,54 @@ mod.post('/password', (req, res) => {
   res.json({ ok: true });
 });
 
-// Blocus général
+// Titre de l'accueil d'un site (« Auto » = déduit de ses bâtiments)
 mod.put('/blocus', (req, res) => {
-  const b = db.settings.blocus;
-  const prev = effectiveBlocus();
+  const sid = req.body.site || DEFAULT_SITE;
+  if (!needSite(req, res, sid)) return;
+  const b = (db.siteStatus[sid] ||= { state: 'auto', message: '', updatedAt: null, by: '' });
+  // Un·e autre modo l'a changé depuis que la page est ouverte : on ne l'écrase pas
+  if (req.body.from && req.body.from !== b.state && b.by && b.by !== req.mod.org && Date.now() - new Date(b.updatedAt || 0).getTime() < 10 * 60e3) {
+    return bad(res, `Le titre de ${siteName(sid)} vient d'être changé par ${b.by}. Vérifie avant de le modifier.`, 409);
+  }
+  const prev = effectiveBlocus(sid);
   b.state = oneOf(req.body.state, BLOCUS, b.state);
-  const eff = effectiveBlocus();
-  b.message = clip(req.body.message, 400);
+  const eff = effectiveBlocus(sid);
+  if (req.body.message !== undefined) b.message = clip(req.body.message, 400);
   b.updatedAt = now();
   b.by = req.mod.org;
   save();
-  audit(req.mod, 'blocus', `${b.state} ${b.message}`);
-  feed(`${BLOCUS_LABEL[eff]}${b.state === 'auto' ? ' (automatique, selon les bâtiments)' : ''}${b.message ? ' : ' + b.message : ''}`, eff === 'actif' ? 'alert' : eff === 'leve' ? 'ok' : 'warn');
-  broadcast('blocus', b);
+  audit(req.mod, 'titre', `${siteName(sid)} : ${b.state} ${b.message}`, sid);
+  feed(`${siteName(sid)} · ${BLOCUS_LABEL[eff]}${b.state === 'auto' ? ' (automatique)' : ''}${b.message ? ' : ' + b.message : ''}`, eff === 'actif' ? 'alert' : eff === 'leve' ? 'ok' : 'warn');
+  broadcast('blocus', { site: sid });
   if (prev !== eff && req.body.notify !== false) {
-    notify('buildings', { tone: eff === 'leve' ? 'green' : 'red', subject: `${eff === 'leve' ? '🟢' : '🔴'} ${BLOCUS_LABEL[eff]} à Lyon 1`, kicker: 'LYON 1 · LA DOUA EN LUTTE', title: BLOCUS_LABEL[eff], body: b.message });
+    notify('buildings', { site: sid, tone: eff === 'leve' ? 'green' : 'red', subject: `${eff === 'leve' ? '🟢' : '🔴'} ${BLOCUS_LABEL[eff]}`, kicker: siteName(sid).toUpperCase(), title: BLOCUS_LABEL[eff], body: b.message, url: '/' });
   }
-  res.json({ ...b, effective: eff });
+  res.json({ ...b, effective: eff, auto: ['auto', 'inconnu'].includes(b.state) });
 });
 
 // Bâtiments
 mod.post('/buildings', (req, res) => {
   const name = clip(req.body.name, 80);
+  const sid = targetSite(req);
   if (!name) return bad(res, 'Nom requis.');
-  const b = { id: newId(), name, campus: clip(req.body.campus, 60) || 'Autre', status: 'inconnu', note: '', updatedAt: null, by: '' };
-  db.buildings.push(b); save(); audit(req.mod, 'bâtiment ajouté', name);
+  if (!needSite(req, res, sid)) return;
+  const b = { id: newId(), name, site: sid, campus: siteName(sid), status: 'inconnu', note: '', updatedAt: null, by: '' };
+  db.buildings.push(b); save(); audit(req.mod, 'bâtiment ajouté', name, sid);
   broadcast('buildings', {});
   res.json(b);
 });
 mod.put('/buildings/:id', (req, res) => {
   const b = db.buildings.find((x) => x.id === req.params.id);
   if (!b) return bad(res, 'Introuvable', 404);
+  if (!needSite(req, res, siteOf(b))) return;
+  if (req.body.from !== undefined && req.body.status !== undefined && req.body.from !== b.status) return bad(res, `${b.name} vient d'être mis à « ${STATUS_LABEL[b.status]} » par ${b.by || 'un·e autre modo'}.`, 409);
   const prev = b.status;
   if (req.body.name !== undefined) b.name = clip(req.body.name, 80) || b.name;
-  if (req.body.campus !== undefined) b.campus = clip(req.body.campus, 60) || b.campus;
   if (req.body.note !== undefined) b.note = clip(req.body.note, 240);
   if (req.body.status !== undefined) b.status = oneOf(req.body.status, STATUS, b.status);
-  b.updatedAt = now();
-  b.by = req.mod.org;
+  touch(req, b);
   save();
-  audit(req.mod, 'bâtiment', `${b.name} → ${b.status}`);
+  audit(req.mod, 'bâtiment', `${b.name} → ${b.status}`, siteOf(b));
   if (prev !== b.status) {
     feed(`${b.name} (${b.campus}) → ${STATUS_LABEL[b.status]}${b.note ? ' · ' + b.note : ''}`, b.status === 'bloque' ? 'alert' : b.status === 'partiel' ? 'warn' : b.status === 'ouvert' ? 'ok' : 'info');
     if (b.status !== 'inconnu') queueBuildingAlert(b);
@@ -452,40 +478,49 @@ mod.put('/buildings/:id', (req, res) => {
   res.json(b);
 });
 // Plusieurs bâtiments d'un coup (sélection multiple, saisie rapide, dictée) : une seule ligne dans le fil, un seul email.
-// undo:true = annulation juste après une erreur : l'alerte email en attente est retirée au lieu d'être renvoyée.
+// - « from » = statut que le modo voyait : si un·e autre modo l'a changé entre-temps, ce bâtiment n'est pas écrasé (conflit renvoyé).
+// - les bâtiments des sites où le modo n'a pas de droits sont ignorés.
+// - undo:true = annulation juste après une erreur : l'alerte email en attente est retirée au lieu d'être renvoyée.
 mod.put('/buildings-batch', (req, res) => {
   const changes = Array.isArray(req.body.changes) ? req.body.changes.slice(0, 200) : [];
   const undo = !!req.body.undo;
   const previous = [];
+  const conflicts = [];
+  const forbidden = [];
   const moved = { bloque: [], partiel: [], ouvert: [], inconnu: [] };
+  const touchedSites = new Set();
   for (const c of changes) {
     const b = db.buildings.find((x) => x.id === c.id);
     if (!b) continue;
+    if (!canSite(req.mod, siteOf(b))) { forbidden.push(b.name); continue; }
+    if (!undo && c.from !== undefined && c.from !== b.status) { conflicts.push({ id: b.id, name: b.name, status: b.status, by: b.by, at: b.updatedAt }); continue; }
     const status = oneOf(c.status, STATUS, b.status);
     if (c.note !== undefined) b.note = clip(c.note, 240);
     if (status === b.status && c.note === undefined) continue;
     previous.push({ id: b.id, status: b.status, note: b.note });
     const changed = status !== b.status;
     b.status = status;
-    b.updatedAt = now();
-    b.by = req.mod.org;
+    touch(req, b);
+    touchedSites.add(siteOf(b));
     if (!changed) continue;
     moved[status].push(b.name);
     if (undo) pendingBuildings.delete(b.id);
     else if (status !== 'inconnu') queueBuildingAlert(b);
   }
-  if (!previous.length) return res.json({ previous, changed: 0 });
+  if (!previous.length) return res.json({ previous, changed: 0, conflicts, forbidden });
   save();
+  const where = [...touchedSites].map(siteName).join(', ');
   const parts = [['bloque', 'BLOQUÉ'], ['partiel', 'PARTIEL'], ['ouvert', 'OUVERT'], ['inconnu', 'NON RENSEIGNÉ']].filter(([k]) => moved[k].length).map(([k, l]) => `${l} : ${moved[k].join(', ')}`);
-  if (parts.length) feed(`${undo ? 'Correction · ' : ''}${parts.join(' · ')}`, moved.bloque.length ? 'alert' : moved.partiel.length ? 'warn' : 'ok');
-  audit(req.mod, undo ? 'bâtiments (annulation)' : 'bâtiments (lot)', parts.join(' · '));
+  if (parts.length) feed(`${where} · ${undo ? 'Correction · ' : ''}${parts.join(' · ')}`, moved.bloque.length ? 'alert' : moved.partiel.length ? 'warn' : 'ok');
+  audit(req.mod, undo ? 'bâtiments (annulation)' : 'bâtiments (lot)', parts.join(' · '), [...touchedSites][0]);
   broadcast('buildings', {});
-  res.json({ previous, changed: previous.length });
+  res.json({ previous, changed: previous.length, conflicts, forbidden });
 });
 mod.delete('/buildings/:id', (req, res) => {
   const i = db.buildings.findIndex((x) => x.id === req.params.id);
   if (i < 0) return bad(res, 'Introuvable', 404);
-  audit(req.mod, 'bâtiment supprimé', db.buildings[i].name);
+  if (!needSite(req, res, siteOf(db.buildings[i]))) return;
+  audit(req.mod, 'bâtiment supprimé', db.buildings[i].name, siteOf(db.buildings[i]));
   db.buildings.splice(i, 1); save(); broadcast('buildings', {});
   res.json({ ok: true });
 });
@@ -508,44 +543,54 @@ mod.post('/events', (req, res) => {
   let e;
   try { e = readEvent(req.body); } catch (err) { return bad(res, err.message); }
   if (!e.title) return bad(res, 'Titre requis.');
-  e.id = newId(); e.org = req.mod.org; e.createdAt = now();
-  db.events.push(e); save(); audit(req.mod, 'événement', e.title);
+  e.site = targetSite(req);
+  if (!needSite(req, res, e.site)) return;
+  e.id = newId(); e.org = req.mod.org; e.createdAt = now(); touch(req, e);
+  db.events.push(e); save(); audit(req.mod, 'événement', e.title, e.site);
   const when = new Date(e.start).toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' });
-  feed(`Nouveau rendez-vous · ${e.type} · ${e.title} · ${when}${e.place ? ' · ' + e.place : ''}`, 'info');
+  feed(`${siteName(e.site)} · Nouveau rendez-vous · ${e.type} · ${e.title} · ${when}${e.place ? ' · ' + e.place : ''}`, 'info');
   broadcast('events', {});
-  if (req.body.notify) notify('events', { tone: 'blue', subject: `📣 ${e.type} : ${e.title} (${when})`, kicker: `LYON 1 · LA DOUA EN LUTTE · ${e.type.toUpperCase()}`, title: e.title, body: `${when}\n${e.place}${e.address ? ' · ' + e.address : ''}\n\n${e.description}`.trim(), url: '/#/agenda' });
+  if (req.body.notify) notify('events', { site: e.site, tone: 'blue', subject: `📣 ${e.type} : ${e.title} (${when})`, kicker: `LYON 1 · LA DOUA EN LUTTE · ${e.type.toUpperCase()}`, title: e.title, body: `${when}\n${e.place}${e.address ? ' · ' + e.address : ''}\n\n${e.description}`.trim(), url: '/#/agenda' });
   res.json(e);
 });
 mod.put('/events/:id', (req, res) => {
   const i = db.events.findIndex((x) => x.id === req.params.id);
   if (i < 0) return bad(res, 'Introuvable', 404);
+  if (!needSite(req, res, siteOf(db.events[i]))) return;
+  if (stale(req, res, db.events[i])) return;
   try { db.events[i] = readEvent(req.body, db.events[i]); } catch (err) { return bad(res, err.message); }
-  save(); audit(req.mod, 'événement modifié', db.events[i].title); broadcast('events', {});
+  touch(req, db.events[i]);
+  save(); audit(req.mod, 'événement modifié', db.events[i].title, siteOf(db.events[i])); broadcast('events', {});
   res.json(db.events[i]);
 });
 mod.delete('/events/:id', (req, res) => {
   const i = db.events.findIndex((x) => x.id === req.params.id);
   if (i < 0) return bad(res, 'Introuvable', 404);
-  audit(req.mod, 'événement supprimé', db.events[i].title);
+  if (!needSite(req, res, siteOf(db.events[i]))) return;
+  audit(req.mod, 'événement supprimé', db.events[i].title, siteOf(db.events[i]));
   db.events.splice(i, 1); save(); broadcast('events', {});
   res.json({ ok: true });
 });
-mod.get('/events/all', (req, res) => res.json([...db.events].sort((a, b) => b.start.localeCompare(a.start))));
+mod.get('/events/all', (req, res) => res.json(db.events.filter((e) => canSite(req.mod, siteOf(e))).sort((a, b) => b.start.localeCompare(a.start))));
 
 // Flash infos manuels (bandeau)
 mod.post('/flashes', (req, res) => {
   const text = clip(req.body.text, 280);
   if (!text) return bad(res, 'Texte requis.');
-  const f = { id: newId(), level: oneOf(req.body.level, ['alerte', 'info', 'ok'], 'info'), text, at: now(), org: req.mod.org };
+  const fsite = targetSite(req);
+  if (!needSite(req, res, fsite)) return;
+  const f = { id: newId(), site: fsite, level: oneOf(req.body.level, ['alerte', 'info', 'ok'], 'info'), text, at: now(), org: req.mod.org };
   db.flashes.unshift(f); db.flashes = db.flashes.slice(0, 100); save();
-  audit(req.mod, 'flash', text);
-  feed(text, f.level === 'alerte' ? 'alert' : f.level === 'ok' ? 'ok' : 'info');
-  if (f.level === 'alerte' && req.body.push !== false) postTelegram(`🚨 <b>ALERTE</b>\n${tgEsc(text)}`, '/');
-  if (f.level === 'alerte' && req.body.push !== false) sendPush('urgent', { title: '🚨 Alerte · La Doua en lutte', body: text, url: '/', tag: `flash-${f.id}` }).catch((e) => console.error('[push]', e.message));
+  audit(req.mod, 'flash', text, fsite);
+  feed(`${siteName(fsite)} · ${text}`, f.level === 'alerte' ? 'alert' : f.level === 'ok' ? 'ok' : 'info');
+  if (f.level === 'alerte' && req.body.push !== false) postTelegram(`🚨 <b>ALERTE · ${tgEsc(siteName(fsite))}</b>\n${tgEsc(text)}`, '/', site(fsite)?.telegramChatId);
+  if (f.level === 'alerte' && req.body.push !== false) sendPush('urgent', { title: `🚨 Alerte · ${siteName(fsite)}`, body: text, url: '/', tag: `flash-${f.id}` }, (sub) => wantsSite(sub, fsite)).catch((e) => console.error('[push]', e.message));
   broadcast('flashes', {});
   res.json(f);
 });
 mod.delete('/flashes/:id', (req, res) => {
+  const f = db.flashes.find((x) => x.id === req.params.id);
+  if (f && !needSite(req, res, siteOf(f))) return;
   db.flashes = db.flashes.filter((f) => f.id !== req.params.id); save(); broadcast('flashes', {});
   res.json({ ok: true });
 });
@@ -554,32 +599,41 @@ mod.delete('/flashes/:id', (req, res) => {
 mod.post('/demands', (req, res) => {
   const title = clip(req.body.title, 160);
   if (!title) return bad(res, 'Titre requis.');
-  const d = { id: newId(), order: Math.max(0, ...db.demands.map((x) => x.order || 0)) + 1, title, text: clip(req.body.text, 2000), category: clip(req.body.category, 60) || 'Général', status: oneOf(req.body.status, ['en-lutte', 'obtenu', 'refuse'], 'en-lutte'), createdAt: now(), org: req.mod.org };
-  db.demands.push(d); save(); audit(req.mod, 'revendication', title);
+  const dsite = targetSite(req);
+  if (!needSite(req, res, dsite)) return;
+  const d = { id: newId(), site: dsite, updatedAt: now(), by: req.mod.org, order: Math.max(0, ...db.demands.map((x) => x.order || 0)) + 1, title, text: clip(req.body.text, 2000), category: clip(req.body.category, 60) || 'Général', status: oneOf(req.body.status, ['en-lutte', 'obtenu', 'refuse'], 'en-lutte'), createdAt: now(), org: req.mod.org };
+  db.demands.push(d); save(); audit(req.mod, 'revendication', title, dsite);
   broadcast('demands', {});
   res.json(publicDemand(d));
 });
 // Texte « Le contexte » affiché en haut des revendications
 mod.put('/context', (req, res) => {
-  db.settings.context = { title: clip(req.body.title, 80) || 'Le contexte', text: clip(req.body.text, 6000), call: clip(req.body.call, 300), closing: clip(req.body.closing, 3000), source: clip(req.body.source, 600) };
-  save(); audit(req.mod, 'contexte modifié', ''); broadcast('demands', {});
-  res.json(db.settings.context);
+  const csite = req.body.site || DEFAULT_SITE;
+  if (!needSite(req, res, csite)) return;
+  db.contexts[csite] = { title: clip(req.body.title, 80) || 'Le contexte', text: clip(req.body.text, 6000), call: clip(req.body.call, 300), closing: clip(req.body.closing, 3000), source: clip(req.body.source, 600) };
+  save(); audit(req.mod, 'contexte modifié', siteName(csite), csite); broadcast('demands', {});
+  res.json(db.contexts[csite]);
 });
 mod.put('/demands/:id', (req, res) => {
   const d = db.demands.find((x) => x.id === req.params.id);
   if (!d) return bad(res, 'Introuvable', 404);
+  if (!needSite(req, res, siteOf(d))) return;
+  if (stale(req, res, d)) return;
+  touch(req, d);
   if (req.body.title !== undefined) d.title = clip(req.body.title, 160) || d.title;
   if (req.body.text !== undefined) d.text = clip(req.body.text, 2000);
-  if (req.body.category !== undefined) d.category = clip(req.body.category, 40) || 'Général';
+  if (req.body.category !== undefined) d.category = clip(req.body.category, 60) || 'Général';
   if (req.body.status !== undefined) {
     const prev = d.status;
     d.status = oneOf(req.body.status, ['en-lutte', 'obtenu', 'refuse'], d.status);
     if (prev !== d.status && d.status === 'obtenu') feed(`Revendication obtenue : ${d.title}`, 'ok');
   }
-  save(); audit(req.mod, 'revendication modifiée', d.title); broadcast('demands', {});
+  save(); audit(req.mod, 'revendication modifiée', d.title, siteOf(d)); broadcast('demands', {});
   res.json(publicDemand(d));
 });
 mod.delete('/demands/:id', (req, res) => {
+  const dd = db.demands.find((x) => x.id === req.params.id);
+  if (dd && !needSite(req, res, siteOf(dd))) return;
   db.demands = db.demands.filter((d) => d.id !== req.params.id); delete db.supports[req.params.id];
   save(); broadcast('demands', {}); res.json({ ok: true });
 });
@@ -588,11 +642,15 @@ mod.delete('/demands/:id', (req, res) => {
 mod.post('/contacts', (req, res) => {
   const name = clip(req.body.name, 100);
   if (!name) return bad(res, 'Nom requis.');
-  const c = { id: newId(), name, role: clip(req.body.role, 160), how: clip(req.body.how, 300), link: /^(https?:\/\/|mailto:|tel:)/i.test(req.body.link || '') ? clip(req.body.link, 300) : '' };
+  const csite = targetSite(req);
+  if (!needSite(req, res, csite)) return;
+  const c = { id: newId(), site: csite, org: req.mod.org, name, role: clip(req.body.role, 160), how: clip(req.body.how, 300), link: /^(https?:\/\/|mailto:|tel:)/i.test(req.body.link || '') ? clip(req.body.link, 300) : '' };
   db.contacts.push(c); save(); audit(req.mod, 'contact', name); broadcast('contacts', {});
   res.json(c);
 });
 mod.delete('/contacts/:id', (req, res) => {
+  const cc = db.contacts.find((x) => x.id === req.params.id);
+  if (cc && !needSite(req, res, siteOf(cc))) return;
   db.contacts = db.contacts.filter((c) => c.id !== req.params.id); save(); broadcast('contacts', {});
   res.json({ ok: true });
 });
@@ -614,10 +672,12 @@ mod.post('/chat/:id/restore', (req, res) => {
 });
 
 // Comptes rendus : PDF → IA → flash infos. Réponse en flux NDJSON pour voir l'IA travailler en direct.
-mod.get('/reports', (req, res) => res.json([...db.reports].sort((a, b) => b.createdAt.localeCompare(a.createdAt))));
+mod.get('/reports', (req, res) => res.json(db.reports.filter((r) => canSite(req.mod, siteOf(r))).sort((a, b) => b.createdAt.localeCompare(a.createdAt))));
 mod.post('/reports/analyze', express.raw({ type: 'application/pdf', limit: '25mb' }), async (req, res) => {
   const pdf = req.body;
   if (!Buffer.isBuffer(pdf) || pdf.subarray(0, 5).toString() !== '%PDF-') return bad(res, 'Envoie un fichier PDF.');
+  const rsite = targetSite(req);
+  if (!needSite(req, res, rsite)) return;
   res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no' });
   const send = (o) => res.write(JSON.stringify(o) + '\n');
   const fileName = clip(req.headers['x-file-name'] ? decodeURIComponent(req.headers['x-file-name']) : 'compte-rendu.pdf', 120);
@@ -635,9 +695,9 @@ mod.post('/reports/analyze', express.raw({ type: 'application/pdf', limit: '25mb
     send({ t: 'error', m: e.message || 'Erreur pendant l’analyse.' });
     return res.end();
   }
-  const r = { id: newId(), status: 'draft', source, fileName, createdAt: now(), by: req.mod.username, org: req.mod.org, ...sanitizeReport(data) };
+  const r = { id: newId(), site: rsite, updatedAt: now(), status: 'draft', source, fileName, createdAt: now(), by: req.mod.username, org: req.mod.org, ...sanitizeReport(data) };
   db.reports.push(r); save();
-  audit(req.mod, 'compte rendu analysé', r.titre);
+  audit(req.mod, 'compte rendu analysé', r.titre, rsite);
   send({ t: 'done', report: r });
   res.end();
 });
@@ -659,34 +719,39 @@ function sanitizeReport(d = {}) {
 mod.put('/reports/:id', (req, res) => {
   const r = db.reports.find((x) => x.id === req.params.id);
   if (!r) return bad(res, 'Introuvable', 404);
+  if (!needSite(req, res, siteOf(r))) return;
+  if (stale(req, res, r)) return;
   Object.assign(r, sanitizeReport({ ...r, ...req.body }));
+  touch(req, r);
   const publishing = req.body.publish && r.status !== 'published';
   if (publishing) { r.status = 'published'; r.publishedAt = now(); }
   if (req.body.unpublish) r.status = 'draft';
   save();
-  audit(req.mod, publishing ? 'compte rendu publié' : 'compte rendu modifié', r.titre);
+  audit(req.mod, publishing ? 'compte rendu publié' : 'compte rendu modifié', r.titre, siteOf(r));
   if (publishing) {
-    feed(`Compte rendu publié : ${r.titre}${r.flashs[0] ? ' · ' + r.flashs[0].titre : ''}`, 'info');
+    feed(`${siteName(siteOf(r))} · Compte rendu publié : ${r.titre}${r.flashs[0] ? ' · ' + r.flashs[0].titre : ''}`, 'info');
     // Import optionnel dans l'agenda et les revendications.
     if (req.body.importEvents) {
       for (const e of r.rdv) {
         const start = new Date(`${e.date}T${e.heure || '12:00'}:00`);
         if (!e.date || Number.isNaN(start.getTime())) continue;
-        db.events.push({ id: newId(), type: e.type, title: e.titre, start: start.toISOString(), place: e.lieu, address: '', description: `Annoncé dans : ${r.titre}`, org: req.mod.org, createdAt: now() });
+        db.events.push({ id: newId(), site: siteOf(r), type: e.type, title: e.titre, start: start.toISOString(), place: e.lieu, address: '', description: `Annoncé dans : ${r.titre}`, org: req.mod.org, createdAt: now() });
       }
       broadcast('events', {});
     }
     if (req.body.importDemands) {
-      for (const t of r.revendications) if (!db.demands.some((d) => d.title.toLowerCase() === t.toLowerCase())) db.demands.push({ id: newId(), title: clip(t, 160), text: '', category: 'Votée en AG', status: 'en-lutte', createdAt: now(), org: req.mod.org });
+      for (const t of r.revendications) if (!db.demands.some((d) => d.title.toLowerCase() === t.toLowerCase())) db.demands.push({ id: newId(), site: siteOf(r), title: clip(t, 160), text: '', category: 'Votée en AG', status: 'en-lutte', createdAt: now(), org: req.mod.org });
       broadcast('demands', {});
     }
     save();
-    if (req.body.notify) notify('reports', { tone: 'blue', subject: `📝 Compte rendu : ${r.titre}`, kicker: 'LYON 1 · LA DOUA EN LUTTE · COMPTE RENDU', title: r.titre, body: r.resume, items: r.flashs.slice(0, 6).map((f) => ({ label: f.titre, value: '', tone: f.type === 'alerte' ? 'red' : undefined })), url: `/#/cr/${r.id}` });
+    if (req.body.notify) notify('reports', { site: siteOf(r), tone: 'blue', subject: `📝 Compte rendu : ${r.titre}`, kicker: 'LYON 1 · LA DOUA EN LUTTE · COMPTE RENDU', title: r.titre, body: r.resume, items: r.flashs.slice(0, 6).map((f) => ({ label: f.titre, value: '', tone: f.type === 'alerte' ? 'red' : undefined })), url: `/#/cr/${r.id}` });
   }
   broadcast('reports', {});
   res.json(r);
 });
 mod.delete('/reports/:id', (req, res) => {
+  const rr = db.reports.find((x) => x.id === req.params.id);
+  if (rr && !needSite(req, res, siteOf(rr))) return;
   db.reports = db.reports.filter((r) => r.id !== req.params.id); save(); broadcast('reports', {});
   res.json({ ok: true });
 });
@@ -708,7 +773,21 @@ mod.get('/stats', (req, res) => res.json({
   emailCap: emailCap(),
   storage: remoteEnabled() ? 'Supabase' : (process.env.RENDER ? 'temporaire' : 'disque'),
 }));
-mod.get('/audit', (req, res) => res.json(db.audit.slice(0, 200)));
+// Journal : l'admin voit tout ; un modo voit ses actions et celles de ses sites
+mod.get('/audit', (req, res) => res.json(db.audit.filter((a) => isAdmin(req.mod) || a.by === req.mod.username || (a.site && canSite(req.mod, a.site))).slice(0, 200).map((a) => ({ ...a, siteName: a.site ? siteName(a.site) : '' }))));
+// Autres modos actifs dans les 3 dernières minutes sur au moins un site en commun
+mod.get('/presence', (req, res) => {
+  const mine = new Set(modSites(req.mod));
+  const list = [];
+  for (const [id, at] of presence) {
+    if (id === req.mod.id || Date.now() - at > 3 * 60e3) continue;
+    const m = db.mods.find((x) => x.id === id);
+    if (!m) continue;
+    const shared = modSites(m).filter((x) => mine.has(x));
+    if (shared.length) list.push({ org: m.org, username: m.username, sites: shared.map(siteName), ago: Math.round((Date.now() - at) / 1000) });
+  }
+  res.json(list);
+});
 
 // Admin : comptes modos (un compte par organisation / personne)
 mod.get('/mods', requireAdmin, (req, res) => res.json(db.mods.map(publicMod)));
@@ -717,9 +796,26 @@ mod.post('/mods', requireAdmin, (req, res) => {
   if (!/^[a-z0-9._-]{3,40}$/.test(username)) return bad(res, 'Identifiant : 3 à 40 caractères (lettres, chiffres, . _ -).');
   if (db.mods.some((m) => m.username === username)) return bad(res, 'Identifiant déjà pris.');
   const password = crypto.randomBytes(9).toString('base64url');
-  const m = { id: newId(), username, org: clip(req.body.org, 80) || 'Syndicat', role: req.body.role === 'admin' ? 'admin' : 'mod', ...hashPassword(password), createdAt: now(), version: 1 };
+  const role = req.body.role === 'admin' ? 'admin' : 'mod';
+  const msites = (Array.isArray(req.body.sites) ? req.body.sites : []).filter((x) => site(x));
+  if (role === 'mod' && !msites.length) return bad(res, 'Choisis au moins un site pour ce modo.');
+  const m = { id: newId(), username, org: clip(req.body.org, 80) || 'Syndicat', role, sites: role === 'admin' ? [] : msites, ...hashPassword(password), createdAt: now(), version: 1 };
   db.mods.push(m); save(); audit(req.mod, 'compte modo créé', `${username} (${m.org})`);
   res.json({ ...publicMod(m), password });
+});
+// Modifier un compte : nom affiché (AG, syndicat…), sites, rôle
+mod.put('/mods/:id', requireAdmin, (req, res) => {
+  const m = db.mods.find((x) => x.id === req.params.id);
+  if (!m) return bad(res, 'Introuvable', 404);
+  if (req.body.org !== undefined) m.org = clip(req.body.org, 80) || m.org;
+  if (Array.isArray(req.body.sites)) {
+    const msites = req.body.sites.filter((x) => site(x));
+    if (m.role !== 'admin' && !msites.length) return bad(res, 'Au moins un site.');
+    m.sites = msites;
+  }
+  if (req.body.role && m.id !== req.mod.id) m.role = req.body.role === 'admin' ? 'admin' : 'mod';
+  save(); audit(req.mod, 'compte modifié', `${m.username} : ${m.role === 'admin' ? 'admin' : (m.sites || []).map(siteName).join(', ')}`);
+  res.json(publicMod(m));
 });
 mod.post('/mods/:id/reset', requireAdmin, (req, res) => {
   const m = db.mods.find((x) => x.id === req.params.id);
@@ -738,8 +834,41 @@ mod.delete('/mods/:id', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// Sites : liste gérée par l'admin
+mod.post('/sites', requireAdmin, (req, res) => {
+  const name = clip(req.body.name, 80);
+  const short = clip(req.body.short, 30) || name;
+  if (!name) return bad(res, 'Nom requis.');
+  let id = short.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || newId();
+  if (site(id)) id = `${id}-${newId().slice(0, 4)}`;
+  db.sites.push({ id, name, short });
+  db.siteStatus[id] = { state: 'auto', message: '', updatedAt: null, by: '' };
+  save(); audit(req.mod, 'site créé', name, id); broadcast('buildings', {});
+  res.json(site(id));
+});
+mod.put('/sites/:id', requireAdmin, (req, res) => {
+  const x = site(req.params.id);
+  if (!x) return bad(res, 'Introuvable', 404);
+  if (req.body.name !== undefined) x.name = clip(req.body.name, 80) || x.name;
+  if (req.body.short !== undefined) x.short = clip(req.body.short, 30) || x.short;
+  if (req.body.telegramChatId !== undefined) x.telegramChatId = clip(req.body.telegramChatId, 60);
+  for (const b of db.buildings) if (siteOf(b) === x.id) b.campus = x.short;
+  save(); audit(req.mod, 'site modifié', x.name, x.id); broadcast('buildings', {});
+  res.json(x);
+});
+mod.delete('/sites/:id', requireAdmin, (req, res) => {
+  const id = req.params.id;
+  if (id === DEFAULT_SITE) return bad(res, 'Le site principal ne peut pas être supprimé.');
+  const used = ['buildings', 'events', 'demands', 'polls', 'reports', 'posts', 'flashes', 'contacts'].some((k) => (db[k] || []).some((x) => siteOf(x) === id));
+  if (used) return bad(res, 'Ce site a encore du contenu : supprime-le ou déplace-le d’abord.');
+  db.sites = db.sites.filter((x) => x.id !== id);
+  for (const m of db.mods) if (m.sites) m.sites = m.sites.filter((x) => x !== id);
+  save(); audit(req.mod, 'site supprimé', id); broadcast('buildings', {});
+  res.json({ ok: true });
+});
+
 // ---------- Votes, blog, témoignages ----------
-const community = registerCommunity(app, mod, { broadcast, feed, audit, visitor, limited, clip, bad, oneOf });
+const community = registerCommunity(app, mod, { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, targetSite, stale, touch });
 
 // ---------- Site ----------
 // Le service worker doit toujours être relu, sinon les mises à jour de l'app n'arriveraient pas.
