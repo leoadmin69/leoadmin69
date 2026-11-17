@@ -15,6 +15,23 @@ const parisDay = (d = new Date()) => new Intl.DateTimeFormat('fr-CA', { timeZone
 // Numéros de téléphone et emails refusés dans l'entraide (protection des personnes)
 const CONTACT_RE = /(\+?\d[\d .-]{7,}\d)|([^\s@]+@[^\s@]+\.[a-z]{2,})/i;
 
+// Historique de la mobilisation reconstitué à partir de la presse (chaque ligne cite sa source).
+// Les modos peuvent corriger, compléter ou supprimer ces lignes depuis la page Frise.
+const HISTORY_V1 = [
+  { date: '2026-10-06', kind: 'blocage', text: 'Premier blocus à Lyon 1, sur le campus de la Doua.', source: 'Rue89Lyon', url: 'https://www.rue89lyon.fr/2026/10/16/lyon-1-ecoles-ingenieurs-conservatoire-soutiens-inattendus-mouvement-lyceen/' },
+  { date: '2026-10-06', kind: 'manif', text: 'Grande journée de mobilisation lycéenne et étudiante à Lyon, début de la « Semaine noire ».', source: 'Révolution Permanente', url: 'https://www.revolutionpermanente.fr/Apres-une-Semaine-Noire-reussie-a-Lyon-organisons-la-jonction-de-la-jeunesse-avec-les-travailleurs' },
+  { date: '2026-10-07', kind: 'blocage', text: 'Mobilisation à Lyon 1 (avec Lyon 2 et l’ENS) : tram T1 coupé entre Perrache et IUT Feyssine, T4 interrompu jusqu’à 14 h.', source: 'LyonMag', url: 'https://www.lyonmag.com/article/154296/mobilisation-lyceenne-a-lyon-universites-bloquees-rassemblements-devant-trois-lycees-et-tramway-perturbe' },
+  { date: '2026-10-13', kind: 'blocage', text: 'Nouveau blocus à Lyon 1.', source: 'Rue89Lyon', url: 'https://www.rue89lyon.fr/2026/10/16/lyon-1-ecoles-ingenieurs-conservatoire-soutiens-inattendus-mouvement-lyceen/' },
+  { date: '2026-10-14', kind: 'ag', text: 'AG devant le bâtiment Astrée : plus de 200 étudiant·es (jusqu’à 400 selon un participant) votent un nouveau blocus. Une première pour la fac de sciences.', source: 'Rue89Lyon', url: 'https://www.rue89lyon.fr/2026/10/16/lyon-1-ecoles-ingenieurs-conservatoire-soutiens-inattendus-mouvement-lyceen/' },
+  { date: '2026-10-15', kind: 'blocage', text: 'Lyon 1 parmi les établissements du supérieur bloqués (avec l’IEP et l’INSA) ; T1 et T6 perturbés.', source: 'France 3 Auvergne-Rhône-Alpes', url: 'https://france3-regions.franceinfo.fr/auvergne-rhone-alpes/rhone/lyon/mobilisation-lyceenne-et-etudiante-19-etablissements-impactes-a-lyon-2-rassemblements-ont-ete-interdits-par-la-prefecture-3434286.html' },
+  { date: '2026-10-31', kind: 'manif', text: 'Acte 3 de la mobilisation lycéenne et étudiante à Lyon.', source: 'MesInfos', url: 'https://mesinfos.fr/69000-lyon/manifestations-apres-les-vacances-les-etudiants-lyonnais-reprennent-la-lutte-342517.html' },
+  { date: '2026-11-03', kind: 'blocage', text: 'Rentrée de la Toussaint : Lyon 1 bloquée, avec Lyon 2, l’ENS et Centrale (selon la préfecture).', source: 'LyonMag', url: 'https://www.lyonmag.com/article/154720/mouvement-lyceen-et-etudiant-a-lyon-23-lycees-concernes-quatre-etablissements-du-superieur-bloques' },
+  { date: '2026-11-03', kind: 'manif', text: 'Manif à l’appel de l’Interfac, de la place Jean-Jaurès à la Manufacture des tabacs : 900 personnes selon la préfecture, 1 500 selon les organisateurs.', source: 'MesInfos', url: 'https://mesinfos.fr/69000-lyon/manifestations-apres-les-vacances-les-etudiants-lyonnais-reprennent-la-lutte-342517.html' },
+  { date: '2026-11-10', kind: 'manif', text: 'Manif des lycéen·nes, étudiant·es et personnels de l’éducation, de Jean-Macé à la place Guichard.', source: 'Lyon Capitale', url: 'https://www.lyoncapitale.fr/actualite/greve-dans-l-education-une-nouvelle-manifestation-a-lyon-ce-mardi-matin' },
+  { date: '2026-11-12', kind: 'blocage', text: 'Un mois de blocus à Lyon 1 : cours annulés, reportés ou passés en distanciel.', source: 'Lyon Capitale', url: 'https://www.lyoncapitale.fr/actualite/on-a-limpression-detre-la-generation-sacrifiee-a-lyon-les-etudiants-redoutent-leurs-premiers-partiels-apres-un-mois-de-blocus' },
+];
+const HISTORY_ICON = { blocage: '🔴', ag: '🗣️', manif: '📣', win: '✊', alerte: '🚨', autre: '📍' };
+
 const DROITS_V1 = {
   title: 'Tes droits pendant le blocage',
   published: false, // à relire et valider par les syndicats / la legal team avant publication
@@ -58,6 +75,11 @@ export function registerExtras(app, mod, ctx) {
   db.dayLog ||= {};
   db.entraide ||= [];
   db.pages ||= {};
+  db.friseHistory ||= [];
+  if (!db.settings.friseHistoryV1) {
+    db.friseHistory.push(...HISTORY_V1.map((h) => ({ id: newId(), ...h, by: 'presse', at: now() })));
+    db.settings.friseHistoryV1 = true; save();
+  }
   if (!db.pages.droits) { db.pages.droits = { ...DROITS_V1, updatedAt: now(), by: '' }; save(); }
 
   // Identifiant d'appareil anonyme (même cookie que les votes), puis empreinte propre à chaque usage
@@ -107,9 +129,10 @@ export function registerExtras(app, mod, ctx) {
     }
     for (const d of db.demands) if (ok(d) && d.status === 'obtenu' && d.obtainedAt) add(d.obtainedAt, { kind: 'win', icon: '✊', text: `Obtenu : ${d.title}`, site: siteOf(d) });
     for (const f of db.flashes) if (ok(f) && f.level === 'alerte') add(f.at, { kind: 'alerte', icon: '🚨', text: f.text, site: siteOf(f) });
+    for (const h of db.friseHistory) (days[h.date] ||= []).push({ kind: h.kind === 'win' ? 'win' : h.kind === 'ag' ? 'event' : h.kind === 'alerte' ? 'alerte' : h.kind === 'manif' ? 'event' : 'blocage', icon: HISTORY_ICON[h.kind] || '📍', text: h.text, source: h.source, url: h.url, hid: h.id, hist: true });
     const order = { win: 0, vote: 1, blocage: 2, event: 3, cr: 4, alerte: 5 };
     const list = Object.entries(days).map(([day, items]) => ({ day, items: items.sort((a, b) => order[a.kind] - order[b.kind]) })).sort((a, b) => b.day.localeCompare(a.day));
-    const start = db.settings.mobilisationStart || list.at(-1)?.day || parisDay();
+    const start = db.settings.mobilisationStart || list.at(-1)?.day || parisDay(); // par défaut : le plus ancien jour connu
     const dayNum = (d) => Math.round((new Date(d) - new Date(start)) / 864e5) + 1;
     return {
       start,
@@ -118,12 +141,43 @@ export function registerExtras(app, mod, ctx) {
         days: list.filter((x) => x.items.some((i) => i.kind === 'blocage' || i.kind === 'event')).length,
         votes: list.reduce((n, x) => n + x.items.filter((i) => i.kind === 'vote').length, 0),
         wins: db.demands.filter((d) => ok(d) && d.status === 'obtenu').length,
-        ag: db.events.filter((e) => ok(e) && e.type === 'AG' && new Date(e.start).getTime() < Date.now()).length,
+        ag: db.events.filter((e) => ok(e) && e.type === 'AG' && new Date(e.start).getTime() < Date.now()).length + db.friseHistory.filter((h) => h.kind === 'ag').length,
       },
       days: list.map((x) => ({ ...x, num: dayNum(x.day) })),
     };
   }
   app.get('/api/frise', (req, res) => res.json(timeline(String(req.query.site || ''))));
+  // Lignes d'historique (presse, souvenirs des AG…) : tout·e modo ajoute ; on modifie/supprime les siennes, l'admin toutes.
+  const readHist = (b, h = {}) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(b.date ?? h.date ?? '')) throw new Error('Date AAAA-MM-JJ.');
+    const text = clip(b.text ?? h.text, 300);
+    if (text.length < 4) throw new Error('Texte trop court.');
+    const url = clip(b.url ?? h.url, 400);
+    if (url && !/^https?:\/\//.test(url)) throw new Error('Lien invalide (https://…).');
+    return { ...h, date: b.date ?? h.date, kind: oneOf(b.kind ?? h.kind, Object.keys(HISTORY_ICON), 'autre'), text, source: clip(b.source ?? h.source, 80), url };
+  };
+  mod.post('/frise/history', (req, res) => {
+    let h; try { h = readHist(req.body); } catch (e) { return bad(res, e.message); }
+    h = { id: newId(), ...h, by: req.mod.org, at: now() };
+    db.friseHistory.push(h); save(); audit(req.mod, 'frise : ajout', `${h.date} ${h.text.slice(0, 60)}`);
+    res.json(h);
+  });
+  const ownHist = (req, res) => {
+    const h = db.friseHistory.find((x) => x.id === req.params.id);
+    if (!h) return bad(res, 'Introuvable', 404), null;
+    if (!isAdmin(req.mod) && h.by !== req.mod.org) return bad(res, 'Seul·e l’admin ou l’auteur·e peut modifier cette ligne.', 403), null;
+    return h;
+  };
+  mod.put('/frise/history/:id', (req, res) => {
+    const h = ownHist(req, res); if (!h) return;
+    try { Object.assign(h, readHist(req.body, h)); } catch (e) { return bad(res, e.message); }
+    save(); audit(req.mod, 'frise : modif', `${h.date} ${h.text.slice(0, 60)}`); res.json(h);
+  });
+  mod.delete('/frise/history/:id', (req, res) => {
+    const h = ownHist(req, res); if (!h) return;
+    db.friseHistory = db.friseHistory.filter((x) => x !== h); save();
+    audit(req.mod, 'frise : suppression', `${h.date} ${h.text.slice(0, 60)}`); res.json({ ok: true });
+  });
   mod.put('/frise/start', (req, res) => {
     if (!isAdmin(req.mod)) return bad(res, 'Réservé à l’admin.', 403);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(req.body.start || '')) return bad(res, 'Date AAAA-MM-JJ.');

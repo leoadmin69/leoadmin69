@@ -2449,10 +2449,20 @@ async function viewFrise() {
         <div class="frise-num mono">J${d.num}</div>
         <div class="frise-body">
           <div class="frise-date">${esc(dayName(d.day))}</div>
-          ${d.items.map((i) => `<div class="frise-item ${esc(i.kind)}">${i.link ? `<a href="${esc(i.link)}">` : ''}<span>${i.icon}</span> ${esc(i.text)}${i.link ? '</a>' : ''}</div>`).join('')}
+          ${d.items.map((i) => `<div class="frise-item fi-${esc(i.kind)}">${i.link ? `<a href="${esc(i.link)}">` : ''}<span>${i.icon}</span> ${esc(i.text)}${i.link ? '</a>' : ''}${i.url ? ` <a class="frise-src" href="${esc(i.url)}" target="_blank" rel="noopener">📰 ${esc(i.source || 'source')}</a>` : i.source ? ` <span class="frise-src">${esc(i.source)}</span>` : ''}${i.hist && state.me ? ` <button class="linklike faint small" data-hdel="${esc(i.hid)}">✕</button>` : ''}</div>`).join('')}
         </div>
       </div>`).join('')}</div>` : '<div class="card empty"><div class="big">🗓️</div>La frise se remplit toute seule dès que des bâtiments sont bloqués, que des AG ont lieu ou que des votes se terminent.</div>'}
+    <p class="faint small" style="margin-top:12px">📰 Les journées d’avant le site viennent de la presse locale (lien sur chaque ligne). Un oubli, une erreur ? Signale-le dans le <a href="#/chat">chat</a>.</p>
+    ${state.me ? `<form class="card form" id="fhist" style="margin-top:16px"><div class="kicker">Modo · ajouter une journée passée à la frise</div>
+      <div class="grid cols-2"><div class="field"><label>Date</label><input type="date" name="date" required></div>
+      <div class="field"><label>Type</label><select name="kind"><option value="blocage">🔴 Blocus / blocage</option><option value="ag">🗣️ AG</option><option value="manif">📣 Manif / rassemblement</option><option value="win">✊ Victoire</option><option value="alerte">🚨 Répression / incident</option><option value="autre">📍 Autre</option></select></div></div>
+      <div class="field"><label>Ce qui s’est passé</label><input type="text" name="text" maxlength="300" required placeholder="Ex : AG au Déambu, 350 personnes, blocus reconduit"></div>
+      <div class="grid cols-2"><div class="field"><label>Source (facultatif)</label><input type="text" name="source" maxlength="80" placeholder="Ex : CR de l’AG, Lyon Capitale"></div>
+      <div class="field"><label>Lien (facultatif)</label><input type="url" name="url" maxlength="400" placeholder="https://…"></div></div>
+      <button class="btn small">Ajouter à la frise</button></form>` : ''}
     ${state.me?.role === 'admin' ? `<form class="card form" id="fstart" style="margin-top:16px"><div class="kicker">Admin · premier jour de la mobilisation</div><div class="btn-row"><input type="date" id="fdate" value="${esc(f.start)}"><button class="btn small">Enregistrer</button></div></form>` : ''}`;
+  if ($('#fhist')) $('#fhist').onsubmit = async (e) => { e.preventDefault(); await act(() => api('/api/mod/frise/history', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }), 'Ajouté à la frise.'); viewFrise(); };
+  view().onclick = async (e) => { const id = e.target.closest('[data-hdel]')?.dataset.hdel; if (id && confirm('Retirer cette ligne de la frise ?')) { await act(() => api(`/api/mod/frise/history/${id}`, { method: 'DELETE' }), 'Retiré.'); viewFrise(); } };
   if ($('#fstart')) $('#fstart').onsubmit = async (e) => { e.preventDefault(); await act(() => api('/api/mod/frise/start', { method: 'PUT', body: { start: $('#fdate').value } }), 'Date enregistrée.'); viewFrise(); };
 }
 

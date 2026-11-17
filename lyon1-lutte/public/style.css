@@ -475,8 +475,8 @@ button.opt:active { transform: scale(0.98); }
 .frise-date { font-weight: 700; text-transform: capitalize; margin-bottom: 6px; }
 .frise-item { font-size: 14px; padding: 4px 0; line-height: 1.4; overflow-wrap: anywhere; }
 .frise-item a { color: inherit; }
-.frise-item.win { color: var(--green); font-weight: 600; }
-.frise-item.alerte { color: var(--red); }
+.frise-item.fi-win { color: var(--green); font-weight: 600; }
+.frise-item.fi-alerte { color: var(--red); }
 @media (max-width: 520px) { .frise-stats { grid-template-columns: repeat(3, 1fr); } }
 .prose ul { margin: 0 0 1em; padding-left: 1.2em; }
 .prose li { margin: 0.3em 0; }
@@ -495,3 +495,4 @@ button.opt:active { transform: scale(0.98); }
 .linklike { background: none; border: 0; padding: 0; cursor: pointer; color: inherit; text-decoration: underline; }
 .card.ent .title { font-weight: 700; font-size: 17px; }
 .card.ent .desc { margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.frise-src { font-size: 12px; color: var(--blue); white-space: nowrap; text-decoration: none; }
