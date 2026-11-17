@@ -716,6 +716,7 @@ async function viewModo() {
     <h1 class="large-title">Espace modos</h1>
     <p class="subtitle mono small">${esc(state.me.username)} · ${esc(state.me.org)} · ${isAdm ? 'admin (tous les sites)' : 'modo'} · <span id="mstats">…</span></p>
     <div class="modsites" id="msites"><span class="faint small">Tu agis sur :</span>${mySites.map((id) => `<button data-ms="${esc(id)}" class="${id === state.modSite ? 'on' : ''}">📍 ${esc(siteShort(id))}</button>`).join('')}</div>
+    <a class="guide-link" href="/api/mod/guide.pdf" target="_blank" rel="noopener">📘 Guide des modos (PDF) : comment faire, à faire / à ne jamais faire</a>
     <div class="presence" id="presence" hidden></div>
     <div class="tabs-inline" id="mtabs">${tabs.map(([id, l]) => `<button data-t="${id}" class="${id === state.modTab ? 'on' : ''}">${l}</button>`).join('')}</div>
     <div id="mod"></div>`;

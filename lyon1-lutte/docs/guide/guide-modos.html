@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Guide des modos · Lyon 1 · La Doua en lutte</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 18mm; }
+  @page :first { margin: 0; }
+  :root { --red: #e0362c; --green: #1f9d4a; --orange: #d97a00; --ink: #141416; --muted: #5b5b63; --line: #e4e4e8; --soft: #f6f6f8; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; font: 10.6pt/1.5 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", "DejaVu Sans", Arial, sans-serif; color: var(--ink); }
+  .mono { font-family: "DejaVu Sans Mono", ui-monospace, Menlo, monospace; }
+  h1, h2, h3 { line-height: 1.15; margin: 0; }
+  h2 { font-size: 19pt; margin: 0 0 3mm; padding-top: 1mm; }
+  h2 .n { display: inline-block; min-width: 10mm; color: var(--red); font-family: "DejaVu Sans Mono", monospace; }
+  h3 { font-size: 12.5pt; margin: 5mm 0 2mm; }
+  p { margin: 0 0 2.5mm; }
+  ul, ol { margin: 0 0 3mm; padding-left: 5.5mm; }
+  li { margin-bottom: 1.2mm; }
+  .chapter { page-break-before: always; }
+  .lead { font-size: 11.5pt; color: var(--muted); margin-bottom: 4mm; }
+  .grid { display: grid; grid-template-columns: 1fr 62mm; gap: 7mm; align-items: start; }
+  .shot { width: 62mm; border-radius: 4mm; border: 0.4mm solid #2c2c30; background: #000; box-shadow: 0 1mm 3mm rgba(0,0,0,.18); }
+  .shot.wide { width: 100%; }
+  .cap { font-size: 8.5pt; color: var(--muted); text-align: center; margin-top: 1.5mm; }
+  .box { border-radius: 3mm; padding: 3mm 4mm; margin: 3mm 0; break-inside: avoid; }
+  .do { background: #ecf8f0; border-left: 1.4mm solid var(--green); }
+  .dont { background: #fdeeed; border-left: 1.4mm solid var(--red); }
+  .tip { background: #fff6e6; border-left: 1.4mm solid var(--orange); }
+  .info { background: var(--soft); border-left: 1.4mm solid #8a8a93; }
+  .box b.t { display: block; font-size: 10.5pt; margin-bottom: 1mm; }
+  .box ul { margin-bottom: 0; }
+  .kbd { display: inline-block; padding: 0 1.6mm; border: 0.3mm solid #c9c9cf; border-bottom-width: 0.6mm; border-radius: 1.2mm; font-family: "DejaVu Sans Mono", monospace; font-size: 9pt; background: #fff; }
+  .pill { display: inline-block; padding: 0.2mm 2.2mm; border-radius: 3mm; font-weight: 700; font-size: 9pt; }
+  .r { background: #fde3e1; color: #b3261e; } .o { background: #fff0d6; color: #a35b00; } .g { background: #e0f5e7; color: #17733a; } .b { background: #e3eefc; color: #1b5bb5; }
+  table { width: 100%; border-collapse: collapse; margin: 2mm 0 4mm; font-size: 9.6pt; break-inside: avoid; }
+  th, td { text-align: left; padding: 2mm 2.5mm; border-bottom: 0.3mm solid var(--line); vertical-align: top; }
+  th { background: var(--soft); font-size: 9pt; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 5mm; }
+  .check li { list-style: none; margin-left: -5mm; }
+  .check li::before { content: "☐ "; color: var(--red); font-weight: 700; }
+  /* Couverture */
+  .cover { height: 297mm; background: #000; color: #fff; padding: 26mm 20mm 20mm; position: relative; overflow: hidden; }
+  .cover::before { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 10% 0%, rgba(255,69,58,.55), transparent 55%), repeating-linear-gradient(to bottom, rgba(255,255,255,.035) 0 0.5mm, transparent 0.5mm 1.5mm); }
+  .cover > * { position: relative; }
+  .cover .brand1 { font: 800 30pt/1 "DejaVu Sans Mono", monospace; letter-spacing: .06em; }
+  .cover .brand2 { font: 800 19pt/1 "DejaVu Sans Mono", monospace; color: #ff453a; letter-spacing: .08em; margin-top: 3mm; }
+  .cover h1 { font-size: 40pt; margin-top: 46mm; letter-spacing: -0.02em; }
+  .cover .sub { font-size: 15pt; color: #d1d1d6; margin-top: 5mm; max-width: 140mm; }
+  .cover .tags { margin-top: 12mm; display: flex; gap: 3mm; flex-wrap: wrap; }
+  .cover .tags span { border: 0.3mm solid rgba(255,255,255,.35); border-radius: 5mm; padding: 1.5mm 4mm; font-size: 10pt; }
+  .cover .foot { position: absolute; left: 20mm; right: 20mm; bottom: 18mm; font-size: 9.5pt; color: #a1a1aa; border-top: 0.3mm solid rgba(255,255,255,.2); padding-top: 4mm; }
+  .cover .red { color: #ff453a; }
+  .toc { columns: 2; column-gap: 8mm; font-size: 10.5pt; }
+  .toc div { break-inside: avoid; padding: 1.2mm 0; border-bottom: 0.3mm dotted var(--line); }
+  .toc b { color: var(--red); font-family: "DejaVu Sans Mono", monospace; margin-right: 2mm; }
+  .big-rule { font-size: 13pt; font-weight: 800; padding: 4mm 5mm; background: #000; color: #fff; border-radius: 3mm; margin: 4mm 0; }
+  .big-rule span { color: #ff453a; }
+</style>
+</head>
+<body>
+
+<!-- ======================= COUVERTURE ======================= -->
+<section class="cover">
+  <div class="brand1">LYON 1</div>
+  <div class="brand2">LA DOUA EN LUTTE</div>
+  <h1>Guide des<br>modérateur·rices</h1>
+  <p class="sub">Tout ce qu’il faut savoir pour faire vivre le site pendant la mobilisation : comment faire, ce qu’il faut faire, et surtout ce qu’il ne faut jamais faire.</p>
+  <div class="tags"><span>Bâtiments</span><span>AG &amp; manifs</span><span>Votes</span><span>Comptes rendus</span><span>Témoignages</span><span>Chat</span><span>Stories</span><span>Sécurité</span></div>
+  <div class="foot">Document interne aux modos · Novembre 2026 · <span class="red">Ne pas publier, ne pas photographier en manif.</span><br>Le site évolue : en cas de doute, demande à l’admin.</div>
+</section>
+
+<!-- ======================= SOMMAIRE ======================= -->
+<section class="chapter">
+  <h2>Sommaire</h2>
+  <div class="toc">
+    <div><b>01</b>Ton rôle en 1 page</div>
+    <div><b>02</b>Ton compte et ta sécurité</div>
+    <div><b>03</b>Ton site de travail et tes droits</div>
+    <div><b>04</b>Bâtiments bloqués (le plus important)</div>
+    <div><b>05</b>Le titre de l’accueil</div>
+    <div><b>06</b>Travailler à plusieurs sans s’écraser</div>
+    <div><b>07</b>Flash infos et alertes urgentes</div>
+    <div><b>08</b>AG, manifs, rassemblements</div>
+    <div><b>09</b>Comptes rendus d’AG (PDF + IA)</div>
+    <div><b>10</b>Votes anonymes, liens et résultats</div>
+    <div><b>11</b>Revendications</div>
+    <div><b>12</b>Blog et tribunes</div>
+    <div><b>13</b>Témoignages de violences</div>
+    <div><b>14</b>Modérer le chat anonyme</div>
+    <div><b>15</b>Images pour Instagram</div>
+    <div><b>16</b>Ce qui part quand tu publies</div>
+    <div><b>17</b>À faire / à ne jamais faire</div>
+    <div><b>18</b>En cas de problème</div>
+    <div><b>19</b>Pour l’admin</div>
+    <div><b>20</b>Check-lists du jour</div>
+  </div>
+  <div class="big-rule">La règle d’or : <span>une info fausse fait plus de dégâts qu’une info en retard.</span> Tu publies ce que tu as vu ou ce qui t’a été confirmé par une personne sur place.</div>
+  <div class="box info"><b class="t">Comment lire ce guide</b>Chaque fiche explique comment faire, montre l’écran, puis liste ce qu’il faut faire (vert) et ce qu’il ne faut jamais faire (rouge). Les fiches 02, 13 et 17 sont à lire en priorité.</div>
+</section>
+
+<!-- ======================= 01 ======================= -->
+<section class="chapter">
+  <h2><span class="n">01</span>Ton rôle en 1 page</h2>
+  <p class="lead">Le site remplace les infos que la présidence n’envoie plus. Des milliers d’étudiant·es comptent dessus pour savoir s’il y a cours, où aller, quoi voter. Toi, tu es la source fiable.</p>
+  <div class="grid">
+    <div>
+      <h3>Tes missions</h3>
+      <ol>
+        <li><b>Tenir les bâtiments à jour</b>, dès le matin et à chaque changement : c’est ce que les gens regardent en premier.</li>
+        <li><b>Annoncer les AG, manifs et rassemblements</b> de ton site, avec lieu et heure exacts.</li>
+        <li><b>Publier les comptes rendus</b> d’AG en flash infos, après relecture.</li>
+        <li><b>Lancer les votes</b> décidés par ton AG et partager leur lien.</li>
+        <li><b>Relire avant publication</b> les témoignages et tribunes envoyés anonymement.</li>
+        <li><b>Garder le chat respirable</b> : masquer ce qui met des gens en danger ou les insulte.</li>
+        <li><b>Faire connaître le site</b> avec les images prêtes à publier.</li>
+      </ol>
+      <div class="box do"><b class="t">✅ L’esprit</b>Rapide, exact, neutre dans la forme. Le site informe : les débats ont lieu en AG.</div>
+    </div>
+    <div><img class="shot" src="img/14-accueil.png" alt=""><div class="cap">L’accueil vu par les étudiant·es</div></div>
+  </div>
+  <h3>Ce que tu n’es pas</h3>
+  <ul>
+    <li>Pas un·e porte-parole : tu publies ce qui a été <b>décidé collectivement</b>, pas ton avis personnel.</li>
+    <li>Pas un·e journaliste d’investigation : tu ne publies <b>ni rumeurs, ni accusations nominatives</b>.</li>
+    <li>Pas seul·e : d’autres modos travaillent en même temps. Le site vous empêche de vous écraser, mais parlez-vous.</li>
+  </ul>
+</section>
+
+<!-- ======================= 02 ======================= -->
+<section class="chapter">
+  <h2><span class="n">02</span>Ton compte et ta sécurité</h2>
+  <div class="grid">
+    <div>
+      <h3>Te connecter</h3>
+      <ol>
+        <li>Va sur le site, menu <b>Plus → Espace modos</b> (ou ajoute <span class="mono">/#/modo</span> à l’adresse).</li>
+        <li>Entre l’identifiant et le mot de passe reçus de l’admin.</li>
+        <li><b>Change tout de suite le mot de passe</b> : onglet <b>🔑 Mon compte</b>, 10 caractères minimum.</li>
+      </ol>
+      <p>Ta session reste ouverte 14 jours sur ce téléphone. Sur un ordinateur partagé, clique toujours sur <b>Se déconnecter</b>.</p>
+    </div>
+    <div><img class="shot" src="img/01-connexion.png" alt=""><div class="cap">Écran de connexion</div></div>
+  </div>
+  <div class="two">
+    <div class="box do"><b class="t">✅ À faire</b><ul>
+      <li>Un mot de passe long et unique (une phrase de 4 mots, par exemple).</li>
+      <li>Un code de verrouillage sur ton téléphone.</li>
+      <li>Recevoir ton mot de passe en main propre ou par Signal.</li>
+      <li>Prévenir l’admin <b>tout de suite</b> si tu perds ton téléphone.</li>
+    </ul></div>
+    <div class="box dont"><b class="t">⛔ À ne jamais faire</b><ul>
+      <li>Prêter ton compte, même « juste 5 minutes ».</li>
+      <li>Envoyer un mot de passe par Instagram, Messenger, SMS ou email.</li>
+      <li>Faire une capture d’écran de l’espace modo et la poster.</li>
+      <li>Te connecter sur un ordinateur de la fac ou d’une bibliothèque.</li>
+    </ul></div>
+  </div>
+  <div class="box tip"><b class="t">💡 Pourquoi c’est important</b>Chaque action est enregistrée au nom de ton compte (journal). Si quelqu’un l’utilise pour publier une fausse info ou un nom, c’est ton nom qui apparaît. Et un compte volé peut servir à piéger les étudiant·es (faux lieu de rendez-vous).</div>
+</section>
+
+<!-- ======================= 03 ======================= -->
+<section class="chapter">
+  <h2><span class="n">03</span>Ton site de travail et tes droits</h2>
+  <p class="lead">Le site couvre plusieurs lieux : Campus de la Doua (affiché par défaut), IUT Doua, IUT Gratte-Ciel, Rockefeller, Lyon Sud, Gerland… Chaque AG gère <b>son</b> site.</p>
+  <div class="grid">
+    <div>
+      <ul>
+        <li>En haut de l’espace modo, la ligne <b>« Tu agis sur : 📍… »</b> montre tes sites. Celui en rouge est ton <b>site de travail</b> : tout ce que tu fais s’applique à lui.</li>
+        <li>Tu ne vois et ne modifies <b>que tes sites</b>. Si tu essaies de toucher un autre site, le site refuse avec « Tu n’as pas les droits ».</li>
+        <li>Seul·e l’<b>admin</b> a accès à tout, aux comptes et à la liste des sites.</li>
+        <li>Le nom de ton compte (ex. « AG Doua », « AG IUT Gratte-Ciel ») est affiché publiquement sur ce que tu publies.</li>
+      </ul>
+      <div class="box tip"><b class="t">💡 Vérifie ton site avant de publier</b>Si tu gères deux sites, regarde quel bouton est en rouge avant de bloquer un bâtiment ou de lancer un vote.</div>
+      <div class="box dont"><b class="t">⛔</b>Ne demande pas l’accès à un site qui n’est pas le tien « pour aider » : propose plutôt à son AG de te le confier officiellement via l’admin.</div>
+    </div>
+    <div><img class="shot" src="img/02-espace-modo.png" alt=""><div class="cap">En haut : tes sites, puis les onglets</div></div>
+  </div>
+</section>
+
+<!-- ======================= 04 ======================= -->
+<section class="chapter">
+  <h2><span class="n">04</span>Bâtiments bloqués <span style="color:var(--muted);font-size:12pt">(le plus important)</span></h2>
+  <p class="lead">Onglet <b>🚧 Bâtiments</b>. Trois façons de faire, de la plus rapide à la plus précise. Un changement est visible tout de suite par tout le monde.</p>
+  <div class="grid">
+    <div>
+      <h3>1. La saisie éclair (écrire ou dicter)</h3>
+      <p>Écris comme tu parles, ou appuie sur 🎙️ et dicte :</p>
+      <ul>
+        <li>« Thémis, Nautibus bloqués. Darwin partiel. Le reste ouvert. »</li>
+        <li>« Toute la Doua bloquée » · « Lippmann débloqué » · « Tout est ouvert »</li>
+      </ul>
+      <p>Sous le texte, l’<b>aperçu en couleur</b> montre exactement ce qui va changer : <span class="pill r">🔴 bloqué</span> <span class="pill o">🟠 partiel</span> <span class="pill g">🟢 ouvert</span>. Les fautes et surnoms (« Déambu ») sont compris ; un mot inconnu s’affiche en orange.</p>
+      <p><b>Vérifie l’aperçu, puis « Appliquer ».</b></p>
+    </div>
+    <div><img class="shot" src="img/03-saisie-eclair.png" alt=""><div class="cap">L’aperçu avant d’appliquer</div></div>
+  </div>
+  <div class="grid">
+    <div>
+      <h3>2. Toucher les tuiles</h3>
+      <ol>
+        <li>Touche un ou plusieurs bâtiments (une coche verte apparaît). « Tout » sélectionne le campus entier.</li>
+        <li>Choisis <b>🔴 Bloqué</b>, <b>🟠 Partiel</b> ou <b>🟢 Ouvert</b> dans la barre du bas.</li>
+      </ol>
+      <p><b>Appui long</b> sur une tuile : ajouter une note visible par tous (« entrée côté tram ouverte »), renommer ou supprimer.</p>
+      <h3>3. Reprendre l’AG</h3>
+      <p>Le bouton <b>📋 Reprendre l’AG</b> remplit la saisie avec les bâtiments votés dans le dernier compte rendu publié.</p>
+      <h3>Te tromper n’est pas grave</h3>
+      <p>Après chaque envoi, <b>↩️ Annuler</b> reste affiché 10 secondes. Annuler retire aussi l’alerte en attente : <b>aucune fausse notification ne part</b>. Les alertes sont regroupées pendant 1 minute.</p>
+    </div>
+    <div><img class="shot" src="img/04-selection.png" alt=""><div class="cap">Sélection multiple + barre d’action</div></div>
+  </div>
+  <div class="two">
+    <div class="box do"><b class="t">✅ À faire</b><ul>
+      <li>Mettre à jour <b>dès le matin</b> (avant 7 h 30 si possible) et à chaque changement réel.</li>
+      <li>Ne passer en 🔴 que ce que <b>tu as vu</b> ou ce qu’une personne sur place t’a confirmé.</li>
+      <li>Utiliser 🟠 Partiel quand une entrée reste ouverte, avec une note.</li>
+      <li>Rouvrir (🟢) en fin de blocage : les étudiant·es comptent aussi sur cette info.</li>
+    </ul></div>
+    <div class="box dont"><b class="t">⛔ À ne jamais faire</b><ul>
+      <li>Annoncer un blocage « prévu » comme s’il était en cours.</li>
+      <li>Mettre des infos tactiques dans les notes (nombre de personnes au piquet, points faibles, matériel).</li>
+      <li>Laisser des bâtiments 🔴 la nuit ou le week-end s’ils ont été rouverts.</li>
+      <li>Supprimer un bâtiment pour « le cacher » : passe-le en 🟢 ou laisse « ? ».</li>
+    </ul></div>
+  </div>
+</section>
+
+<!-- ======================= 05 ======================= -->
+<section class="chapter">
+  <h2><span class="n">05</span>Le titre de l’accueil</h2>
+  <div class="grid">
+    <div>
+      <p>En haut de l’onglet Bâtiments : <b>« Titre de l’accueil »</b> de ton site.</p>
+      <table>
+        <tr><th>Bouton</th><th>Effet</th></tr>
+        <tr><td>🤖 <b>Auto</b> (conseillé)</td><td>Le titre suit les bâtiments : « BLOCUS EN COURS » dès qu’un bâtiment est 🔴, « PARTIEL », puis « PAS DE BLOCUS » quand tout est rouvert.</td></tr>
+        <tr><td>🔴 Blocus / 🟠 Partiel / 🟢 Levé</td><td>Tu forces le titre à la main (ex. jour d’AG sans bâtiment bloqué). Il ne bouge plus tout seul jusqu’à ce que tu remettes « Auto ».</td></tr>
+      </table>
+      <p>Le <b>message court</b> sous le titre (ex. « AG 12 h au Déambu, piquet dès 7 h ») s’affiche en gros sur l’accueil.</p>
+      <div class="box tip"><b class="t">💡</b>Laisse « Auto » sauf vraie raison. Un titre forcé et oublié finit par mentir.</div>
+      <div class="box dont"><b class="t">⛔</b>Ne coche pas « Alerte » si le changement est mineur : chaque changement de titre peut envoyer une notification à tous les abonné·es du site.</div>
+    </div>
+    <div><img class="shot" src="img/05-titre-accueil.png" alt=""><div class="cap">Choix du titre</div></div>
+  </div>
+</section>
+
+<!-- ======================= 06 ======================= -->
+<section class="chapter">
+  <h2><span class="n">06</span>Travailler à plusieurs sans s’écraser</h2>
+  <p class="lead">Plusieurs modos peuvent gérer le même site. Le site protège votre travail, mais il faut s’organiser.</p>
+  <ul>
+    <li><b>Qui est là ?</b> Le bandeau orange « 👥 Aussi connecté·e en ce moment : … » montre les autres modos actifs sur tes sites.</li>
+    <li><b>Bâtiments :</b> si un·e autre modo a changé un bâtiment depuis que ta page est ouverte, ton changement sur ce bâtiment n’est <b>pas appliqué</b> ; tu vois « ⚠️ Déjà changé par … » et la tuile se met à jour. Vérifie avant de recommencer.</li>
+    <li><b>Fiches (AG, revendications, comptes rendus, témoignages) :</b> si quelqu’un l’a modifiée entre-temps, tu vois « Modifié entre-temps par … » et la page se recharge. Rien n’est écrasé.</li>
+    <li><b>Journal</b> (onglet 📜) : qui a fait quoi, quand, sur quel site.</li>
+  </ul>
+  <div class="two">
+    <div class="box do"><b class="t">✅ À faire</b><ul>
+      <li>Se répartir les rôles dans votre groupe : 1 personne « bâtiments » le matin, 1 « comptes rendus » après l’AG, etc.</li>
+      <li>Prévenir votre groupe quand tu prends une tâche (« je fais le CR »).</li>
+      <li>Si tu vois un conflit, lire ce que l’autre a fait avant de corriger.</li>
+    </ul></div>
+    <div class="box dont"><b class="t">⛔ À ne jamais faire</b><ul>
+      <li>Annuler ou corriger le travail d’un·e autre modo sans lui en parler (sauf erreur évidente et urgente).</li>
+      <li>Se battre à coups de modifications : réglez-le en dehors du site.</li>
+    </ul></div>
+  </div>
+</section>
+
+<!-- ======================= 07 ======================= -->
+<section class="chapter">
+  <h2><span class="n">07</span>Flash infos et alertes urgentes</h2>
+  <div class="grid">
+    <div>
+      <p>Onglet <b>⚡ Flash</b> : un message court affiché en haut de l’accueil et dans le fil en direct.</p>
+      <table>
+        <tr><th>Niveau</th><th>Quand</th><th>Effet</th></tr>
+        <tr><td><span class="pill b">ℹ️ Info</span></td><td>Rappel, changement de salle, info pratique.</td><td>Accueil + fil.</td></tr>
+        <tr><td><span class="pill g">✅ Bonne nouvelle</span></td><td>Revendication obtenue, réouverture.</td><td>Accueil + fil.</td></tr>
+        <tr><td><span class="pill r">🚨 Alerte</span></td><td><b>Danger réel et immédiat</b> : nasse, charge, zone à éviter, annulation de dernière minute.</td><td>Accueil + fil + <b>notification immédiate</b> + Telegram.</td></tr>
+      </table>
+      <div class="box dont"><b class="t">⛔ L’alerte 🚨 n’est pas un mégaphone</b>Si elle sert pour tout, plus personne ne la lit. Une alerte = un danger ou une urgence vérifiés. Jamais pour « venez nombreux ».</div>
+      <div class="box do"><b class="t">✅ Une bonne alerte</b>« Nasse en cours place Bellecour, évitez le secteur, dispersion par la rue de la Barre. » Lieu précis, consigne claire, pas de nom.</div>
+    </div>
+    <div><img class="shot" src="img/11-flash.png" alt=""><div class="cap">Choix du niveau</div></div>
+  </div>
+</section>
+
+<!-- ======================= 08 ======================= -->
+<section class="chapter">
+  <h2><span class="n">08</span>AG, manifs, rassemblements</h2>
+  <div class="grid">
+    <div>
+      <ol>
+        <li>Onglet <b>📅 Agenda</b> : type, date et heure, titre, lieu, adresse (pour l’itinéraire), infos.</li>
+        <li>Coche <b>« Alerter les abonné·es »</b> pour une AG ou une manif importante.</li>
+        <li>Modifier : ✏️ dans la liste. Supprimer : 🗑️ (en cas d’annulation, préfère modifier le titre : « ANNULÉ — … »).</li>
+      </ol>
+      <p>Les étudiant·es peuvent ajouter l’événement à leur calendrier, ouvrir l’itinéraire et le partager.</p>
+      <div class="two">
+        <div class="box do"><b class="t">✅</b><ul><li>Heure et lieu <b>confirmés</b>.</li><li>Une adresse précise pour le point de départ d’une manif déclarée.</li><li>Prévenir vite en cas de changement.</li></ul></div>
+        <div class="box dont"><b class="t">⛔</b><ul><li>Publier une action non décidée collectivement.</li><li>Publier le détail d’une action qui doit rester discrète : le site est <b>public</b>.</li></ul></div>
+      </div>
+    </div>
+    <div><img class="shot" src="img/06-agenda.png" alt=""><div class="cap">Nouveau rendez-vous</div></div>
+  </div>
+</section>
+
+<!-- ======================= 09 ======================= -->
+<section class="chapter">
+  <h2><span class="n">09</span>Comptes rendus d’AG (PDF + IA)</h2>
+  <div class="grid">
+    <div>
+      <ol>
+        <li>Onglet <b>🤖 CR + IA</b> → <b>Choisir un PDF</b> (même scanné ou manuscrit).</li>
+        <li>Le terminal montre l’IA qui lit le document en direct. Elle doit retirer les noms des personnes.</li>
+        <li>Un <b>brouillon</b> s’ouvre : titre, date, résumé, flash infos, votes, rendez-vous, revendications.</li>
+        <li><b>Relis tout</b>, corrige, retire ce qui ne doit pas être public.</li>
+        <li>Options : ajouter les rendez-vous datés à l’agenda, ajouter les revendications, envoyer le résumé aux abonné·es.</li>
+        <li><b>Publier.</b></li>
+      </ol>
+      <div class="box dont"><b class="t">⛔ L’IA peut se tromper</b><ul>
+        <li>Elle peut oublier un nom, inventer un chiffre ou mal comprendre un vote.</li>
+        <li><b>Rien n’est publié sans ta relecture</b> : c’est toi qui es responsable de ce qui sort.</li>
+        <li>Ne publie jamais : noms, prénoms, numéros de téléphone, descriptions physiques, nombre exact de personnes à un piquet.</li>
+      </ul></div>
+      <div class="box tip"><b class="t">💡 Confidentialité</b>Avec la version gratuite de Gemini, Google peut conserver les documents envoyés. Si possible, envoie un PDF <b>déjà anonymisé</b> (noms remplacés par « un·e étudiant·e »).</div>
+    </div>
+    <div><img class="shot" src="img/09-cr.png" alt=""><div class="cap">Importer un compte rendu</div></div>
+  </div>
+</section>
+
+<!-- ======================= 10 ======================= -->
+<section class="chapter">
+  <h2><span class="n">10</span>Votes anonymes, liens et résultats</h2>
+  <div class="grid">
+    <div>
+      <h3>Lancer un vote</h3>
+      <ol>
+        <li>Onglet <b>🗳️ Votes</b> : nom de l’<b>AG</b> qui organise (« AG du 18/11 · Doua »), question, choix (un par ligne), durée.</li>
+        <li>Résultats visibles pendant le vote, ou seulement à la clôture (pour ne pas influencer).</li>
+        <li><b>Lancer le vote</b> : il apparaît sur la page Votes de ton site et sur Telegram.</li>
+      </ol>
+      <h3>Le partager</h3>
+      <ul>
+        <li><b>🔗 Lien</b> copie le lien direct du vote : colle-le dans un <b>sticker « Lien »</b> de ta story Instagram.</li>
+        <li><b>📸 Story du vote</b> : image prête avec la question, les choix, un QR code et une zone en pointillés pour le sticker.</li>
+        <li><b>📊 Story résultats</b> : dès qu’il y a des votes ; à la clôture, l’image montre le choix gagnant.</li>
+      </ul>
+      <p>À la fin du vote, les résultats sont <b>publiés automatiquement</b> dans le fil en direct et sur Telegram.</p>
+    </div>
+    <div><img class="shot" style="width:52mm" src="img/07-vote-form.png" alt=""><div class="cap">Nouveau vote</div><img class="shot" style="width:52mm;margin-top:3mm" src="img/08-vote-carte.png" alt=""><div class="cap">Lien, story, résultats</div></div>
+  </div>
+  <div class="two">
+    <div class="box do"><b class="t">✅ À faire</b><ul>
+      <li>Rappeler que le vote est <b>indicatif</b> : les décisions se prennent en AG.</li>
+      <li>Des questions courtes et neutres, avec « Abstention ».</li>
+      <li>Une durée adaptée : 3 à 12 h pour une décision du lendemain.</li>
+    </ul></div>
+    <div class="box dont"><b class="t">⛔ À ne jamais faire</b><ul>
+      <li>Présenter un vote en ligne comme une décision d’AG.</li>
+      <li>Voter plusieurs fois (vider ses cookies) ou demander à d’autres de le faire.</li>
+      <li>Poser une question orientée (« Êtes-vous d’accord pour soutenir la lutte ? »).</li>
+    </ul></div>
+  </div>
+</section>
+
+<!-- ======================= 11 & 12 ======================= -->
+<section class="chapter">
+  <h2><span class="n">11</span>Revendications</h2>
+  <ul>
+    <li>Onglet <b>✊ Revendications</b> : ajouter (titre court, catégorie, explication), changer le statut (<span class="pill r">En lutte</span> <span class="pill g">Obtenu</span> <span class="pill b">Refusé</span>), supprimer.</li>
+    <li>Le texte <b>« Le contexte »</b> en haut de la page se modifie dans le même onglet.</li>
+    <li>Les étudiant·es peuvent soutenir chaque revendication d’un tap, anonymement.</li>
+  </ul>
+  <div class="two">
+    <div class="box do"><b class="t">✅</b><ul><li>Recopier fidèlement ce qui a été <b>voté en AG</b> ou adopté dans un communiqué.</li><li>Passer en « Obtenu » quand c’est gagné : c’est motivant pour tout le monde.</li></ul></div>
+    <div class="box dont"><b class="t">⛔</b><ul><li>Ajouter une revendication personnelle non votée.</li><li><b>Nommer une personne</b> (enseignant·e, responsable) même si elle est mise en cause : risque de diffamation et de mise en danger.</li></ul></div>
+  </div>
+
+  <h2 style="margin-top:8mm"><span class="n">12</span>Blog et tribunes</h2>
+  <ul>
+    <li><b>Articles</b> : écrits par les modos (onglet ✍️ Blog), signés du nom de l’organisation.</li>
+    <li><b>Tribunes</b> : envoyées anonymement par les étudiant·es ; elles arrivent dans « Tribunes à relire ». Rien n’est publié sans validation.</li>
+  </ul>
+  <div class="two">
+    <div class="box do"><b class="t">✅ Tu peux publier</b><ul><li>Témoignages de vécu, analyses, appels à la mobilisation.</li><li>Désaccords argumentés, même avec la ligne majoritaire.</li></ul></div>
+    <div class="box dont"><b class="t">⛔ Tu refuses</b><ul><li>Noms de personnes privées, insultes, appels à la haine ou à la violence contre des personnes.</li><li>Accusations nominatives non jugées, informations personnelles (adresse, téléphone).</li></ul></div>
+  </div>
+</section>
+
+<!-- ======================= 13 ======================= -->
+<section class="chapter">
+  <h2><span class="n">13</span>Témoignages de violences</h2>
+  <p class="lead">La partie la plus sensible. Des personnes te confient ce qu’elles ont subi, parfois avec des photos et vidéos. Une erreur peut exposer une victime, un·e témoin ou un·e manifestant·e.</p>
+  <div class="grid">
+    <div>
+      <h3>La procédure, à chaque témoignage</h3>
+      <ol>
+        <li><b>Lis en entier.</b> Si le récit n’est pas plausible ou ressemble à une provocation, <b>Refuser</b>.</li>
+        <li><b>Anonymise le texte</b> (il est modifiable) : retire noms, prénoms, surnoms, filière + année + groupe, descriptions physiques, plaques, numéros de matricule.</li>
+        <li><b>Regarde chaque photo et vidéo</b> : visages reconnaissables, tatouages, vêtements distinctifs, plaques ? Décoche « publier » sous le média concerné, ou publie le texte seul.</li>
+        <li>Vérifie « ✓ métadonnées retirées » sous chaque média (position GPS, modèle de téléphone).</li>
+        <li>Laisse <b>« Flouter les médias »</b> coché.</li>
+        <li><b>Contact privé</b> : s’il y en a un, transmets-le à la legal team ou à l’orga d’accompagnement, puis <b>Effacer</b>.</li>
+        <li><b>Publier</b>, ou <b>Supprimer définitivement</b> si le témoignage met quelqu’un en danger.</li>
+      </ol>
+    </div>
+    <div><img class="shot" src="img/10-temoignage.png" alt=""><div class="cap">Relecture d’un témoignage (ici, un nom fictif à retirer)</div></div>
+  </div>
+  <div class="two">
+    <div class="box do"><b class="t">✅ À faire</b><ul>
+      <li>Orienter la personne vers l’accompagnement juridique et médical (contacts, Défenseur des droits).</li>
+      <li>Rappeler de <b>garder les fichiers originaux</b> pour une plainte.</li>
+      <li>Demander à un·e 2<sup>e</sup> modo de relire en cas de doute.</li>
+    </ul></div>
+    <div class="box dont"><b class="t">⛔ À ne jamais faire</b><ul>
+      <li>Publier un visage reconnaissable d’un·e manifestant·e, d’un·e passant·e ou d’un·e victime.</li>
+      <li>Désigner nommément un agent, une personne ou un groupe.</li>
+      <li>Télécharger les médias sur ton téléphone perso ou les transférer en dehors du site.</li>
+      <li>Recontacter la personne avec ton compte perso.</li>
+    </ul></div>
+  </div>
+</section>
+
+<!-- ======================= 14 ======================= -->
+<section class="chapter">
+  <h2><span class="n">14</span>Modérer le chat anonyme</h2>
+  <p>Onglet <b>🛡️ Chat</b> : les messages signalés par les étudiant·es (masqués automatiquement après 3 signalements). Tu peux <b>Masquer</b> ou <b>Rétablir</b>. Quand tu écris dans le chat avec ton compte connecté, ton message porte le badge de ton organisation.</p>
+  <table>
+    <tr><th>Tu masques</th><th>Tu laisses</th></tr>
+    <tr><td>Noms, photos, adresses, numéros (« doxxing »), même « pour rire ».<br>Insultes, harcèlement, propos racistes, sexistes, LGBTphobes, validistes.<br>Menaces, appels à la violence contre des personnes.<br>Fausses infos dangereuses (faux lieu de rendez-vous, fausse annulation).<br>Spam, publicité.</td><td>Les critiques de la mobilisation, des syndicats ou des modos, si elles restent correctes.<br>Les questions « bêtes » : réponds-y.<br>Les désaccords vifs mais sans attaque personnelle.</td></tr>
+  </table>
+  <div class="box dont"><b class="t">⛔</b>Ne masque pas un message parce que tu n’es pas d’accord. Le chat est un espace de discussion, pas un fil de propagande.</div>
+  <div class="box tip"><b class="t">💡</b>Une fausse info dans le chat ? Plutôt que masquer, réponds avec le lien vers l’info officielle du site (Bâtiments, Agenda) : tout le monde voit la correction.</div>
+
+</section>
+<section class="chapter">
+  <h2><span class="n">15</span>Images pour Instagram</h2>
+  <div class="grid">
+    <div>
+      <p>Onglet <b>📸 Story Insta</b>. Toutes les images sont dessinées par ton téléphone, <b>sans IA ni service extérieur</b>, avec les infos à jour :</p>
+      <ul>
+        <li><b>Promo</b> : story et publication pour faire connaître le site (QR code + adresse).</li>
+        <li><b>Tuto notifs</b> : carrousel de 4 images « installer l’app + activer les notifications » (iPhone et Android).</li>
+        <li><b>Statut du site</b>, prochain RDV, dernier compte rendu.</li>
+        <li><b>Vote en cours</b> (avec zone pour le sticker lien) et <b>résultats</b>.</li>
+      </ul>
+      <p><b>Partager</b> ouvre directement Instagram sur téléphone ; sinon <b>Télécharger</b>. Pour un vote : publie la story, ajoute le sticker <b>Lien</b> avec le lien copié, place-le sur la zone en pointillés.</p>
+      <div class="box dont"><b class="t">⛔</b>Ne modifie pas les images avec des filtres qui masquent l’adresse ou le QR code. Ne publie pas de photo de manifestant·es reconnaissables à côté.</div>
+    </div>
+    <div><img class="shot" src="img/12-images.png" alt=""><div class="cap">Le générateur d’images</div></div>
+  </div>
+</section>
+
+<!-- ======================= 16 ======================= -->
+<section class="chapter">
+  <h2><span class="n">16</span>Ce qui part quand tu publies</h2>
+  <p class="lead">Certaines actions préviennent des centaines de personnes. Sache ce que tu déclenches.</p>
+  <table>
+    <tr><th>Action</th><th>Fil en direct</th><th>Notification téléphone</th><th>Telegram</th><th>Email</th></tr>
+    <tr><td>Bâtiment 🔴/🟠/🟢</td><td>Oui</td><td>Oui, abonné·es du site (regroupé 1 min)</td><td>Oui</td><td>Récap du matin</td></tr>
+    <tr><td>Titre de l’accueil changé (case « alerte » cochée)</td><td>Oui</td><td>Oui</td><td>Oui</td><td>Récap du matin</td></tr>
+    <tr><td>Flash 🚨 Alerte</td><td>Oui</td><td><b>Oui, immédiat</b></td><td>Oui</td><td>Récap du matin</td></tr>
+    <tr><td>Flash Info / Bonne nouvelle</td><td>Oui</td><td>Non</td><td>Non</td><td>Non</td></tr>
+    <tr><td>AG / manif avec « alerter »</td><td>Oui</td><td>Oui</td><td>Oui</td><td>Récap du matin</td></tr>
+    <tr><td>Compte rendu publié avec « envoyer »</td><td>Oui</td><td>Oui</td><td>Oui</td><td>Récap du matin</td></tr>
+    <tr><td>Vote lancé</td><td>Oui</td><td>Non</td><td>Oui</td><td>Non</td></tr>
+    <tr><td>Vote terminé</td><td>Résultats auto</td><td>Non</td><td>Résultats auto</td><td>Non</td></tr>
+  </table>
+  <div class="box info"><b class="t">Le récap du matin</b>Les emails gratuits sont limités (environ 300 par jour) : chaque abonné·e reçoit un seul email vers 7 h avec les bâtiments bloqués, les rendez-vous du jour et les alertes de la veille. Pour être prévenu·e en temps réel : l’app et ses notifications, ou Telegram.</div>
+</section>
+
+<!-- ======================= 17 ======================= -->
+<section class="chapter">
+  <h2><span class="n">17</span>À faire / à ne jamais faire</h2>
+  <div class="two">
+    <div class="box do"><b class="t">✅ À FAIRE</b><ul>
+      <li>Vérifier avant de publier : vu par toi ou confirmé par quelqu’un sur place.</li>
+      <li>Publier vite ce qui est utile : bâtiments, lieu de l’AG, changement d’horaire.</li>
+      <li>Corriger tout de suite une erreur (Annuler, modifier, ou flash « Correction : … »).</li>
+      <li>Remettre en 🟢 / « Auto » quand la situation change.</li>
+      <li>Relire tout ce que l’IA produit.</li>
+      <li>Anonymiser tout ce qui vient des étudiant·es.</li>
+      <li>Orienter vers les contacts (legal team, écoute, Défenseur des droits).</li>
+      <li>Se coordonner avec les autres modos du site.</li>
+      <li>Rester factuel·le et lisible : phrases courtes, heures et lieux précis.</li>
+      <li>Te déconnecter sur un appareil partagé.</li>
+    </ul></div>
+    <div class="box dont"><b class="t">⛔ À NE JAMAIS FAIRE</b><ul>
+      <li>Publier un nom, un visage reconnaissable, une adresse, un numéro.</li>
+      <li>Accuser nommément une personne (enseignant·e, agent, étudiant·e).</li>
+      <li>Publier des rumeurs ou des infos non confirmées.</li>
+      <li>Publier des détails tactiques : le site est public, tout le monde peut le lire, y compris l’administration et la police.</li>
+      <li>Appeler à la violence contre des personnes, ou publier des propos haineux.</li>
+      <li>Utiliser l’alerte 🚨 pour autre chose qu’un danger réel.</li>
+      <li>Présenter un vote en ligne comme une décision d’AG.</li>
+      <li>Prêter ton compte ou envoyer ton mot de passe en clair.</li>
+      <li>Toucher au site d’une autre AG sans accord.</li>
+      <li>Garder ou transférer les médias des témoignages.</li>
+    </ul></div>
+  </div>
+  <div class="box info"><b class="t">⚖️ Le cadre légal, en bref</b>Le site est public. Ce qui y est publié engage ses responsables : la diffamation (accuser quelqu’un nommément sans décision de justice), l’incitation à la violence ou à la haine et la publication de données personnelles sont punies par la loi. Un contenu illicite signalé doit être retiré rapidement. Les règles de ce guide te protègent, et protègent les étudiant·es.</div>
+</section>
+
+<!-- ======================= 18 & 19 ======================= -->
+<section class="chapter">
+  <h2><span class="n">18</span>En cas de problème</h2>
+  <table>
+    <tr><th>Problème</th><th>Que faire</th></tr>
+    <tr><td>J’ai publié une erreur</td><td>Bâtiments : <b>Annuler</b> (10 s), sinon corrige. Ailleurs : modifie, ou supprime puis republie. Si une alerte est partie : flash Info « Correction : … ».</td></tr>
+    <tr><td>J’ai publié un nom ou une photo par erreur</td><td>Dépublie / supprime immédiatement, puis préviens l’admin : il faudra peut-être prévenir la personne concernée.</td></tr>
+    <tr><td>« Tu n’as pas les droits sur… »</td><td>Tu n’es pas sur le bon site de travail (vérifie le bouton rouge en haut), ou ce site n’est pas le tien : demande à l’admin.</td></tr>
+    <tr><td>« Déjà changé par… » / « Modifié entre-temps par… »</td><td>Un·e autre modo est passé·e avant toi. Regarde ce qui a été fait, parlez-vous, puis recommence si besoin.</td></tr>
+    <tr><td>J’ai perdu mon téléphone / mon compte est peut-être volé</td><td>Préviens l’admin <b>tout de suite</b> : il génère un nouveau mot de passe, ce qui déconnecte immédiatement l’ancien téléphone.</td></tr>
+    <tr><td>Le site ne répond pas</td><td>Attends 1 minute (l’hébergement gratuit peut redémarrer) puis recharge. Si ça dure, préviens l’admin et publie l’info sur Telegram / Instagram.</td></tr>
+    <tr><td>L’IA refuse ou se trompe sur un compte rendu</td><td>Une autre IA prend le relais automatiquement. Sinon, corrige le brouillon à la main : tout est modifiable.</td></tr>
+  </table>
+
+  <h2 style="margin-top:8mm"><span class="n">19</span>Pour l’admin</h2>
+  <div class="grid">
+    <div>
+      <ul>
+        <li><b>👥 Comptes</b> : un compte <b>par personne</b> (jamais partagé), avec le nom affiché (« AG Doua · Solidaires ») et les sites autorisés. Le mot de passe s’affiche une seule fois : transmets-le par Signal.</li>
+        <li><b>Modifier</b> un compte : changer ses sites ou son nom. <b>Nouveau mdp</b> : déconnecte la personne partout. <b>Désactiver</b> : quand quelqu’un quitte l’équipe.</li>
+        <li><b>📍 Sites</b> : ajouter un site (IUT, antenne…), le renommer, lui donner sa propre chaîne Telegram.</li>
+        <li><b>📜 Journal</b> : tout ce qui a été fait, par qui, sur quel site.</li>
+      </ul>
+      <div class="box dont"><b class="t">⛔</b>Ne donne pas le rôle admin « par confiance » : 1 ou 2 admins suffisent. Un modo n’a besoin que de ses sites.</div>
+    </div>
+    <div><img class="shot" src="img/13-comptes.png" alt=""><div class="cap">Créer un accès modo</div></div>
+  </div>
+</section>
+
+<!-- ======================= 20 ======================= -->
+<section class="chapter">
+  <h2><span class="n">20</span>Check-lists du jour</h2>
+  <div class="two">
+    <div>
+      <h3>☀️ Le matin (avant 7 h 30)</h3>
+      <ul class="check">
+        <li>Je vérifie mon site de travail (bouton rouge en haut).</li>
+        <li>Je mets à jour les bâtiments avec ce qui est confirmé sur place.</li>
+        <li>Je vérifie le titre de l’accueil (« Auto » de préférence) et le message court.</li>
+        <li>J’annonce ou je rappelle l’AG du jour (Agenda).</li>
+        <li>Je publie une story « Statut du site ».</li>
+      </ul>
+      <h3>📣 Pendant une manif</h3>
+      <ul class="check">
+        <li>Je garde le chat sous les yeux (signalements).</li>
+        <li>Je n’utilise 🚨 que pour un danger réel et vérifié.</li>
+        <li>Je ne publie aucun détail tactique.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>🗳️ Après une AG</h3>
+      <ul class="check">
+        <li>J’importe le compte rendu, je le relis, je l’anonymise, je publie.</li>
+        <li>J’ajoute les rendez-vous et revendications votés.</li>
+        <li>Je lance le vote décidé en AG, je partage son lien en story.</li>
+        <li>À la clôture, je publie la story des résultats.</li>
+      </ul>
+      <h3>🌙 Le soir</h3>
+      <ul class="check">
+        <li>Je rouvre (🟢) les bâtiments débloqués.</li>
+        <li>Je relis les témoignages et tribunes en attente.</li>
+        <li>Je me déconnecte si j’étais sur un appareil partagé.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="big-rule" style="margin-top:8mm">Vérifier · publier vite · anonymiser · <span>ne jamais exposer personne.</span></div>
+  <p class="cap">Guide des modos · Lyon 1 · La Doua en lutte · document interne, à ne pas diffuser publiquement.</p>
+</section>
+
+</body>
+</html>

@@ -42,6 +42,12 @@ Accès `#/modo`. L'admin crée un compte par personne (mot de passe généré, �
 - **Modos** : chaque compte est rattaché à un ou plusieurs sites (par ex. la présidence de l'AG de Gratte-Ciel). Un modo ne voit et ne modifie **que ses sites** : bâtiments, titre de l'accueil, AG/manifs, votes (au nom de son AG), flash, revendications, blog, témoignages, contacts, comptes rendus. Seul l'**admin** a accès à tout, aux comptes et aux sites.
 - **Pas d'écrasement entre modos** : si deux modos changent le même bâtiment ou la même fiche en même temps, le second est prévenu (« déjà bloqué par AG Doua ») au lieu d'écraser. L'espace modo affiche qui d'autre est connecté sur les mêmes sites. Le journal indique le site de chaque action.
 
+## Guide des modos et kit de communication
+
+- **Guide PDF** (21 pages, captures d'écran, à faire / à ne jamais faire, sécurité, check-lists) : lien « 📘 Guide des modos » dans l'espace modo, réservé aux modos connecté·es. Source : `docs/guide/guide-modos.html` ; pour le régénérer après une modification : `node docs/guide/build-pdf.cjs`.
+- **Images à publier** (onglet 📸 Story Insta), dessinées par le navigateur, sans IA ni service extérieur : story et publication de promo, carrousel « installer l'app + activer les notifications », statut du site, rendez-vous, compte rendu, story d'un vote (QR code + zone pour le sticker lien) et story des résultats. Le QR code et l'adresse sont ceux du site en ligne.
+- **Votes** : chaque vote a un lien direct (`/#/votes/<id>`) à partager ; à la clôture, les résultats sont publiés automatiquement dans le fil en direct et sur Telegram.
+
 ## Protection des personnes
 
 - Aucune IP stockée : les limites anti-spam utilisent une empreinte qui change chaque jour.

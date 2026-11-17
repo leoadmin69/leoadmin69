@@ -447,3 +447,4 @@ button.opt:active { transform: scale(0.98); }
 .poll.focus { box-shadow: 0 0 0 3px var(--purple), 0 0 40px rgba(191,90,242,0.35); }
 .story-prev { gap: 8px; overflow-x: auto; justify-content: flex-start; }
 .story-prev img { flex-shrink: 0; height: min(52vh, 480px) !important; width: auto; aspect-ratio: auto; }
+.guide-link { display: block; margin: 0 0 10px; padding: 9px 13px; border-radius: 12px; background: rgba(10,132,255,0.12); border: 0.5px solid rgba(10,132,255,0.4); color: var(--text); font-size: 14px; font-weight: 600; }

@@ -403,6 +403,12 @@ app.get('/api/auth/me', (req, res) => { const m = currentMod(req); res.json(m ? 
 const mod = express.Router();
 mod.use(requireMod);
 app.use('/api/mod', mod);
+// Guide des modos (PDF) : réservé aux modos connecté·es, document interne
+mod.get('/guide.pdf', (req, res) => {
+  res.setHeader('Content-Disposition', 'inline; filename="guide-modos-ladoua-en-lutte.pdf"');
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.sendFile(path.join(ROOT, 'docs', 'guide', 'guide-modos.pdf'));
+});
 mod.post('/digest/send', requireAdmin, async (req, res) => {
   if (!mailEnabled()) return bad(res, 'Aucun service d’email configuré.');
   res.json(await sendDigest());
