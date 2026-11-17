@@ -9,6 +9,7 @@ import { seed } from './lib/seed.js';
 import { ensureAdmin, hashPassword, verifyPassword, createToken, readToken, cookieHeader, parseCookies, COOKIE, publicMod, SECRET } from './lib/auth.js';
 import { mailEnabled, sendMany, renderEmail, SITE_URL } from './lib/mail.js';
 import { aiEnabled, analyzeWithClaude, extractPdfText, analyzeLocally } from './lib/ai.js';
+import { registerCommunity } from './lib/community.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -25,7 +26,7 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'");
   next();
 });
 app.use(express.json({ limit: '200kb' }));
@@ -115,6 +116,7 @@ app.get('/api/state', (req, res) => {
     feed: db.feed.slice(0, 40),
     subscribers: db.subscribers.filter((s) => s.confirmed).length,
     online: clients.size,
+    pollsOpen: community.pollsOpen(),
     mailEnabled: mailEnabled(),
     aiEnabled: aiEnabled(),
   });
@@ -570,6 +572,9 @@ mod.delete('/mods/:id', requireAdmin, (req, res) => {
   audit(req.mod, 'compte désactivé', m.username);
   res.json({ ok: true });
 });
+
+// ---------- Votes, blog, témoignages ----------
+const community = registerCommunity(app, mod, { broadcast, feed, audit, visitor, limited, clip, bad, oneOf });
 
 // ---------- Site ----------
 app.use(express.static(path.join(ROOT, 'public'), { maxAge: '5m', index: 'index.html' }));

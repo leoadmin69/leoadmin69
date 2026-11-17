@@ -117,7 +117,8 @@ export async function extractPdfText(pdf) {
 const cut = (s, n) => (s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s);
 export function analyzeLocally(lines) {
   const text = lines.join('\n');
-  const pick = (re, n = 6) => lines.filter((l) => re.test(l)).slice(0, n);
+  const used = new Set();
+  const pick = (re, n = 6) => { const out = lines.filter((l) => re.test(l) && !used.has(l)).slice(0, n); out.forEach((l) => used.add(l)); return out; };
   const flashs = [];
   for (const l of pick(/(vot|adopt|rejet|majorit|unanim)/i, 5)) flashs.push({ type: 'vote', titre: 'Vote', texte: cut(l, 220) });
   for (const l of pick(/(décid|decid|acté|mandat|on reconduit|reconduction)/i, 4)) flashs.push({ type: 'decision', titre: 'Décision', texte: cut(l, 220) });

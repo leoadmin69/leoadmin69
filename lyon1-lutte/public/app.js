@@ -46,6 +46,9 @@ const P = {
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>',
   chev: '<path d="m9 6 6 6-6 6"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16v4Z"/>',
+  ballot: '<rect x="4" y="3" width="16" height="18" rx="3"/><path d="m8.5 12 2.5 2.5L16 9.5"/>',
+  pen: '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"/>',
+  shield: '<path d="M12 3 4.5 6v6c0 4.5 3.2 8 7.5 9 4.3-1 7.5-4.5 7.5-9V6L12 3Z"/><path d="M12 8v5M12 16h.01"/>',
 };
 const icon = (n, size = 22) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || ''}</svg>`;
 
@@ -55,7 +58,10 @@ const NAV = [
   { id: 'agenda', label: 'AG & manifs', icon: 'calendar' },
   { id: 'chat', label: 'Chat anonyme', icon: 'chat' },
   { id: 'cr', label: 'Comptes rendus', icon: 'doc' },
+  { id: 'votes', label: 'Votes anonymes', icon: 'ballot' },
   { id: 'revendications', label: 'Revendications', icon: 'megaphone' },
+  { id: 'blog', label: 'Blog & tribunes', icon: 'pen' },
+  { id: 'temoignages', label: 'Témoignages', icon: 'shield' },
   { id: 'contacts', label: 'Parler à qui ?', icon: 'people' },
   { id: 'alertes', label: 'Alertes email', icon: 'bell' },
   { id: 'modo', label: 'Espace modos', icon: 'lock' },
@@ -112,8 +118,9 @@ const route = () => location.hash.replace(/^#\/?/, '');
 function renderNav() {
   const r = route().split('/')[0];
   const blocked = (state.data?.buildings || []).filter((b) => b.status === 'bloque').length;
-  const badge = (id) => (id === 'batiments' && blocked ? `<span class="badge">${blocked}</span>` : '');
-  $('#sidenav').innerHTML = NAV.map((n, i) => `${i === 8 ? '<div class="sep"></div>' : ''}<a href="#/${n.id}" class="${r === n.id ? 'active' : ''}">${icon(n.icon)}<span>${n.label}</span>${badge(n.id)}</a>`).join('');
+  const polls = state.data?.pollsOpen || 0;
+  const badge = (id) => (id === 'batiments' && blocked ? `<span class="badge">${blocked}</span>` : id === 'votes' && polls ? `<span class="badge" style="background:var(--blue)">${polls}</span>` : '');
+  $('#sidenav').innerHTML = NAV.map((n, i) => `${n.id === 'modo' ? '<div class="sep"></div>' : ''}<a href="#/${n.id}" class="${r === n.id ? 'active' : ''}">${icon(n.icon)}<span>${n.label}</span>${badge(n.id)}</a>`).join('');
   const inPlus = !TABS.some((t) => t.id === r) || r === 'plus';
   $('#tabbar').innerHTML = TABS.map((t) => `<a href="#/${t.id}" class="${(t.id === 'plus' ? inPlus : r === t.id) ? 'active' : ''}">${icon(t.icon)}<span>${t.label}</span>${badge(t.id)}</a>`).join('');
 }
@@ -129,7 +136,9 @@ function renderAlertBar() {
   if (d.blocus.state === 'actif') parts.push(`${BLOCUS.actif}${d.blocus.message ? ' : ' + d.blocus.message : ''}`);
   if (blocked.length) parts.push(`BLOQUÉ : ${blocked.map((b) => b.name).join(' · ')}`);
   if (partial.length) parts.push(`PARTIEL : ${partial.map((b) => b.name).join(' · ')}`);
-  bar.innerHTML = `<span class="tag">ALERTE</span><span class="ticker">${esc(parts.join('     ///     '))}</span>`;
+  const txt = esc(parts.join('   ///   '));
+  bar.innerHTML = `<span class="tag">ALERTE</span><span class="mask"><span class="ticker"><span>${txt}</span><span aria-hidden="true">${txt}</span></span></span>`;
+  bar.onclick = () => (location.hash = '#/batiments');
   bar.hidden = false;
 }
 
@@ -149,7 +158,7 @@ function render(force = false) {
   renderAlertBar();
   const [r, arg] = route().split('/');
   if (!state.data) { view().innerHTML = '<div class="empty"><div class="big typing mono">_</div>Connexion au flux…</div>'; return; }
-  const views = { '': viewLive, batiments: viewBuildings, agenda: viewAgenda, chat: viewChat, cr: arg ? () => viewReport(arg) : viewReports, revendications: viewDemands, contacts: viewContacts, alertes: viewAlerts, plus: viewPlus, modo: viewModo };
+  const views = { '': viewLive, batiments: viewBuildings, agenda: viewAgenda, chat: viewChat, cr: arg ? () => viewReport(arg) : viewReports, revendications: viewDemands, votes: viewPolls, blog: () => viewBlog(arg), temoignages: viewTestimonies, contacts: viewContacts, alertes: viewAlerts, plus: viewPlus, modo: viewModo };
   (views[r] || viewLive)();
 }
 window.addEventListener('hashchange', () => { render(true); window.scrollTo(0, 0); });
@@ -174,9 +183,11 @@ function viewLive() {
         <a class="stat red" href="#/batiments"><b>${blocked.length}</b><span>bloqué${blocked.length > 1 ? 's' : ''}</span></a>
         <a class="stat orange" href="#/batiments"><b>${partial.length}</b><span>partiel${partial.length > 1 ? 's' : ''}</span></a>
         <a class="stat green" href="#/batiments"><b>${open.length}</b><span>ouvert${open.length > 1 ? 's' : ''}</span></a>
-        <a class="stat" href="#/agenda"><b>${d.events.length}</b><span>rendez-vous</span></a>
+        <a class="stat" href="#/agenda"><b>${d.events.length}</b><span>RDV</span></a>
       </div>
     </section>
+
+    ${d.pollsOpen ? `<a class="card" href="#/votes" style="display:flex;gap:14px;align-items:center;margin-top:14px;color:inherit;border-color:rgba(10,132,255,0.5)"><div style="font-size:28px">🗳️</div><div class="grow"><b>${d.pollsOpen} vote${d.pollsOpen > 1 ? 's' : ''} anonyme${d.pollsOpen > 1 ? 's' : ''} en cours</b><div class="muted small">Un tap, aucune trace. Donne ton avis.</div></div><span class="chev">${icon('chev', 18)}</span></a>` : ''}
 
     ${d.flashes.length ? `<h2 class="section">⚡ Flash infos</h2>${d.flashes.slice(0, 4).map((f) => `
       <div class="flash ${f.level === 'alerte' ? 'alerte' : f.level === 'ok' ? 'action' : 'vote'}"><div class="ico">${f.level === 'alerte' ? '🚨' : f.level === 'ok' ? '✅' : 'ℹ️'}</div><div><div class="fx">${esc(f.text)}</div><div class="faint small mono">${esc(ago(f.at))} · ${esc(f.org || '')}</div></div></div>`).join('')}` : ''}
@@ -529,7 +540,7 @@ function viewAlerts() {
 // ===== Menu « Plus » (mobile) =====
 function viewPlus() {
   const items = NAV.filter((n) => !TABS.some((t) => t.id === n.id));
-  const sub = { cr: 'Les AG en flash infos', revendications: 'Soutiens les revendications', contacts: 'Syndicats, écoute, urgences', alertes: 'Emails bâtiments bloqués', modo: 'Accès syndicats' };
+  const sub = { votes: 'Donne ton avis, anonymement', blog: 'Articles et tribunes', temoignages: 'Violences : témoigner', cr: 'Les AG en flash infos', revendications: 'Soutiens les revendications', contacts: 'Syndicats, écoute, urgences', alertes: 'Emails bâtiments bloqués', modo: 'Accès syndicats' };
   view().innerHTML = `<h1 class="large-title">Plus</h1><p class="subtitle">Tout ce qu’il faut savoir sur la mobilisation.</p>
     <div class="menu-grid">${items.map((n) => `<a href="#/${n.id}">${icon(n.icon)}<span>${n.label}<br><small>${sub[n.id] || ''}</small></span></a>`).join('')}</div>`;
 }
@@ -550,7 +561,7 @@ function sheet(html, setup) {
 // =====================================================================
 const MOD_TABS = [
   ['situation', '🚧 Situation'], ['agenda', '📅 Agenda'], ['cr', '🤖 CR + IA'], ['flash', '⚡ Flash'],
-  ['revendications', '✊ Revendications'], ['contacts', '📇 Contacts'], ['chat', '🛡️ Chat'], ['comptes', '👥 Comptes'], ['journal', '📜 Journal'], ['moi', '🔑 Mon compte'],
+  ['votes', '🗳️ Votes'], ['blog', '✍️ Blog'], ['temoignages', '🛡️ Témoignages'], ['revendications', '✊ Revendications'], ['contacts', '📇 Contacts'], ['chat', '🛡️ Chat'], ['comptes', '👥 Comptes'], ['journal', '📜 Journal'], ['moi', '🔑 Mon compte'],
 ];
 async function viewModo() {
   if (!state.me) {
@@ -579,7 +590,7 @@ async function viewModo() {
     <div id="mod"></div>`;
   $('#mtabs').onclick = (e) => { if (e.target.dataset.t) { state.modTab = e.target.dataset.t; render(true); } };
   api('/api/mod/stats').then((s) => { const el = $('#mstats'); if (el) el.textContent = `${s.subscribers} abonné·es · IA ${s.aiEnabled ? 'ON' : 'OFF'} · email ${s.mailEnabled ? 'ON' : 'OFF'}${s.reported ? ` · ${s.reported} msg signalé(s)` : ''}`; }).catch(() => {});
-  const fn = { situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, journal: modJournal, moi: modMe }[state.modTab] || modSituation;
+  const fn = { votes: modPolls, blog: modBlog, temoignages: modTestimonies, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, journal: modJournal, moi: modMe }[state.modTab] || modSituation;
   try { await fn($('#mod')); } catch (err) { if (/Connexion modo/.test(err.message)) { state.me = null; render(true); } else toast(err.message); }
 }
 const act = async (fn, ok) => { try { const r = await fn(); if (ok) toast(ok); return r; } catch (e) { toast(e.message); throw e; } };
@@ -893,6 +904,358 @@ function modMe(el) {
   $('#logout').onclick = async () => { await api('/api/auth/logout', { method: 'POST' }); state.me = null; render(true); };
 }
 
+// =====================================================================
+// Votes anonymes, blog, témoignages
+// =====================================================================
+function remaining(iso) {
+  const s = (new Date(iso) - Date.now()) / 1000;
+  if (s <= 0) return 'clos';
+  if (s < 3600) return `${Math.ceil(s / 60)} min`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}`;
+  return `${Math.floor(s / 86400)} j ${Math.floor((s % 86400) / 3600)} h`;
+}
+function pollHtml(p) {
+  const voted = p.myVote !== null;
+  const total = p.counts ? p.counts.reduce((a, b) => a + b, 0) : p.total;
+  return `<div class="card poll" data-poll="${esc(p.id)}">
+    <div class="chips"><span class="pill ${p.open ? 'red' : 'grey'}">${p.open ? `● EN COURS · clôture dans ${esc(remaining(p.closesAt))}` : 'CLOS'}</span><span class="pill grey">${p.total} vote${p.total > 1 ? 's' : ''}</span></div>
+    <h3 style="margin:10px 0 4px;font-size:20px">${esc(p.question)}</h3>
+    ${p.description ? `<p class="muted" style="margin:0 0 6px">${esc(p.description)}</p>` : ''}
+    <div class="opts">${p.options.map((o, i) => {
+      const n = p.counts ? p.counts[i] : null;
+      const pct = n !== null && total ? Math.round((n / total) * 100) : 0;
+      if (p.open && !voted) return `<button class="opt" data-opt="${i}">${esc(o)}</button>`;
+      return `<div class="opt res ${p.myVote === i ? 'mine' : ''}"><i style="width:${pct}%"></i><span>${p.myVote === i ? '✓ ' : ''}${esc(o)}</span><b>${n === null ? '?' : pct + '%'}</b></div>`;
+    }).join('')}</div>
+    <div class="faint small" style="margin-top:8px">${voted ? 'Ton vote est enregistré (anonyme). ' : ''}${!p.counts ? 'Résultats affichés à la clôture. ' : ''}Lancé par ${esc(p.org)} · fin ${esc(fmt(p.closesAt, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}</div>
+  </div>`;
+}
+async function viewPolls() {
+  view().innerHTML = `
+    <h1 class="large-title">Votes anonymes</h1>
+    <p class="subtitle">Donne ton avis en un tap. Aucun compte, aucune trace de qui a voté quoi. 1 vote par appareil.</p>
+    <div class="notice">ℹ️ Ces votes sont <b>indicatifs</b> : ils servent à prendre la température. Les décisions se votent en AG.</div>
+    <div id="polls"><div class="empty faint mono typing">chargement</div></div>`;
+  try {
+    const polls = await api('/api/polls');
+    const box = $('#polls');
+    if (!box) return;
+    box.innerHTML = polls.length ? polls.map(pollHtml).join('') : '<div class="card empty"><div class="big">🗳️</div>Aucun vote en cours. Les modos en lanceront ici.</div>';
+    box.onclick = async (e) => {
+      const opt = e.target.closest('[data-opt]');
+      if (!opt) return;
+      const card = opt.closest('[data-poll]');
+      $$('button', card).forEach((b) => (b.disabled = true));
+      try {
+        const p = await api(`/api/polls/${card.dataset.poll}/vote`, { method: 'POST', body: { option: Number(opt.dataset.opt) } });
+        card.outerHTML = pollHtml(p);
+        toast('A voté ✊');
+      } catch (err) { toast(err.message); $$('button', card).forEach((b) => (b.disabled = false)); }
+    };
+  } catch (err) { $('#polls').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+}
+
+// ----- Blog -----
+async function viewBlog(id) {
+  if (id) {
+    view().innerHTML = '<div class="empty faint mono typing">chargement</div>';
+    try {
+      const p = await api(`/api/blog/${encodeURIComponent(id)}`);
+      view().innerHTML = `
+        <a href="#/blog" style="display:inline-block;margin-top:10px">‹ Blog</a>
+        <article class="article">
+          ${p.cover ? `<img class="cover" src="${esc(p.cover)}" alt="">` : ''}
+          <div class="chips" style="margin-top:14px"><span class="pill ${p.kind === 'tribune' ? 'orange' : 'blue'}">${p.kind === 'tribune' ? 'Tribune' : 'Article'}</span></div>
+          <h1 class="large-title">${esc(p.title)}</h1>
+          <p class="subtitle">${esc(p.author)} · ${esc(fmt(p.publishedAt, { day: 'numeric', month: 'long', year: 'numeric' }))}</p>
+          <div class="prose">${p.html}</div>
+        </article>
+        <button class="btn ghost" id="share-post" style="margin-top:20px">${icon('share', 18)} Partager</button>`;
+      $('#share-post').onclick = async () => { try { if (navigator.share) await navigator.share({ title: p.title, url: location.href }); else { await navigator.clipboard.writeText(location.href); toast('Lien copié.'); } } catch {} };
+    } catch (err) { view().innerHTML = `<div class="empty">${esc(err.message)} <a href="#/blog">Retour</a></div>`; }
+    return;
+  }
+  view().innerHTML = `
+    <h1 class="large-title">Blog</h1>
+    <p class="subtitle">Analyses, récits de lutte, tribunes des étudiant·es.</p>
+    <button class="btn neon" id="propose">✍️ Proposer une tribune</button>
+    <div id="posts" style="margin-top:16px"><div class="empty faint mono typing">chargement</div></div>`;
+  $('#propose').onclick = () => sheet(`
+    <h3>Proposer une tribune</h3>
+    <form class="form" id="tf">
+      <div class="field"><label>Titre</label><input type="text" id="tt" maxlength="140" required></div>
+      <div class="field"><label>Ton texte (sauts de ligne = paragraphes, **gras**)</label><textarea id="tb" maxlength="12000" required style="min-height:200px"></textarea></div>
+      <div class="field"><label>Signature (facultatif, ex : « Une étudiante de L3 bio »)</label><input type="text" id="ts" maxlength="60"></div>
+      <p class="faint small">Anonyme. Relue par les modos avant publication. N’écris pas de nom de personne.</p>
+      <button class="btn">Envoyer</button>
+    </form>`, (root, close) => {
+    $('#tf', root).onsubmit = async (e) => {
+      e.preventDefault();
+      try { const r = await api('/api/blog/submit', { method: 'POST', body: { title: $('#tt', root).value, body: $('#tb', root).value, signature: $('#ts', root).value } }); close(); toast(r.message); }
+      catch (err) { toast(err.message); }
+    };
+  });
+  try {
+    const posts = await api('/api/blog');
+    const box = $('#posts');
+    if (!box) return;
+    box.innerHTML = posts.length ? `<div class="grid cols-2">${posts.map((p) => `
+      <a class="card post" href="#/blog/${esc(p.id)}">
+        ${p.cover ? `<img src="${esc(p.cover)}" alt="" loading="lazy">` : ''}
+        <span class="pill ${p.kind === 'tribune' ? 'orange' : 'blue'}">${p.kind === 'tribune' ? 'Tribune' : 'Article'}</span>
+        <h3>${esc(p.title)}</h3><p class="muted">${esc(p.excerpt)}…</p>
+        <div class="faint small">${esc(p.author)} · ${esc(ago(p.publishedAt))}</div></a>`).join('')}</div>`
+      : '<div class="card empty"><div class="big">✍️</div>Aucun article pour l’instant. Propose la première tribune !</div>';
+  } catch (err) { $('#posts').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+}
+
+// ----- Témoignages -----
+// Les photos sont ré-encodées dans le navigateur : cela efface les données EXIF (position GPS, modèle du téléphone, date).
+async function cleanImage(file) {
+  const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  const scale = Math.min(1, 2560 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement('canvas');
+  c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('Image illisible'))), 'image/jpeg', 0.88));
+}
+function uploadFile(blob, type, onProgress) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', '/api/uploads');
+    x.setRequestHeader('Content-Type', type);
+    x.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+    x.onload = () => { let j = {}; try { j = JSON.parse(x.responseText); } catch {} if (x.status < 300) resolve(j); else reject(new Error(j.error || `Erreur ${x.status}`)); };
+    x.onerror = () => reject(new Error('Connexion perdue pendant l’envoi.'));
+    x.send(blob);
+  });
+}
+async function prepareAndUpload(file, onProgress) {
+  if (file.type.startsWith('image/') || /\.(jpe?g|png|heic|webp)$/i.test(file.name)) {
+    const blob = await cleanImage(file);
+    return uploadFile(blob, 'image/jpeg', onProgress);
+  }
+  const type = file.type || (/\.mov$/i.test(file.name) ? 'video/quicktime' : /\.webm$/i.test(file.name) ? 'video/webm' : 'video/mp4');
+  return uploadFile(file, type, onProgress);
+}
+function mediaHtml(m, sensitive = true) {
+  const inner = m.kind === 'video' ? `<video src="${esc(m.url)}" controls preload="none" playsinline></video>` : `<img src="${esc(m.url)}" alt="Photo jointe au témoignage" loading="lazy">`;
+  return `<div class="media ${sensitive ? 'veiled' : ''}">${inner}${sensitive ? '<button class="veil" type="button">⚠️ Contenu sensible<br><small>Toucher pour afficher</small></button>' : ''}</div>`;
+}
+async function viewTestimonies() {
+  view().innerHTML = `
+    <h1 class="large-title">Témoignages</h1>
+    <p class="subtitle">Violences subies pendant la mobilisation : raconte, documente, ne reste pas seul·e.</p>
+    <div class="card" style="border-color:rgba(255,69,58,0.4)">
+      <div class="kicker" style="color:var(--red)">Avant de déposer</div>
+      <ul class="safe">
+        <li>🕶️ <b>Anonyme</b> : pas de compte, ton IP n’est pas enregistrée.</li>
+        <li>🛡️ <b>Relu par les modos</b> avant toute publication. Rien n’est public automatiquement.</li>
+        <li>📍 Les <b>métadonnées</b> des photos et vidéos (position GPS, modèle de téléphone, heure) sont <b>supprimées</b>.</li>
+        <li>👤 Évite les <b>visages reconnaissables</b> d’autres manifestant·es : les modos peuvent publier ton texte sans tes images.</li>
+        <li>⚖️ Pour porter plainte, <b>garde l’original</b> de tes fichiers sur ton téléphone et note la date, l’heure et le lieu exacts.</li>
+      </ul>
+      <button class="btn red" id="depose">Déposer un témoignage</button>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <div class="kicker">Être accompagné·e</div>
+      <div class="list" style="margin-top:8px;background:transparent;border:0">
+        <a class="row" href="#/contacts" style="color:inherit;padding-left:0"><div class="grow"><div class="title">Syndicats & legal team</div><div class="sub">Contacts listés par les organisations étudiantes</div></div><span class="chev">${icon('chev', 18)}</span></a>
+        <a class="row" href="tel:0969390000" style="color:inherit;padding-left:0"><div class="grow"><div class="title">Défenseur des droits · 09 69 39 00 00</div><div class="sub">Saisine gratuite en cas de manquement des forces de l’ordre</div></div><span class="pill blue">Appeler</span></a>
+        <a class="row" href="tel:3114" style="color:inherit;padding-left:0"><div class="grow"><div class="title">3114 · écoute 24h/24</div><div class="sub">Si c’est trop lourd à porter, parles-en</div></div><span class="pill blue">Appeler</span></a>
+      </div>
+    </div>
+    <h2 class="section">Témoignages publiés</h2>
+    <div id="tems"><div class="empty faint mono typing">chargement</div></div>`;
+  let cats = {};
+  $('#depose').onclick = () => openTestimonyForm(cats);
+  try {
+    const r = await api('/api/testimonies');
+    cats = r.categories;
+    const box = $('#tems');
+    if (!box) return;
+    box.innerHTML = r.items.length ? r.items.map((t) => `
+      <div class="card testimony">
+        <div class="chips"><span class="pill red">${esc(t.categoryLabel)}</span>${t.date ? `<span class="pill grey">${esc(isoDate(t.date))}</span>` : ''}${t.place ? `<span class="pill grey">${icon('pin', 12)} ${esc(t.place)}</span>` : ''}</div>
+        <p class="ttext">${esc(t.text)}</p>
+        ${t.media.length ? `<div class="media-grid">${t.media.map((m) => mediaHtml(m, t.sensitive)).join('')}</div>` : ''}
+        <div class="faint small">Publié ${esc(ago(t.publishedAt))} · témoignage anonyme vérifié par les modos</div>
+      </div>`).join('') : '<div class="card empty"><div class="big">🤝</div>Aucun témoignage publié.</div>';
+    box.onclick = (e) => { const v = e.target.closest('.veil'); if (v) { v.parentElement.classList.remove('veiled'); v.remove(); } };
+  } catch (err) { $('#tems').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+}
+function openTestimonyForm(cats) {
+  const entries = Object.entries(cats).length ? Object.entries(cats) : [['police', 'Violences policières'], ['vigiles', 'Vigiles / sécurité'], ['administration', 'Pression de l’administration'], ['agression', 'Agression'], ['discrimination', 'Discrimination'], ['autre', 'Autre']];
+  sheet(`
+    <h3>Déposer un témoignage</h3>
+    <form class="form" id="tmf">
+      <div class="field"><label>Type de violence</label><select id="tc">${entries.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select></div>
+      <div class="grid cols-2">
+        <div class="field"><label>Date</label><input type="text" id="td" placeholder="AAAA-MM-JJ" pattern="\\d{4}-\\d{2}-\\d{2}" inputmode="numeric"></div>
+        <div class="field"><label>Lieu</label><input type="text" id="tp" maxlength="140" placeholder="Ex : entrée du Déambu, cours Lafayette"></div>
+      </div>
+      <div class="field"><label>Ce qui s’est passé</label><textarea id="tx" maxlength="8000" required style="min-height:160px" placeholder="Décris les faits, sans donner ton nom ni celui d’autres personnes."></textarea></div>
+      <div class="field"><label>Photos / vidéos (6 max · vidéo 150 Mo max)</label><input type="file" id="tf" accept="image/*,video/mp4,video/quicktime,video/webm" multiple></div>
+      <div id="tfl"></div>
+      <div class="field"><label>Contact pour être recontacté·e (facultatif, visible seulement par les modos)</label><input type="text" id="tco" maxlength="160" placeholder="Email jetable, pseudo Signal…"></div>
+      <label class="check"><input type="checkbox" id="tok" required> J’accepte que ce témoignage soit relu par les modos et publié anonymement s’ils le valident.</label>
+      <button class="btn red" id="tsend">Envoyer</button>
+    </form>`, (root, close) => {
+    const list = $('#tfl', root);
+    $('#tf', root).onchange = (e) => {
+      const files = [...e.target.files].slice(0, 6);
+      list.innerHTML = files.map((f, i) => `<div class="upl" data-i="${i}"><span>${f.type.startsWith('video') ? '🎬' : '🖼️'} ${esc(f.name.slice(0, 40))}</span><span class="faint">${(f.size / 1048576).toFixed(1)} Mo</span><i></i></div>`).join('');
+    };
+    $('#tmf', root).onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = $('#tsend', root);
+      btn.disabled = true;
+      try {
+        const files = [...$('#tf', root).files].slice(0, 6);
+        const ids = [];
+        for (const [i, f] of files.entries()) {
+          btn.textContent = `Envoi du fichier ${i + 1}/${files.length}…`;
+          const bar = $(`.upl[data-i="${i}"] i`, root);
+          const r = await prepareAndUpload(f, (p) => { if (bar) bar.style.width = `${Math.round(p * 100)}%`; });
+          ids.push(r.id);
+        }
+        btn.textContent = 'Envoi du témoignage…';
+        const r = await api('/api/testimonies', { method: 'POST', body: { category: $('#tc', root).value, date: $('#td', root).value, place: $('#tp', root).value, text: $('#tx', root).value, contact: $('#tco', root).value, media: ids, consent: $('#tok', root).checked } });
+        close();
+        sheet(`<div class="empty"><div class="big">💚</div><b>Merci pour ton courage.</b><p class="muted">${esc(r.message)}</p></div>`);
+      } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = 'Envoyer'; }
+    };
+  });
+}
+
+// ----- Modos : votes -----
+async function modPolls(el) {
+  const polls = await api('/api/mod/polls');
+  el.innerHTML = `
+    <div class="card"><form class="form" id="pf">
+      <div class="kicker">Nouveau vote anonyme</div>
+      <div class="field"><label>Question</label><input type="text" id="pq" maxlength="200" required placeholder="Faut-il reconduire le blocus demain ?"></div>
+      <div class="field"><label>Précision (facultatif)</label><input type="text" id="pd" maxlength="600"></div>
+      <div class="field"><label>Choix (un par ligne, 2 à 8)</label><textarea id="po" required>Pour\nContre\nAbstention</textarea></div>
+      <div class="grid cols-2">
+        <div class="field"><label>Durée</label><select id="pdur"><option value="1h">1 heure</option><option value="3h">3 heures</option><option value="6h">6 heures</option><option value="12h">12 heures</option><option value="24h" selected>24 heures</option><option value="48h">48 heures</option><option value="72h">3 jours</option><option value="7j">7 jours</option><option value="custom">Date précise…</option></select></div>
+        <div class="field" id="pcw" hidden><label>Clôture le</label><input type="datetime-local" id="pc"></div>
+      </div>
+      <label class="check"><input type="checkbox" id="plive" checked> Résultats visibles pendant le vote (sinon : à la clôture)</label>
+      <button class="btn">Lancer le vote</button></form></div>
+    <h2 class="section">Votes</h2>
+    ${polls.map((p) => `<div class="card" data-id="${esc(p.id)}">
+      <div class="chips"><span class="pill ${p.open ? 'red' : 'grey'}">${p.open ? 'En cours · ' + esc(remaining(p.closesAt)) : 'Clos'}</span>${p.hidden ? '<span class="pill grey">masqué</span>' : ''}<span class="pill grey">${p.total} votes</span></div>
+      <b style="display:block;margin:8px 0">${esc(p.question)}</b>
+      ${p.options.map((o, i) => `<div class="kv"><span>${esc(o)}</span><b class="mono">${p.counts[i]}</b></div>`).join('')}
+      <div class="btn-row" style="margin-top:8px">${p.open ? '<button class="btn small red" data-a="close">Clore maintenant</button>' : ''}<button class="btn small ghost" data-a="extend">+24 h</button><button class="btn small ghost" data-a="hide">${p.hidden ? 'Afficher' : 'Masquer'}</button><button class="btn small ghost" data-a="del">Supprimer</button></div>
+    </div>`).join('') || '<div class="empty">Aucun vote.</div>'}`;
+  $('#pdur').onchange = (e) => ($('#pcw').hidden = e.target.value !== 'custom');
+  $('#pf').onsubmit = async (e) => {
+    e.preventDefault();
+    const custom = $('#pdur').value === 'custom';
+    await act(() => api('/api/mod/polls', { method: 'POST', body: { question: $('#pq').value, description: $('#pd').value, options: $('#po').value.split('\n'), duration: $('#pdur').value, closesAt: custom && $('#pc').value ? new Date($('#pc').value).toISOString() : undefined, results: $('#plive').checked ? 'live' : 'after' } }), 'Vote lancé.');
+    render(true);
+  };
+  el.onclick = async (e) => {
+    const a = e.target.dataset.a;
+    const card = e.target.closest('[data-id]');
+    if (!a || !card) return;
+    const id = card.dataset.id;
+    const p = polls.find((x) => x.id === id);
+    if (a === 'close' && confirm('Clore ce vote maintenant ?')) await act(() => api(`/api/mod/polls/${id}`, { method: 'PUT', body: { close: true } }), 'Clos.');
+    if (a === 'extend') await act(() => api(`/api/mod/polls/${id}`, { method: 'PUT', body: { extendHours: 24 } }), 'Prolongé de 24 h.');
+    if (a === 'hide') await act(() => api(`/api/mod/polls/${id}`, { method: 'PUT', body: { hidden: !p.hidden } }), 'OK.');
+    if (a === 'del' && confirm('Supprimer ce vote et ses résultats ?')) await act(() => api(`/api/mod/polls/${id}`, { method: 'DELETE' }), 'Supprimé.');
+    render(true);
+  };
+}
+
+// ----- Modos : blog -----
+async function modBlog(el) {
+  const posts = await api('/api/mod/posts');
+  const pending = posts.filter((p) => p.status === 'pending');
+  const ST = { draft: ['Brouillon', 'grey'], pending: ['À relire', 'orange'], published: ['Publié', 'green'], rejected: ['Refusé', 'red'] };
+  el.innerHTML = `
+    ${pending.length ? `<h2 class="section" style="margin-top:0">📥 Tribunes à relire (${pending.length})</h2>${pending.map((p) => `
+      <div class="card" data-id="${esc(p.id)}"><b>${esc(p.title)}</b><div class="faint small">${esc(p.author)} · ${esc(ago(p.createdAt))}</div>
+      <div class="small" style="max-height:220px;overflow:auto;margin:8px 0;white-space:pre-wrap">${esc(p.body)}</div>
+      <div class="btn-row"><button class="btn small green" data-s="published">Publier</button><button class="btn small red" data-s="rejected">Refuser</button></div></div>`).join('')}` : ''}
+    <div class="card" style="margin-top:12px"><form class="form" id="bf">
+      <div class="kicker">Nouvel article</div>
+      <div class="field"><label>Titre</label><input type="text" id="bt" maxlength="140" required></div>
+      <div class="field"><label>Signature</label><input type="text" id="ba" maxlength="60" value="${esc(state.me.org)}"></div>
+      <div class="field"><label>Image de couverture (facultatif)</label><input type="file" id="bc" accept="image/*"></div>
+      <div class="field"><label>Texte (paragraphes séparés par une ligne vide, « ## » pour un intertitre, **gras**, liens auto)</label><textarea id="bb" required style="min-height:220px"></textarea></div>
+      <div class="btn-row"><button class="btn green" data-pub="1">Publier</button><button class="btn ghost" data-pub="0">Brouillon</button></div></form></div>
+    <h2 class="section">Articles</h2>
+    <div class="list">${posts.filter((p) => p.status !== 'pending').map((p) => `<div class="row" data-id="${esc(p.id)}"><span class="pill ${ST[p.status][1]}">${ST[p.status][0]}</span><div class="grow"><div class="title">${esc(p.title)}</div><div class="sub">${p.kind === 'tribune' ? 'Tribune · ' : ''}${esc(p.author)} · ${esc(ago(p.createdAt))}</div></div>
+      ${p.status === 'published' ? '<button class="btn small ghost" data-s="draft">Dépublier</button>' : '<button class="btn small green" data-s="published">Publier</button>'}<button class="icon-btn" data-del>${icon('trash', 18)}</button></div>`).join('') || '<div class="empty">Aucun.</div>'}</div>`;
+  let publish = true;
+  $$('#bf [data-pub]').forEach((b) => (b.onclick = () => (publish = b.dataset.pub === '1')));
+  $('#bf').onsubmit = async (e) => {
+    e.preventDefault();
+    let cover;
+    const f = $('#bc').files[0];
+    if (f) { try { cover = (await prepareAndUpload(f, () => {})).id; } catch (err) { return toast(err.message); } }
+    await act(() => api('/api/mod/posts', { method: 'POST', body: { title: $('#bt').value, author: $('#ba').value, body: $('#bb').value, cover, publish } }), publish ? 'Publié.' : 'Brouillon enregistré.');
+    render(true);
+  };
+  el.onclick = async (e) => {
+    const row = e.target.closest('[data-id]');
+    if (!row) return;
+    const s = e.target.dataset.s;
+    if (s) { await act(() => api(`/api/mod/posts/${row.dataset.id}`, { method: 'PUT', body: { status: s } }), 'Mis à jour.'); render(true); }
+    if (e.target.closest('[data-del]') && confirm('Supprimer cet article ?')) { await act(() => api(`/api/mod/posts/${row.dataset.id}`, { method: 'DELETE' }), 'Supprimé.'); render(true); }
+  };
+}
+
+// ----- Modos : témoignages -----
+async function modTestimonies(el) {
+  const [items, q] = await Promise.all([api('/api/mod/testimonies'), api('/api/mod/queue')]);
+  const ST = { pending: ['À relire', 'orange'], published: ['Publié', 'green'], rejected: ['Refusé', 'grey'] };
+  el.innerHTML = `
+    <p class="muted small">Rien n’est public sans ta validation. Retire tout nom, visage reconnaissable d’un tiers ou détail identifiant. Tu peux publier le texte sans les médias (décoche-les).${q.ffmpeg ? '' : ' <b style="color:var(--orange)">ffmpeg absent : les métadonnées des vidéos ne sont pas retirées.</b>'}</p>
+    ${items.map((t) => `
+      <div class="card" data-id="${esc(t.id)}" style="${t.status === 'pending' ? 'border-color:rgba(255,159,10,0.5)' : ''}">
+        <div class="chips"><span class="pill ${ST[t.status][1]}">${ST[t.status][0]}</span><span class="pill red">${esc(t.categoryLabel)}</span><span class="pill grey">reçu ${esc(ago(t.createdAt))}</span></div>
+        <div class="grid cols-2" style="margin-top:10px">
+          <div class="field"><label>Date</label><input type="text" value="${esc(t.date)}" disabled></div>
+          <div class="field"><label>Lieu</label><input type="text" data-f="place" value="${esc(t.place)}"></div>
+        </div>
+        <div class="field" style="margin-top:8px"><label>Texte (modifiable pour anonymiser)</label><textarea data-f="text" style="min-height:140px">${esc(t.text)}</textarea></div>
+        ${t.contact ? `<div class="notice" style="margin-top:8px">📇 Contact privé : <b>${esc(t.contact)}</b> <button class="btn small ghost" data-a="rmcontact">Effacer</button></div>` : ''}
+        ${t.media.length ? `<div class="media-grid" style="margin-top:8px">${t.media.map((m) => `<div><div class="media">${m.kind === 'video' ? `<video src="${esc(m.url)}" controls preload="metadata" playsinline></video>` : `<img src="${esc(m.url)}" alt="">`}</div>
+          <label class="check small"><input type="checkbox" data-m="${esc(m.id)}" ${m.public || t.status !== 'published' ? 'checked' : ''}> publier</label>
+          <div class="small ${m.cleaned ? 'faint' : ''}" style="${m.cleaned ? '' : 'color:var(--orange)'}">${m.cleaned ? '✓ métadonnées retirées' : '⚠️ métadonnées non retirées'}</div>
+          <button class="btn small ghost" data-rm="${esc(m.id)}">Supprimer le fichier</button></div>`).join('')}</div>` : ''}
+        <label class="check"><input type="checkbox" data-f="sensitive" ${t.sensitive !== false ? 'checked' : ''}> Flouter les médias (contenu sensible)</label>
+        <div class="btn-row">
+          <button class="btn small green" data-a="published">${t.status === 'published' ? 'Mettre à jour' : 'Publier'}</button>
+          ${t.status !== 'rejected' ? '<button class="btn small ghost" data-a="rejected">Refuser</button>' : ''}
+          ${t.status === 'published' ? '<button class="btn small ghost" data-a="pending">Dépublier</button>' : ''}
+          <button class="btn small red" data-a="delete">Supprimer définitivement</button>
+        </div>
+      </div>`).join('') || '<div class="card empty">Aucun témoignage reçu.</div>'}`;
+  el.onclick = async (e) => {
+    const card = e.target.closest('[data-id]');
+    if (!card) return;
+    const id = card.dataset.id;
+    const a = e.target.dataset.a;
+    const rm = e.target.dataset.rm;
+    if (rm && confirm('Supprimer ce fichier définitivement ?')) { await act(() => api(`/api/mod/testimonies/${id}`, { method: 'PUT', body: { removeMedia: rm } }), 'Fichier supprimé.'); return render(true); }
+    if (!a) return;
+    if (a === 'rmcontact') { await act(() => api(`/api/mod/testimonies/${id}`, { method: 'PUT', body: { removeContact: true } }), 'Contact effacé.'); return render(true); }
+    if (a === 'delete') { if (confirm('Supprimer ce témoignage et ses fichiers ?')) { await act(() => api(`/api/mod/testimonies/${id}`, { method: 'DELETE' }), 'Supprimé.'); render(true); } return; }
+    if (a === 'published' && !confirm('Publier ce témoignage ? Vérifie qu’aucune personne n’est identifiable.')) return;
+    await act(() => api(`/api/mod/testimonies/${id}`, { method: 'PUT', body: {
+      status: a, text: $('[data-f=text]', card).value, place: $('[data-f=place]', card).value, sensitive: $('[data-f=sensitive]', card).checked,
+      publishMedia: $$('[data-m]', card).filter((c) => c.checked).map((c) => c.dataset.m),
+    } }), 'Enregistré.');
+    render(true);
+  };
+}
+
 // ---------- Données + temps réel ----------
 async function refresh() {
   state.data = await api('/api/state');
@@ -921,6 +1284,8 @@ function connectLive() {
     if (f.level === 'alert' && document.hidden && 'Notification' in window && Notification.permission === 'granted') new Notification('Lyon 1 · alerte', { body: f.text, icon: '/icon.svg' });
   });
   es.addEventListener('chat', (e) => onChat(JSON.parse(e.data)));
+  es.addEventListener('poll', () => { scheduleRefresh(); if (route() === 'votes' && !$('.sheet')) viewPolls(); });
+  for (const [ev, r] of [['blog', 'blog'], ['testimonies', 'temoignages']]) es.addEventListener(ev, () => { if (route() === r && !$('.sheet')) render(); });
   es.addEventListener('chat-del', (e) => { const id = JSON.parse(e.data).id; $(`.msg[data-id="${CSS.escape(id)}"]`)?.remove(); });
   es.addEventListener('demand', (e) => {
     const { id, support } = JSON.parse(e.data);
