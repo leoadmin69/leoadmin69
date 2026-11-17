@@ -1,0 +1,44 @@
+# Mise en ligne de « Lyon 1 · La Doua en lutte » (dossier lyon1-lutte/) sur Render.
+# Render → New → Blueprint → choisir ce dépôt. Les valeurs marquées sync: false sont demandées à la création.
+services:
+  - type: web
+    name: ladoua-en-lutte
+    runtime: docker
+    dockerfilePath: ./lyon1-lutte/Dockerfile
+    dockerContext: ./lyon1-lutte
+    # Ne redéploie que quand le site change (pas pour les autres projets du dépôt)
+    buildFilter:
+      paths:
+        - lyon1-lutte/**
+    # Formule payante la moins chère : nécessaire pour le disque (les données survivent aux redémarrages)
+    # et pour que le site ne s'endorme jamais (le direct reste connecté).
+    plan: starter
+    region: frankfurt
+    healthCheckPath: /api/health
+    disk:
+      name: donnees
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "true"
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: SITE_URL
+        sync: false
+      - key: INSTAGRAM_URL
+        value: https://www.instagram.com/lyon1_ladoua.enlutte/
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false

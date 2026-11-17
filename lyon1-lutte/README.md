@@ -69,6 +69,30 @@ Si une IA a épuisé son quota gratuit ou est en panne, la suivante prend le rel
 
 Pas de logo : le site, les emails et les stories affichent seulement « Lyon 1 · La Doua en lutte ». Le compte Instagram (`INSTAGRAM_URL`, par défaut `@lyon1_ladoua.enlutte`) apparaît dans la barre latérale, sur l'accueil, la page contacts, le menu Plus, en pied de chaque email et sur chaque story.
 
-### Déploiement
+### Mise en ligne sur Render (recommandé)
 
-Le `Dockerfile` marche sur Render, Railway, Fly.io… **Monte un disque persistant sur `/app/data`** (base JSON + fichiers). Mets `TRUST_PROXY=true` derrière l'hébergeur.
+Le fichier `render.yaml` à la racine du dépôt configure tout : image Docker, disque persistant de 1 Go monté sur `/app/data`, contrôle de santé `/api/health`, région Francfort, clé de session générée automatiquement.
+
+1. Crée un compte sur **render.com** (connexion avec GitHub).
+2. **New → Blueprint**, choisis le dépôt `leoadmin69/leoadmin69` et la branche qui contient `lyon1-lutte/`.
+3. Render demande les valeurs secrètes :
+   - `ADMIN_PASSWORD` : un mot de passe long (c'est le compte admin des modos) ;
+   - `SITE_URL` : laisse vide au début, puis mets l'adresse donnée par Render (ex. `https://ladoua-en-lutte.onrender.com`) ;
+   - `GEMINI_API_KEY`, `GROQ_API_KEY` : clés gratuites (voir plus haut) ;
+   - `RESEND_API_KEY`, `MAIL_FROM` : pour les emails (facultatif au début).
+4. **Apply**. La première construction prend quelques minutes.
+5. Ouvre `https://…onrender.com/#/modo`, connecte-toi (`admin` + ton mot de passe), change le mot de passe dans « Mon compte », puis crée un compte par modo dans « Comptes ».
+
+**Coût** : formule *Starter* (environ 7 $/mois) + disque 1 Go (environ 0,25 $/mois). La formule gratuite de Render ne convient pas : pas de disque (tout s'efface à chaque redémarrage : abonné·es, témoignages, votes) et le site s'endort après 15 min (premier chargement d'environ 1 min, direct coupé). Render garde en plus une copie quotidienne du disque.
+
+**Nom de domaine** (facultatif) : Render → Settings → Custom Domains, puis mettre à jour `SITE_URL`.
+
+### Emails (Resend)
+
+1. Compte gratuit sur **resend.com** (3 000 emails/mois, 100/jour).
+2. Ajoute et vérifie un nom de domaine (Resend donne les lignes DNS à copier) ; sans domaine vérifié, Resend n'envoie qu'à ta propre adresse.
+3. Crée une clé API → `RESEND_API_KEY` ; `MAIL_FROM` = `Lyon 1 · La Doua en lutte <alertes@ton-domaine>`.
+
+### Ailleurs
+
+Le `Dockerfile` marche aussi sur Railway, Fly.io ou un VPS : monte un disque persistant sur `/app/data` et mets `TRUST_PROXY=true` derrière l'hébergeur.

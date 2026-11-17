@@ -103,6 +103,9 @@ function upcomingEvents() {
   return db.events.filter((e) => new Date(e.start).getTime() >= cutoff).sort((a, b) => a.start.localeCompare(b.start));
 }
 
+// Contrôle de santé pour l'hébergeur (ne révèle rien).
+app.get('/api/health', (req, res) => res.json({ ok: true }));
+
 app.get('/api/state', (req, res) => {
   res.json({
     blocus: db.settings.blocus,

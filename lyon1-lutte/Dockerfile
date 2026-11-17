@@ -5,8 +5,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY . .
-RUN mkdir -p data && chown -R node:node /app
-USER node
+RUN mkdir -p data && chown -R node:node /app && chmod +x docker-entrypoint.sh
 ENV NODE_ENV=production PORT=3000 DATA_DIR=/app/data
 EXPOSE 3000
-CMD ["node", "server.js"]
+# Démarre en root juste le temps de donner le disque à « node », puis tourne en « node ».
+CMD ["./docker-entrypoint.sh"]
