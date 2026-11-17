@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Lyon 1 en lutte</title>
+  <meta name="description" content="Blocus, bâtiments bloqués, AG, manifs, comptes rendus, revendications et chat anonyme des étudiant·es de Lyon 1.">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <canvas id="bg" aria-hidden="true"></canvas>
+  <div id="alertbar" hidden></div>
+  <div class="shell">
+    <aside class="sidebar" aria-label="Navigation">
+      <a class="brand" href="#/">
+        <span class="brand-mark">L1</span>
+        <span class="brand-text"><b data-glitch="EN LUTTE">EN LUTTE</b><small>Lyon 1 · info étudiante</small></span>
+      </a>
+      <nav id="sidenav"></nav>
+      <div class="side-foot"><span class="live-dot"></span><span id="online-side">connexion…</span></div>
+    </aside>
+    <main id="main" tabindex="-1">
+      <header class="topbar">
+        <div class="topbar-inner">
+          <span class="live-pill"><span class="live-dot"></span>LIVE</span>
+          <span id="online-top" class="muted mono"></span>
+        </div>
+      </header>
+      <div id="view" class="view"></div>
+    </main>
+  </div>
+  <nav class="tabbar" id="tabbar" aria-label="Navigation principale"></nav>
+  <div id="sheet-root"></div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

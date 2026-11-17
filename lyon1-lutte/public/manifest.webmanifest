@@ -1,0 +1,10 @@
+{
+  "name": "Lyon 1 en lutte",
+  "short_name": "L1 en lutte",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "lang": "fr",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
