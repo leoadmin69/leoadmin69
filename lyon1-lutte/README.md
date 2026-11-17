@@ -43,7 +43,7 @@ Accès `#/modo`. L'admin crée un compte par personne (mot de passe généré, �
 ## Plusieurs sites, chaque modo chez soi
 
 - **Sites** : Campus de la Doua (affiché par défaut), IUT Doua, IUT Gratte-Ciel, Rockefeller, Lyon Sud, Gerland. L'admin en ajoute ou renomme dans l'onglet **📍 Sites** (une chaîne Telegram par site est possible).
-- **Étudiant·es** : une barre en haut permet de choisir son site (ou « Tous les sites ») ; l'accueil, les bâtiments, l'agenda, les votes, les revendications, le blog et les comptes rendus suivent ce choix. Les notifications et emails se règlent par site.
+- **Étudiant·es** : une barre en haut permet de choisir son site (ou « Tous les sites ») ; l'accueil, les bâtiments, l'agenda, les votes, le blog, l'entraide et les comptes rendus suivent ce choix. Revendications, témoignages, frise et « Tes droits » sont communs à tous les sites (pas de choix). Les notifications et emails se règlent par site.
 - **Modos** : chaque compte est rattaché à un ou plusieurs sites (par ex. la présidence de l'AG de Gratte-Ciel). Un modo ne voit et ne modifie **que ses sites** : bâtiments, titre de l'accueil, AG/manifs, votes (au nom de son AG), flash, revendications, blog, témoignages, contacts, comptes rendus. Seul l'**admin** a accès à tout, aux comptes et aux sites.
 - **Pas d'écrasement entre modos** : si deux modos changent le même bâtiment ou la même fiche en même temps, le second est prévenu (« déjà bloqué par AG Doua ») au lieu d'écraser. L'espace modo affiche qui d'autre est connecté sur les mêmes sites. Le journal indique le site de chaque action.
 

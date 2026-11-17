@@ -35,7 +35,10 @@ const siteShort = (id) => siteList().find((x) => x.id === id)?.short || id;
 const siteFull = (id) => siteList().find((x) => x.id === id)?.name || id;
 const defaultSite = () => state.raw?.defaultSite || 'doua';
 const publicSite = () => (state.site && state.site !== ALL && siteList().some((x) => x.id === state.site) ? state.site : defaultSite());
-const scopeSite = () => (route().startsWith('modo') && state.me ? state.modSite || defaultSite() : state.site && siteList().some((x) => x.id === state.site) ? state.site : state.site === ALL ? ALL : defaultSite());
+// Pages communes à tous les sites : pas de choix de site, tout est ensemble
+const UNIFIED = ['droits', 'frise', 'temoignages', 'revendications'];
+const unified = () => UNIFIED.includes(route().split('/')[0]);
+const scopeSite = () => (unified() ? ALL : route().startsWith('modo') && state.me ? state.modSite || defaultSite() : state.site && siteList().some((x) => x.id === state.site) ? state.site : state.site === ALL ? ALL : defaultSite());
 const inScope = (x, sc = scopeSite()) => sc === ALL || (x.site || defaultSite()) === sc;
 function applyScope() {
   const r = state.raw;
@@ -54,12 +57,12 @@ function applyScope() {
   };
 }
 // Pastille du site sur une carte quand on regarde « Tous les sites »
-const siteTag = (x) => (state.data?.scope === ALL ? `<span class="pill grey site-tag">📍 ${esc(siteShort(x.site || defaultSite()))}</span>` : '');
+const siteTag = (x) => (state.data?.scope === ALL && !unified() ? `<span class="pill grey site-tag">📍 ${esc(siteShort(x.site || defaultSite()))}</span>` : '');
 function renderSiteBar() {
   const bar = $('#sitebar');
   if (!bar) return;
   const r = route().split('/')[0];
-  const show = state.raw && siteList().length > 1 && !['modo', 'chat', 'plus', 'alertes', 'droits'].includes(r);
+  const show = state.raw && siteList().length > 1 && !['modo', 'chat', 'plus', 'alertes', ...UNIFIED].includes(r);
   bar.hidden = !show;
   if (!show) return;
   const cur = scopeSite();
@@ -2433,7 +2436,7 @@ async function viewFrise() {
   const dayName = (d) => new Date(d + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   view().innerHTML = `
     <h1 class="large-title">Frise de la lutte</h1>
-    <p class="subtitle">Jour ${f.today} de la mobilisation${state.data.scope === ALL ? '' : ' · ' + esc(siteShort(sc))}. Remplie automatiquement : blocages, AG, votes, revendications obtenues.</p>
+    <p class="subtitle">Jour ${f.today} de la mobilisation, tous sites ensemble. Remplie automatiquement : blocages, AG, votes, revendications obtenues.</p>
     <div class="frise-stats">
       <div><b>${f.today}</b><span>jours</span></div>
       <div><b>${f.stats.days}</b><span>jours d’action</span></div>
