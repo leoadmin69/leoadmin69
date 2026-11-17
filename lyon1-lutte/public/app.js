@@ -63,7 +63,7 @@ const NAV = [
   { id: 'blog', label: 'Blog & tribunes', icon: 'pen' },
   { id: 'temoignages', label: 'Témoignages', icon: 'shield' },
   { id: 'contacts', label: 'Parler à qui ?', icon: 'people' },
-  { id: 'alertes', label: 'Alertes email', icon: 'bell' },
+  { id: 'alertes', label: 'Alertes & notifs', icon: 'bell' },
   { id: 'modo', label: 'Espace modos', icon: 'lock' },
 ];
 const TABS = [
@@ -226,10 +226,11 @@ function viewLive() {
         <div class="chips" style="margin-top:10px">${lastReport.flashs.slice(0, 3).map((f) => `<span class="pill ${f.type === 'alerte' ? 'red' : 'blue'}">${FLASH_ICO[f.type]} ${esc(f.titre)}</span>`).join('')}</div>
       </a>` : ''}
 
+    ${appCardHtml()}
     ${igCard()}
-    <a class="card" href="#/alertes" style="display:flex;gap:14px;align-items:center;margin-top:24px;color:inherit;border-color:rgba(255,69,58,0.4)">
+    <a class="card" href="#/alertes" style="display:flex;gap:14px;align-items:center;margin-top:14px;color:inherit;border-color:rgba(255,69,58,0.4)">
       <div style="font-size:30px">🔔</div>
-      <div class="grow"><b>Reçois les alertes par email</b><div class="muted small">Bâtiment bloqué = email rouge, lisible en 3 secondes. ${d.subscribers} inscrit·es.</div></div>
+      <div class="grow"><b>Sois prévenu·e dès qu’un bâtiment est bloqué</b><div class="muted small">Notification sur ton téléphone (gratuit, sans compte) ou email.</div></div>
       <span class="chev">${icon('chev', 18)}</span>
     </a>`;
   const f = $('#feed');
@@ -506,37 +507,68 @@ function viewContacts() {
     </div>`;
 }
 
-// ===== Alertes email =====
-function viewAlerts() {
+// ===== Alertes : notifications sur le téléphone + email =====
+async function viewAlerts() {
   const d = state.data;
   const campuses = [...new Set(d.buildings.map((b) => b.campus))];
+  const saved = store.get('l1-push', null);
+  const sub = await currentPushSub().catch(() => null);
+  const on = !!sub && !!saved;
+  const kinds = saved?.kinds || ['buildings', 'urgent', 'events', 'reports'];
+  const KINDS = [['buildings', '🔴 Bâtiments bloqués / rouverts et blocus'], ['urgent', '🚨 Alertes urgentes (danger, nasse, changement de dernière minute)'], ['events', '📣 Nouvelles AG, manifs, rassemblements'], ['reports', '📝 Comptes rendus d’AG']];
+  const iosNeedsInstall = isIOS && !isStandalone();
   view().innerHTML = `
-    <h1 class="large-title">Alertes email</h1>
-    <p class="subtitle">Un bâtiment est bloqué ? Tu reçois un email rouge, lisible en 3 secondes. Désinscription en un clic.</p>
+    <h1 class="large-title">Alertes</h1>
+    <p class="subtitle">Un bâtiment est bloqué ? Ton téléphone vibre tout de suite. Gratuit, anonyme, sans compte.</p>
+    <div class="card" style="border-color:${on ? 'rgba(48,209,88,0.5)' : 'rgba(255,69,58,0.5)'}">
+      <div class="kicker">📳 Notifications sur ton téléphone <span class="pill ${on ? 'green' : 'grey'}" style="margin-left:6px">${on ? 'activées' : 'désactivées'}</span></div>
+      ${iosNeedsInstall ? `<p class="notice" style="margin-top:10px">Sur iPhone, il faut d’abord <b>ajouter l’app à l’écran d’accueil</b>, puis l’ouvrir depuis l’icône pour activer les notifications.</p><button class="btn red" data-install type="button">📲 Comment l’installer</button>` : `
+      <div style="margin-top:8px">${KINDS.map(([k, l]) => `<label class="check"><input type="checkbox" name="pk" value="${k}" ${kinds.includes(k) ? 'checked' : ''}> ${l}</label>`).join('')}</div>
+      <div class="field" style="margin-top:6px"><label>Campus (aucun coché = tous)</label></div>
+      ${campuses.map((c) => `<label class="check"><input type="checkbox" name="pc" value="${esc(c)}" ${saved?.campuses?.includes(c) ? 'checked' : ''}> ${esc(c)}</label>`).join('')}
+      <div class="btn-row" style="margin-top:10px">
+        <button class="btn ${on ? 'green' : 'red'}" id="pushOn" type="button">${on ? '✓ Mettre à jour' : '🔔 Activer les notifications'}</button>
+        ${on ? '<button class="btn ghost" id="pushTest" type="button">Tester</button><button class="btn ghost" id="pushOff" type="button">Désactiver</button>' : ''}
+      </div>
+      <p class="faint small">Aucune donnée perso : ton téléphone reçoit les alertes, c’est tout. Tu peux les couper ici ou dans les réglages.</p>`}
+    </div>
+    ${appCardHtml()}
+    <h2 class="section">✉️ Ou par email</h2>
     <div class="card">
-      <form class="form" id="sub">
+      ${d.mailEnabled ? `<form class="form" id="sub">
         <div class="field"><label for="email">Ton email (perso ou étudiant)</label><input type="email" id="email" required autocomplete="email" placeholder="prenom.nom@exemple.fr"></div>
-        <div><div class="field"><label>Je veux être prévenu·e pour</label></div>
-          <label class="check"><input type="checkbox" name="a" value="buildings" checked> 🔴 Bâtiments bloqués / rouverts et blocus</label>
-          <label class="check"><input type="checkbox" name="a" value="events" checked> 📣 Nouvelles AG, manifs, rassemblements</label>
-          <label class="check"><input type="checkbox" name="a" value="reports" checked> 📝 Comptes rendus d’AG</label>
-        </div>
+        <div>${[['buildings', '🔴 Bâtiments bloqués / rouverts et blocus'], ['events', '📣 Nouvelles AG, manifs, rassemblements'], ['reports', '📝 Comptes rendus d’AG']].map(([k, l]) => `<label class="check"><input type="checkbox" name="a" value="${k}" checked> ${l}</label>`).join('')}</div>
         <div><div class="field"><label>Campus (aucun coché = tous)</label></div>
           ${campuses.map((c) => `<label class="check"><input type="checkbox" name="c" value="${esc(c)}"> ${esc(c)}</label>`).join('')}
         </div>
-        <button class="btn red">🔔 M’inscrire</button>
-        <p class="faint small">Ton email sert uniquement à ces alertes. Il n’est jamais affiché ni transmis. ${d.mailEnabled ? 'Tu recevras un email de confirmation.' : ''}</p>
-      </form>
+        <button class="btn ghost">✉️ M’inscrire par email</button>
+        <p class="faint small">Ton email sert uniquement à ces alertes. Il n’est jamais affiché ni transmis. Tu recevras un email de confirmation. Les emails gratuits sont limités par jour : les notifications restent le moyen le plus sûr.</p>
+      </form>` : '<p class="muted" style="margin:0">Les alertes par email ne sont pas encore activées. Active les notifications ci-dessus : c’est plus rapide.</p>'}
     </div>
-    <div class="card" style="margin-top:14px;display:flex;gap:14px;align-items:center">
-      <div style="font-size:26px">📲</div><div class="muted small">Astuce : ajoute ce site à ton écran d’accueil (Partager → « Sur l’écran d’accueil ») pour l’ouvrir comme une app.</div>
-    </div>`;
-  $('#sub').onsubmit = async (e) => {
+    ${igCard('Les infos aussi sur Instagram')}`;
+  const pick = (n) => $$(`input[name=${n}]:checked`).map((x) => x.value);
+  if ($('#pushOn')) $('#pushOn').onclick = async (e) => {
+    e.target.disabled = true;
+    try { if (await enablePush(pick('pk'), pick('pc'))) { toast('Notifications activées ✊'); viewAlerts(); } }
+    catch (err) {
+      console.warn('push', err);
+      toast(/denied|permission/i.test(err.message || '') ? 'Notifications bloquées : autorise-les dans les réglages du navigateur, puis réessaie.' : 'Activation impossible sur ce navigateur. Essaie Chrome (Android) ou l’app installée (iPhone).');
+    }
+    e.target.disabled = false;
+  };
+  if ($('#pushOff')) $('#pushOff').onclick = async () => { await disablePush(); toast('Notifications désactivées.'); viewAlerts(); };
+  if ($('#pushTest')) $('#pushTest').onclick = async () => {
+    const s2 = await currentPushSub();
+    try { await api('/api/push/subscribe', { method: 'POST', body: { subscription: s2.toJSON(), kinds: pick('pk'), campuses: pick('pc') } }); } catch {}
+    const reg = await navigator.serviceWorker.getRegistration();
+    reg?.showNotification('Test · La Doua en lutte', { body: 'Les notifications marchent ✊', icon: '/icons/icon-192.png', badge: '/icons/badge-96.png' });
+  };
+  if ($('#sub')) $('#sub').onsubmit = async (e) => {
     e.preventDefault();
     const btn = $('#sub button');
     btn.disabled = true;
     try {
-      const r = await api('/api/subscribe', { method: 'POST', body: { email: $('#email').value, alerts: $$('input[name=a]:checked').map((x) => x.value), campuses: $$('input[name=c]:checked').map((x) => x.value) } });
+      const r = await api('/api/subscribe', { method: 'POST', body: { email: $('#email').value, alerts: pick('a'), campuses: pick('c') } });
       $('#sub').innerHTML = `<div class="empty"><div class="big">✅</div>${esc(r.message)}</div>`;
     } catch (err) { toast(err.message); btn.disabled = false; }
   };
@@ -545,7 +577,7 @@ function viewAlerts() {
 // ===== Menu « Plus » (mobile) =====
 function viewPlus() {
   const items = NAV.filter((n) => !TABS.some((t) => t.id === n.id));
-  const sub = { votes: 'Donne ton avis, anonymement', blog: 'Articles et tribunes', temoignages: 'Violences : témoigner', cr: 'Les AG en flash infos', revendications: 'Soutiens les revendications', contacts: 'Syndicats, écoute, urgences', alertes: 'Emails bâtiments bloqués', modo: 'Accès syndicats' };
+  const sub = { votes: 'Donne ton avis, anonymement', blog: 'Articles et tribunes', temoignages: 'Violences : témoigner', cr: 'Les AG en flash infos', revendications: 'Soutiens les revendications', contacts: 'Syndicats, écoute, urgences', alertes: 'Notifs quand un bâtiment est bloqué', modo: 'Accès syndicats' };
   view().innerHTML = `<h1 class="large-title">Plus</h1><p class="subtitle">Tout ce qu’il faut savoir sur la mobilisation.</p>
     <div class="menu-grid">${items.map((n) => `<a href="#/${n.id}">${icon(n.icon)}<span>${n.label}<br><small>${sub[n.id] || ''}</small></span></a>`).join('')}</div>
     ${igCard()}`;
@@ -595,7 +627,7 @@ async function viewModo() {
     <div class="tabs-inline" id="mtabs">${tabs.map(([id, l]) => `<button data-t="${id}" class="${id === state.modTab ? 'on' : ''}">${l}</button>`).join('')}</div>
     <div id="mod"></div>`;
   $('#mtabs').onclick = (e) => { if (e.target.dataset.t) { state.modTab = e.target.dataset.t; render(true); } };
-  api('/api/mod/stats').then((s) => { const el = $('#mstats'); if (el) el.textContent = `${s.subscribers} abonné·es · IA ${s.aiEnabled ? s.aiProviders.join(' → ') : 'sans IA'} · email ${s.mailEnabled ? 'ON' : 'OFF'}${s.reported ? ` · ${s.reported} msg signalé(s)` : ''}`; }).catch(() => {});
+  api('/api/mod/stats').then((s) => { const el = $('#mstats'); if (el) el.innerHTML = `${s.pushSubs} téléphone(s) · ${s.subscribers} email(s) · IA ${esc(s.aiEnabled ? s.aiProviders.join(' → ') : 'sans IA')} · emails ${s.mailProvider ? `${esc(s.mailProvider)} ${s.mailQuota.used}/${s.mailQuota.limit} aujourd’hui` : 'OFF'} · stockage ${s.storage === 'temporaire' ? '<b style="color:var(--red)">TEMPORAIRE (configure Supabase !)</b>' : esc(s.storage)}${s.reported ? ` · ${s.reported} msg signalé(s)` : ''}`; }).catch(() => {});
   const fn = { story: modStory, votes: modPolls, blog: modBlog, temoignages: modTestimonies, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, journal: modJournal, moi: modMe }[state.modTab] || modSituation;
   try { await fn($('#mod')); } catch (err) { if (/Connexion modo/.test(err.message)) { state.me = null; render(true); } else toast(err.message); }
 }
@@ -1525,7 +1557,7 @@ function openTestimonyForm(cats) {
         <div class="field"><label>Lieu</label><input type="text" id="tp" maxlength="140" placeholder="Ex : entrée du Déambu, cours Lafayette"></div>
       </div>
       <div class="field"><label>Ce qui s’est passé</label><textarea id="tx" maxlength="8000" required style="min-height:160px" placeholder="Décris les faits, sans donner ton nom ni celui d’autres personnes."></textarea></div>
-      <div class="field"><label>Photos / vidéos (6 max · vidéo 150 Mo max)</label><input type="file" id="tf" accept="image/*,video/mp4,video/quicktime,video/webm" multiple></div>
+      <div class="field"><label>Photos / vidéos (6 max · vidéo ${state.data?.maxVideoMb || 45} Mo max)</label><input type="file" id="tf" accept="image/*,video/mp4,video/quicktime,video/webm" multiple></div>
       <div id="tfl"></div>
       <div class="field"><label>Contact pour être recontacté·e (facultatif, visible seulement par les modos)</label><input type="text" id="tco" maxlength="160" placeholder="Email jetable, pseudo Signal…"></div>
       <label class="check"><input type="checkbox" id="tok" required> J’accepte que ce témoignage soit relu par les modos et publié anonymement s’ils le valident.</label>
@@ -1758,6 +1790,76 @@ function matrix() {
   requestAnimationFrame(tick);
 }
 
+
+// =====================================================================
+// App sur l'écran d'accueil + notifications sur le téléphone
+// =====================================================================
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; refreshAppCards(); });
+window.addEventListener('appinstalled', () => { installPrompt = null; toast('App installée ✊'); refreshAppCards(); });
+
+async function registerSW() {
+  if (!('serviceWorker' in navigator)) return null;
+  try { return await navigator.serviceWorker.register('/sw.js'); } catch (e) { console.warn('SW', e); return null; }
+}
+async function currentPushSub() {
+  if (!pushSupported()) return null;
+  const reg = await navigator.serviceWorker.getRegistration();
+  return reg ? reg.pushManager.getSubscription() : null;
+}
+function b64ToBytes(b64) {
+  const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+async function enablePush(kinds, campuses) {
+  if (!pushSupported()) {
+    if (isIOS && !isStandalone()) { showInstallHelp(true); return false; }
+    toast('Ce navigateur ne gère pas les notifications. Essaie Chrome ou Safari.');
+    return false;
+  }
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') { toast('Notifications refusées. Tu peux les réactiver dans les réglages du téléphone.'); return false; }
+  const reg = (await navigator.serviceWorker.getRegistration()) || (await registerSW());
+  await navigator.serviceWorker.ready;
+  const { key } = await api('/api/push/key');
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) });
+  await api('/api/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON(), kinds, campuses } });
+  store.set('l1-push', { kinds, campuses });
+  return true;
+}
+async function disablePush() {
+  const sub = await currentPushSub();
+  if (sub) { await api('/api/push/unsubscribe', { method: 'POST', body: { endpoint: sub.endpoint } }).catch(() => {}); await sub.unsubscribe(); }
+  store.set('l1-push', null);
+}
+function showInstallHelp(forPush = false) {
+  if (installPrompt) { installPrompt.prompt(); installPrompt.userChoice.finally(() => { installPrompt = null; refreshAppCards(); }); return; }
+  const ios = isIOS;
+  sheet(`<h3>📲 Installer l’app</h3>
+    ${forPush ? '<p class="notice">Sur iPhone, les notifications marchent seulement une fois l’app ajoutée à l’écran d’accueil.</p>' : ''}
+    ${ios ? `<ol class="steps">
+      <li>Ouvre ce site dans <b>Safari</b>.</li>
+      <li>Touche le bouton <b>Partager</b> <span class="kbd">⎋</span> (carré avec une flèche vers le haut, en bas de l’écran).</li>
+      <li>Fais défiler et choisis <b>« Sur l’écran d’accueil »</b>, puis <b>Ajouter</b>.</li>
+      <li>Ouvre l’app depuis ton écran d’accueil, va dans <b>Alertes</b> et active les notifications.</li></ol>`
+    : `<ol class="steps">
+      <li>Ouvre le menu du navigateur <span class="kbd">⋮</span> (en haut à droite dans Chrome).</li>
+      <li>Choisis <b>« Installer l’application »</b> ou <b>« Ajouter à l’écran d’accueil »</b>.</li>
+      <li>L’icône <b>LYON 1 / LA DOUA EN LUTTE</b> apparaît avec tes autres apps.</li></ol>`}
+    <p class="faint small">C’est gratuit, sans store, et ça ne prend presque pas de place.</p>`);
+}
+function appCardHtml() {
+  if (isStandalone()) return '';
+  return `<button class="card app-card" data-install type="button"><span class="app-ico">📲</span><span class="grow"><b>Installer l’app sur ton téléphone</b><span class="muted small">Une icône sur l’écran d’accueil + notifications quand un bâtiment est bloqué.</span></span><span class="chev">${icon('chev', 18)}</span></button>`;
+}
+function refreshAppCards() { $$('[data-install]').forEach((b) => (b.hidden = isStandalone())); }
+document.addEventListener('click', (e) => { if (e.target.closest('[data-install]')) showInstallHelp(); });
+
 // ---------- Démarrage ----------
 (async function start() {
   render(true);
@@ -1766,5 +1868,6 @@ function matrix() {
   try { await refresh(); } catch (e) { view().innerHTML = `<div class="empty">Serveur injoignable. ${esc(e.message)}</div>`; }
   render(true);
   connectLive();
+  registerSW();
   setInterval(() => { if (route() === '' && !document.hidden) { const m = $('.hero .meta'); if (m && state.data) m.textContent = `MAJ ${ago(state.data.blocus.updatedAt)}${state.data.blocus.by ? ' · ' + state.data.blocus.by : ''}`; } }, 30000);
 })();

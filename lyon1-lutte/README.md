@@ -18,7 +18,8 @@ Style iOS, sombre, « terminal live » ; marche sur téléphone (barre d'onglets
 | **Blog & tribunes** | Articles des syndicats + tribunes proposées anonymement par les étudiant·es (relues avant publication). |
 | **Témoignages** | Dépôt anonyme de témoignages de violences avec photos/vidéos, publiés seulement après validation. |
 | **Parler à qui ?** | Contacts des syndicats/collectifs + numéros d'urgence et d'écoute. |
-| **Alertes email** | Inscription : email rouge quand un bâtiment est bloqué, nouvelles AG/manifs, comptes rendus. Filtre par campus, désinscription en 1 clic. |
+| **Alertes** | **Notifications sur le téléphone** (gratuites, sans compte) et/ou email : bâtiment bloqué, alerte urgente, nouvelles AG/manifs, comptes rendus. Filtre par campus. |
+| **App** | S'installe sur l'écran d'accueil (Android et iPhone), s'ouvre même sans réseau avec les dernières infos. |
 
 ## Espace modos (étudiant·es syndiqué·es)
 
@@ -69,30 +70,46 @@ Si une IA a épuisé son quota gratuit ou est en panne, la suivante prend le rel
 
 Pas de logo : le site, les emails et les stories affichent seulement « Lyon 1 · La Doua en lutte ». Le compte Instagram (`INSTAGRAM_URL`, par défaut `@lyon1_ladoua.enlutte`) apparaît dans la barre latérale, sur l'accueil, la page contacts, le menu Plus, en pied de chaque email et sur chaque story.
 
-### Mise en ligne sur Render (recommandé)
+### Mise en ligne 100 % gratuite, sans nom de domaine
 
-Le fichier `render.yaml` à la racine du dépôt configure tout : image Docker, disque persistant de 1 Go monté sur `/app/data`, contrôle de santé `/api/health`, région Francfort, clé de session générée automatiquement.
+| Quoi | Service gratuit | Rôle |
+|---|---|---|
+| Site | **Render** (formule Free) | Adresse `https://ladoua-en-lutte.onrender.com`, en HTTPS, sans nom de domaine |
+| Données et fichiers | **Supabase** (formule Free, 1 Go) | Render gratuit n'a pas de disque : la base et les photos/vidéos validées y sont gardées dans un espace privé |
+| IA des comptes rendus | **Gemini** puis **Groq** | Voir plus haut |
+| Alertes | **Notifications du téléphone** | Gratuites et illimitées, sans compte ni email |
+| Emails (facultatif) | **Brevo** (300/jour) | Sans nom de domaine : il suffit de vérifier une adresse d'envoi |
 
+**1. Supabase (stockage permanent)**
+1. Crée un compte sur **supabase.com**, puis **New project** : nom `ladoua-en-lutte`, région **Europe (Paris ou Frankfurt)**, choisis un mot de passe de base (tu n'en auras pas besoin ici).
+2. Une fois le projet prêt : **Project Settings → Data API** : copie l'**URL du projet** (`https://xxxx.supabase.co`) → `SUPABASE_URL`.
+3. **Project Settings → API Keys** : copie la clé **secrète** (`service_role` ou `sb_secret_…`) → `SUPABASE_SERVICE_KEY`. ⚠️ Ne la donne à personne : elle ouvre tout le stockage.
+4. Rien d'autre à faire : le site crée lui-même son espace de stockage privé au premier démarrage.
+
+**2. Render (le site)**
 1. Crée un compte sur **render.com** (connexion avec GitHub).
-2. **New → Blueprint**, choisis le dépôt `leoadmin69/leoadmin69` et la branche qui contient `lyon1-lutte/`.
-3. Render demande les valeurs secrètes :
-   - `ADMIN_PASSWORD` : un mot de passe long (c'est le compte admin des modos) ;
-   - `SITE_URL` : laisse vide au début, puis mets l'adresse donnée par Render (ex. `https://ladoua-en-lutte.onrender.com`) ;
-   - `GEMINI_API_KEY`, `GROQ_API_KEY` : clés gratuites (voir plus haut) ;
-   - `RESEND_API_KEY`, `MAIL_FROM` : pour les emails (facultatif au début).
-4. **Apply**. La première construction prend quelques minutes.
-5. Ouvre `https://…onrender.com/#/modo`, connecte-toi (`admin` + ton mot de passe), change le mot de passe dans « Mon compte », puis crée un compte par modo dans « Comptes ».
+2. **New → Blueprint**, choisis le dépôt et la branche qui contient `lyon1-lutte/` ; Render lit `render.yaml`.
+3. Remplis : `ADMIN_PASSWORD` (long), `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`. Laisse `BREVO_API_KEY` et `MAIL_FROM_EMAIL` vides pour l'instant.
+4. **Apply**, attends la fin de la construction (~5 min), puis ouvre l'adresse donnée par Render.
+5. `…/#/modo` → connexion `admin` → change le mot de passe dans « Mon compte » → crée les comptes des modos.
 
-**Coût** : formule *Starter* (environ 7 $/mois) + disque 1 Go (environ 0,25 $/mois). La formule gratuite de Render ne convient pas : pas de disque (tout s'efface à chaque redémarrage : abonné·es, témoignages, votes) et le site s'endort après 15 min (premier chargement d'environ 1 min, direct coupé). Render garde en plus une copie quotidienne du disque.
+L'adresse du site est détectée automatiquement (pas besoin de `SITE_URL`). Le site se rend visite toutes les 10 minutes pour ne pas s'endormir. Les 750 heures gratuites par mois de Render suffisent pour **un seul** service allumé en permanence : si un autre service gratuit tourne déjà sur le même compte Render, crée un compte Render à part pour ce site (par exemple au nom du collectif).
 
-**Nom de domaine** (facultatif) : Render → Settings → Custom Domains, puis mettre à jour `SITE_URL`.
+**3. App sur le téléphone**
+- **Android** : ouvrir le site dans Chrome → bouton « Installer l'app » sur l'accueil (ou menu ⋮ → « Installer l'application »).
+- **iPhone** : ouvrir dans Safari → Partager → « Sur l'écran d'accueil » → ouvrir l'app depuis l'icône → Alertes → « Activer les notifications » (iOS 16.4 minimum).
+- L'app s'ouvre même sans réseau, avec les dernières infos connues.
 
-### Emails (Resend)
+**4. Emails (facultatif) avec Brevo**
+1. Compte gratuit sur **brevo.com**.
+2. **Senders, Domains & Dedicated IPs → Senders → Add a sender** : ajoute l'adresse qui enverra les alertes (ex. une adresse Gmail créée pour le collectif) et valide le lien reçu.
+3. **SMTP & API → API Keys → Generate** → `BREVO_API_KEY` ; l'adresse validée → `MAIL_FROM_EMAIL`.
+4. Limite gratuite : 300 emails par jour. Au-delà, le site s'arrête d'envoyer pour la journée (les notifications, elles, partent toujours). Sans nom de domaine à vous, certains emails peuvent arriver en spam : les notifications du téléphone restent le canal principal.
 
-1. Compte gratuit sur **resend.com** (3 000 emails/mois, 100/jour).
-2. Ajoute et vérifie un nom de domaine (Resend donne les lignes DNS à copier) ; sans domaine vérifié, Resend n'envoie qu'à ta propre adresse.
-3. Crée une clé API → `RESEND_API_KEY` ; `MAIL_FROM` = `Lyon 1 · La Doua en lutte <alertes@ton-domaine>`.
+**Limites de la version gratuite, à connaître**
+- Supabase gratuit : 1 Go au total et 50 Mo par fichier (les vidéos de témoignage sont limitées à 45 Mo). Un projet inactif 7 jours est mis en pause : le site y écrit toutes les 12 h pour l'éviter ; si ça arrive quand même, un clic sur « Restore » dans Supabase le relance, sans perte.
+- Render gratuit : redémarrage parfois plus lent après une mise à jour du site (environ 1 min). Les changements faits dans les 2 dernières secondes avant un arrêt brutal pourraient être perdus.
 
 ### Ailleurs
 
-Le `Dockerfile` marche aussi sur Railway, Fly.io ou un VPS : monte un disque persistant sur `/app/data` et mets `TRUST_PROXY=true` derrière l'hébergeur.
+Le `Dockerfile` marche aussi sur un VPS, Railway, Fly.io… Avec un disque permanent monté sur `/app/data`, Supabase n'est pas nécessaire. Mets `TRUST_PROXY=true` derrière un hébergeur.

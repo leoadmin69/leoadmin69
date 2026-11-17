@@ -9,13 +9,17 @@ import crypto from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { db, save, newId, now, DATA_DIR } from './store.js';
 import { SECRET, parseCookies } from './auth.js';
+import { Readable } from 'node:stream';
+import { remoteEnabled, putFile, fetchObject, removeObjects } from './remote.js';
 
 const UPLOADS = path.join(DATA_DIR, 'uploads');
 fs.mkdirSync(UPLOADS, { recursive: true });
 const HAS_FFMPEG = spawnSync(process.env.FFMPEG_PATH || 'ffmpeg', ['-version']).status === 0;
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
 const MAX_IMAGE = 15 * 1024 * 1024;
-const MAX_VIDEO = Number(process.env.MAX_VIDEO_MB || 150) * 1024 * 1024;
+// Supabase gratuit limite chaque fichier à 50 Mo : on reste en dessous quand il est utilisé.
+export const MAX_VIDEO_MB = Number(process.env.MAX_VIDEO_MB || (remoteEnabled() ? 45 : 150));
+const MAX_VIDEO = MAX_VIDEO_MB * 1024 * 1024;
 
 for (const k of ['polls', 'posts', 'testimonies', 'media']) db[k] ||= [];
 
@@ -99,11 +103,28 @@ setInterval(() => {
 }, 15 * 60e3).unref();
 
 function deleteMedia(ids) {
+  const remote = [];
   for (const id of ids || []) {
     const m = db.media.find((x) => x.id === id);
-    if (m) fs.rmSync(path.join(UPLOADS, m.file), { force: true });
+    if (!m) continue;
+    fs.rmSync(path.join(UPLOADS, m.file), { force: true });
+    if (m.remote) remote.push(`media/${m.remote}`);
   }
   db.media = db.media.filter((m) => !(ids || []).includes(m.id));
+  if (remote.length) removeObjects(remote).catch((e) => console.error('[media] suppression Supabase', e.message));
+}
+
+// Nettoie le fichier (métadonnées), puis le met à l'abri dans Supabase si configuré
+// (sur un hébergement gratuit, le disque local s'efface au redémarrage).
+async function persistMedia(m) {
+  m.cleaned = await cleanMedia(m);
+  if (remoteEnabled()) {
+    try {
+      await putFile(`media/${m.file}`, path.join(UPLOADS, m.file), m.mime);
+      m.remote = m.file;
+    } catch (e) { console.error('[media] envoi Supabase', e.message); }
+  }
+  save();
 }
 
 // ---------- Mise en forme légère du blog : paragraphes, **gras**, liens ----------
@@ -157,21 +178,34 @@ export function registerCommunity(app, mod, ctx) {
     out.on('error', () => { if (!aborted) bad(res, 'Erreur d’écriture.', 500); });
   });
 
-  const sendMedia = (res, m) => {
+  const sendMedia = async (req, res, m) => {
     res.setHeader('Cache-Control', 'private, max-age=300');
     res.setHeader('Content-Disposition', 'inline');
     res.type(m.mime);
-    res.sendFile(path.join(UPLOADS, m.file));
+    const local = path.join(UPLOADS, m.file);
+    if (fs.existsSync(local)) return res.sendFile(local);
+    if (!m.remote) return res.status(404).end();
+    // Fichier plus sur le disque (redémarrage) : relu depuis Supabase, lecture vidéo par morceaux comprise.
+    try {
+      const r = await fetchObject(`media/${m.remote}`, req.headers.range);
+      if (!r.ok && r.status !== 206) return res.status(r.status === 404 ? 404 : 502).end();
+      res.status(r.status);
+      for (const h of ['content-length', 'content-range', 'accept-ranges']) { const v = r.headers.get(h); if (v) res.setHeader(h, v); }
+      Readable.fromWeb(r.body).pipe(res);
+    } catch (e) {
+      console.error('[media] lecture Supabase', e.message);
+      res.status(502).end();
+    }
   };
   app.get('/media/:id', (req, res) => {
     const m = db.media.find((x) => x.id === req.params.id && x.public);
     if (!m) return res.status(404).end();
-    sendMedia(res, m);
+    sendMedia(req, res, m);
   });
   mod.get('/media/:id', (req, res) => {
     const m = db.media.find((x) => x.id === req.params.id);
     if (!m) return res.status(404).end();
-    sendMedia(res, m);
+    sendMedia(req, res, m);
   });
   const mediaInfo = (ids, forMod = false) => (ids || []).map((id) => db.media.find((m) => m.id === id)).filter((m) => m && (forMod || m.public)).map((m) => ({ id: m.id, kind: m.kind, size: m.size, cleaned: m.cleaned, public: m.public, url: forMod ? `/api/mod/media/${m.id}` : `/media/${m.id}` }));
 
@@ -292,7 +326,7 @@ export function registerCommunity(app, mod, ctx) {
     if (!m) return;
     if (p.cover && p.cover !== m.id) deleteMedia([p.cover]);
     m.status = 'attached'; m.public = p.status === 'published';
-    cleanMedia(m).then((ok) => { m.cleaned = ok; save(); });
+    persistMedia(m);
     p.cover = m.id;
   }
   mod.put('/posts/:id', (req, res) => {
@@ -336,7 +370,7 @@ export function registerCommunity(app, mod, ctx) {
     for (const id of mediaIds) {
       const m = db.media.find((x) => x.id === id);
       m.status = 'attached';
-      cleanMedia(m).then((ok) => { m.cleaned = ok; save(); });
+      persistMedia(m);
     }
     db.testimonies.push(t); save();
     broadcast('mod-queue', {});

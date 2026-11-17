@@ -4,17 +4,29 @@ import express from 'express';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { db, save, newId, now } from './lib/store.js';
+import { db, save, newId, now, initStore } from './lib/store.js';
+import { remoteEnabled } from './lib/remote.js';
+import { publicKey, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe, sendPush, pushCount, PUSH_KINDS } from './lib/push.js';
 import { seed } from './lib/seed.js';
 import { ensureAdmin, hashPassword, verifyPassword, createToken, readToken, cookieHeader, parseCookies, COOKIE, publicMod, SECRET } from './lib/auth.js';
-import { mailEnabled, sendMany, renderEmail, SITE_URL, SITE_NAME, INSTAGRAM_URL } from './lib/mail.js';
+import { mailEnabled, mailProvider, mailQuota, sendMany, renderEmail, SITE_URL, SITE_NAME, INSTAGRAM_URL } from './lib/mail.js';
 import { aiEnabled, aiProviders, analyzePdf } from './lib/ai.js';
-import { registerCommunity } from './lib/community.js';
+import { registerCommunity, MAX_VIDEO_MB } from './lib/community.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
 const ALERT_DELAY_MS = Number(process.env.ALERT_DELAY_MS ?? 60000);
 
+// Récupère la base sauvegardée (Supabase) AVANT tout le reste.
+let storage = 'local';
+try {
+  storage = await initStore();
+} catch (e) {
+  // Ne pas démarrer avec une base vide par-dessus la vraie : mieux vaut s'arrêter et réessayer.
+  console.error('[démarrage] Impossible de lire la sauvegarde Supabase :', e.message);
+  process.exit(1);
+}
+if (process.env.RENDER && !remoteEnabled()) console.warn('\n⚠️  Hébergement sans disque et Supabase non configuré : les données seront PERDUES au prochain redémarrage.\n');
 seed();
 ensureAdmin();
 
@@ -120,6 +132,7 @@ app.get('/api/state', (req, res) => {
     subscribers: db.subscribers.filter((s) => s.confirmed).length,
     online: clients.size,
     pollsOpen: community.pollsOpen(),
+    maxVideoMb: MAX_VIDEO_MB,
     instagram: INSTAGRAM_URL(),
     mailEnabled: mailEnabled(),
     aiEnabled: aiEnabled(),
@@ -249,14 +262,32 @@ async function flushBuildingAlert() {
     const { html, text } = renderEmail({ tone: anyBlocked ? 'red' : 'green', kicker: `LYON 1 · LA DOUA EN LUTTE · ${BLOCUS_LABEL[db.settings.blocus.state]}`, title, items, body: relevant.map((b) => b.note).filter(Boolean).join('\n'), token: s.token });
     messages.push({ to: s.email, subject, html, text });
   }
+  // Notification téléphone : la plus rapide, gratuite et sans limite. Ciblée par campus si l'abonné·e l'a choisi.
+  const campuses = [...new Set(changed.map((b) => b.campus))];
+  for (const campus of [null, ...campuses]) {
+    const list = campus ? changed.filter((b) => b.campus === campus) : changed;
+    const names = (st) => list.filter((b) => b.status === st).map((b) => b.name);
+    const parts = [['bloque', '🔴 Bloqué'], ['partiel', '🟠 Partiel'], ['ouvert', '🟢 Ouvert']].filter(([k]) => names(k).length).map(([k, l]) => `${l} : ${names(k).join(', ')}`);
+    const filter = campus ? (s) => s.campuses?.length && s.campuses.includes(campus) : (s) => !s.campuses?.length;
+    sendPush('buildings', { title: anyBlocked ? `🔴 ${title.replace(/^🔴 /, '')}` : title, body: parts.join(' · ').slice(0, 220), url: '/#/batiments', tag: 'batiments' }, filter).catch((e) => console.error('[push]', e.message));
+  }
   const r = await sendMany(messages);
   console.log(`[alertes] bâtiments : ${messages.length} email(s), ${r.sent} envoyé(s)`);
 }
-async function notify(kind, { subject, kicker, title, body, items, tone }) {
+async function notify(kind, { subject, kicker, title, body, items, tone, url = '/' }) {
+  sendPush(kind, { title: subject, body: String(body || '').replace(/\s+/g, ' ').slice(0, 200), url, tag: kind }).catch((e) => console.error('[push]', e.message));
   const recipients = db.subscribers.filter((s) => s.confirmed && s.alerts?.includes(kind));
   const messages = recipients.map((s) => ({ to: s.email, subject, ...renderEmail({ tone, kicker, title, body, items, token: s.token }) }));
   sendMany(messages).then((r) => console.log(`[alertes] ${kind} : ${r.sent ?? 0} envoyé(s)`)).catch((e) => console.error('[alertes]', e.message));
 }
+
+// ---------- Notifications sur le téléphone ----------
+app.get('/api/push/key', (req, res) => res.json({ key: publicKey(), kinds: PUSH_KINDS }));
+app.post('/api/push/subscribe', (req, res) => {
+  if (limited(`push:${visitor(req)}`, 20, 3600e3)) return bad(res, 'Trop de tentatives.', 429);
+  try { pushSubscribe(req.body || {}); res.json({ ok: true }); } catch (e) { bad(res, e.message); }
+});
+app.post('/api/push/unsubscribe', (req, res) => { pushUnsubscribe(String(req.body?.endpoint || '')); res.json({ ok: true }); });
 
 // ---------- Connexion modo ----------
 app.post('/api/auth/login', (req, res) => {
@@ -273,6 +304,10 @@ app.get('/api/auth/me', (req, res) => { const m = currentMod(req); res.json(m ? 
 const mod = express.Router();
 mod.use(requireMod);
 app.use('/api/mod', mod);
+mod.post('/push/test', async (req, res) => {
+  const r = await sendPush('urgent', { title: 'Test · La Doua en lutte', body: 'Les notifications marchent ✊', url: '/', tag: 'test' }, (s) => s.endpoint === req.body?.endpoint);
+  res.json(r);
+});
 
 mod.post('/password', (req, res) => {
   if (!verifyPassword(req.body.current || '', req.mod)) return bad(res, 'Mot de passe actuel incorrect.');
@@ -392,7 +427,7 @@ mod.post('/events', (req, res) => {
   const when = new Date(e.start).toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' });
   feed(`Nouveau rendez-vous · ${e.type} · ${e.title} · ${when}${e.place ? ' · ' + e.place : ''}`, 'info');
   broadcast('events', {});
-  if (req.body.notify) notify('events', { tone: 'blue', subject: `📣 ${e.type} : ${e.title} (${when})`, kicker: `LYON 1 · LA DOUA EN LUTTE · ${e.type.toUpperCase()}`, title: e.title, body: `${when}\n${e.place}${e.address ? ' · ' + e.address : ''}\n\n${e.description}`.trim() });
+  if (req.body.notify) notify('events', { tone: 'blue', subject: `📣 ${e.type} : ${e.title} (${when})`, kicker: `LYON 1 · LA DOUA EN LUTTE · ${e.type.toUpperCase()}`, title: e.title, body: `${when}\n${e.place}${e.address ? ' · ' + e.address : ''}\n\n${e.description}`.trim(), url: '/#/agenda' });
   res.json(e);
 });
 mod.put('/events/:id', (req, res) => {
@@ -419,6 +454,7 @@ mod.post('/flashes', (req, res) => {
   db.flashes.unshift(f); db.flashes = db.flashes.slice(0, 100); save();
   audit(req.mod, 'flash', text);
   feed(text, f.level === 'alerte' ? 'alert' : f.level === 'ok' ? 'ok' : 'info');
+  if (f.level === 'alerte' && req.body.push !== false) sendPush('urgent', { title: '🚨 Alerte · La Doua en lutte', body: text, url: '/', tag: `flash-${f.id}` }).catch((e) => console.error('[push]', e.message));
   broadcast('flashes', {});
   res.json(f);
 });
@@ -552,7 +588,7 @@ mod.put('/reports/:id', (req, res) => {
       broadcast('demands', {});
     }
     save();
-    if (req.body.notify) notify('reports', { tone: 'blue', subject: `📝 Compte rendu : ${r.titre}`, kicker: 'LYON 1 · LA DOUA EN LUTTE · COMPTE RENDU', title: r.titre, body: r.resume, items: r.flashs.slice(0, 6).map((f) => ({ label: f.titre, value: '', tone: f.type === 'alerte' ? 'red' : undefined })) });
+    if (req.body.notify) notify('reports', { tone: 'blue', subject: `📝 Compte rendu : ${r.titre}`, kicker: 'LYON 1 · LA DOUA EN LUTTE · COMPTE RENDU', title: r.titre, body: r.resume, items: r.flashs.slice(0, 6).map((f) => ({ label: f.titre, value: '', tone: f.type === 'alerte' ? 'red' : undefined })), url: `/#/cr/${r.id}` });
   }
   broadcast('reports', {});
   res.json(r);
@@ -571,6 +607,10 @@ mod.get('/stats', (req, res) => res.json({
   mailEnabled: mailEnabled(),
   aiEnabled: aiEnabled(),
   aiProviders: aiProviders(),
+  mailProvider: mailProvider(),
+  mailQuota: mailQuota(),
+  pushSubs: pushCount(),
+  storage: remoteEnabled() ? 'Supabase' : (process.env.RENDER ? 'temporaire' : 'disque'),
 }));
 mod.get('/audit', (req, res) => res.json(db.audit.slice(0, 200)));
 
@@ -606,11 +646,20 @@ mod.delete('/mods/:id', requireAdmin, (req, res) => {
 const community = registerCommunity(app, mod, { broadcast, feed, audit, visitor, limited, clip, bad, oneOf });
 
 // ---------- Site ----------
+// Le service worker doit toujours être relu, sinon les mises à jour de l'app n'arriveraient pas.
+app.get('/sw.js', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.setHeader('Service-Worker-Allowed', '/'); res.sendFile(path.join(ROOT, 'public', 'sw.js')); });
 app.use(express.static(path.join(ROOT, 'public'), { maxAge: '5m', index: 'index.html' }));
 app.use('/api', (req, res) => bad(res, 'Route inconnue', 404));
 app.get('*', (req, res) => res.sendFile(path.join(ROOT, 'public', 'index.html')));
 
 app.listen(PORT, () => {
   console.log(`${SITE_NAME} → ${SITE_URL()} (port ${PORT})`);
-  console.log(`IA : ${aiEnabled() ? aiProviders().join(' → ') : 'non configurée (mode local)'} · Emails : ${mailEnabled() ? 'activés' : 'non configurés (journal console)'}`);
+  console.log(`Stockage : ${storage === 'local' ? 'disque local' : 'Supabase'} · IA : ${aiEnabled() ? aiProviders().join(' → ') : 'non configurée (mode local)'} · Emails : ${mailProvider() || 'non configurés'} · Notifications : ${pushCount()} téléphone(s)`);
 });
+
+// Hébergement gratuit : le service s'endort après 15 min sans visite. Il se rend visite lui-même toutes les 10 min
+// pour que le direct et les alertes restent instantanés. Désactivable avec KEEP_AWAKE=false.
+const awakeUrl = process.env.KEEP_AWAKE_URL || process.env.RENDER_EXTERNAL_URL;
+if (awakeUrl && process.env.KEEP_AWAKE !== 'false') {
+  setInterval(() => { fetch(`${awakeUrl.replace(/\/$/, '')}/api/health`, { signal: AbortSignal.timeout(20000) }).catch(() => {}); }, 10 * 60e3).unref();
+}

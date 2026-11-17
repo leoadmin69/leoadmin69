@@ -1,14 +1,31 @@
-// Envoi des emails : Resend (API HTTPS, recommandé) ou SMTP, sinon simple journal dans la console.
+// Envoi des emails, par ordre de préférence :
+//  - Brevo (GRATUIT, 300 emails/jour, SANS nom de domaine : il suffit de vérifier une adresse d'envoi) ;
+//  - Resend (gratuit 100/jour, demande un nom de domaine) ;
+//  - SMTP (attention : bloqué sur les hébergeurs gratuits comme Render) ;
+//  - sinon simple journal dans la console.
+// Les notifications sur téléphone (lib/push.js) restent le canal principal : gratuites et illimitées.
 import nodemailer from 'nodemailer';
 
+const brevoReady = () => !!(process.env.BREVO_API_KEY && process.env.MAIL_FROM_EMAIL);
 const resendReady = () => !!process.env.RESEND_API_KEY;
 const smtpReady = () => !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
-export const mailEnabled = () => resendReady() || smtpReady();
-const FROM = () => process.env.MAIL_FROM || process.env.SMTP_USER || 'Lyon 1 · La Doua en lutte <alertes@example.org>';
+export const mailEnabled = () => brevoReady() || resendReady() || smtpReady();
+export const mailProvider = () => (brevoReady() ? 'Brevo' : resendReady() ? 'Resend' : smtpReady() ? 'SMTP' : null);
 export const SITE_NAME = 'Lyon 1 · La Doua en lutte';
+const FROM = () => process.env.MAIL_FROM || (process.env.MAIL_FROM_EMAIL ? `${SITE_NAME} <${process.env.MAIL_FROM_EMAIL}>` : process.env.SMTP_USER) || `${SITE_NAME} <alertes@example.org>`;
 export const INSTAGRAM_URL = () => process.env.INSTAGRAM_URL || 'https://www.instagram.com/lyon1_ladoua.enlutte/';
 export const INSTAGRAM_HANDLE = () => '@' + (INSTAGRAM_URL().match(/instagram\.com\/([^/?#]+)/) || [0, 'lyon1_ladoua.enlutte'])[1];
-export const SITE_URL = () => (process.env.SITE_URL || `http://localhost:${process.env.PORT || 3000}`).replace(/\/$/, '');
+// Sur Render, l'adresse publique (https://xxx.onrender.com) est fournie automatiquement : pas besoin de nom de domaine.
+export const SITE_URL = () => (process.env.SITE_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`).replace(/\/$/, '');
+
+// Plafond quotidien pour ne pas dépasser la formule gratuite (Brevo : 300/jour).
+const DAILY_LIMIT = () => Number(process.env.MAIL_DAILY_LIMIT || (brevoReady() ? 290 : resendReady() ? 95 : 1000));
+const counter = { day: '', n: 0 };
+export function mailQuota() {
+  const day = new Date().toISOString().slice(0, 10);
+  if (counter.day !== day) { counter.day = day; counter.n = 0; }
+  return { used: counter.n, limit: DAILY_LIMIT(), left: Math.max(0, DAILY_LIMIT() - counter.n) };
+}
 
 let smtp = null;
 const transport = () => (smtp ||= nodemailer.createTransport({
@@ -25,8 +42,33 @@ export async function sendMany(messages) {
     for (const m of messages) console.log(`[mail non configuré] → ${m.to} : ${m.subject}`);
     return { sent: 0, skipped: messages.length };
   }
+  const q = mailQuota();
+  if (messages.length > q.left) {
+    console.warn(`[mail] plafond gratuit : ${messages.length} emails demandés, ${q.left} restants aujourd'hui. Les notifications téléphone, elles, partent toutes.`);
+    messages = messages.slice(0, q.left);
+    if (!messages.length) return { sent: 0, skipped: true };
+  }
   let sent = 0;
-  if (resendReady()) {
+  if (brevoReady()) {
+    const base = (process.env.BREVO_BASE || 'https://api.brevo.com/v3').replace(/\/$/, '');
+    // Un appel par sujet, avec une version personnalisée par destinataire (lien de désinscription propre à chacun).
+    for (let i = 0; i < messages.length; i += 99) {
+      const chunk = messages.slice(i, i + 99);
+      const res = await fetch(`${base}/smtp/email`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(30000),
+        headers: { 'api-key': process.env.BREVO_API_KEY, 'Content-Type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({
+          sender: { name: SITE_NAME, email: process.env.MAIL_FROM_EMAIL },
+          subject: chunk[0].subject,
+          htmlContent: chunk[0].html,
+          messageVersions: chunk.map((m) => ({ to: [{ email: m.to }], subject: m.subject, htmlContent: m.html })),
+        }),
+      });
+      if (!res.ok) console.error('[mail] Brevo', res.status, (await res.text()).slice(0, 300));
+      else sent += chunk.length;
+    }
+  } else if (resendReady()) {
     const base = (process.env.RESEND_BASE || 'https://api.resend.com').replace(/\/$/, '');
     for (let i = 0; i < messages.length; i += 100) {
       const chunk = messages.slice(i, i + 100).map((m) => ({ from: FROM(), to: [m.to], subject: m.subject, html: m.html, text: m.text }));
@@ -39,12 +81,13 @@ export async function sendMany(messages) {
       if (!res.ok) console.error('[mail] Resend', res.status, (await res.text()).slice(0, 300));
       else sent += chunk.length;
     }
-    return { sent };
+  } else {
+    for (const m of messages) {
+      try { await transport().sendMail({ from: FROM(), ...m }); sent++; }
+      catch (e) { console.error('[mail] SMTP', m.to, e.message); }
+    }
   }
-  for (const m of messages) {
-    try { await transport().sendMail({ from: FROM(), ...m }); sent++; }
-    catch (e) { console.error('[mail] SMTP', m.to, e.message); }
-  }
+  counter.n += sent;
   return { sent };
 }
 

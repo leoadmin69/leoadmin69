@@ -417,3 +417,9 @@ button.opt:active { transform: scale(0.98); }
 .top-name span { color: var(--red); }
 @media (min-width: 900px) { .top-name { display: none; } }
 @media (max-width: 520px) { #online-top { display: none; } .top-name { margin-right: 0; } }
+.app-card { display: flex; gap: 14px; align-items: center; width: 100%; margin-top: 14px; text-align: left; color: var(--text); cursor: pointer; font: inherit; border: 1px solid rgba(0,255,156,0.4) !important; background: linear-gradient(120deg, rgba(0,255,156,0.14), var(--card) 65%) !important; }
+.app-card .grow { display: flex; flex-direction: column; gap: 2px; }
+.app-ico { font-size: 28px; }
+.steps { padding-left: 22px; display: grid; gap: 10px; font-size: 16px; line-height: 1.4; }
+.kbd { display: inline-block; padding: 1px 7px; border-radius: 6px; background: rgba(118,118,128,0.3); font-family: var(--mono); }
+.check input { flex-shrink: 0; }
