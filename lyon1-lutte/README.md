@@ -119,6 +119,16 @@ L'adresse du site est détectée automatiquement (pas besoin de `SITE_URL`). Le 
 - Supabase gratuit : 1 Go au total et 50 Mo par fichier (les vidéos de témoignage sont limitées à 45 Mo). Un projet inactif 7 jours est mis en pause : le site y écrit toutes les 12 h pour l'éviter ; si ça arrive quand même, un clic sur « Restore » dans Supabase le relance, sans perte.
 - Render gratuit : redémarrage parfois plus lent après une mise à jour du site (environ 1 min). Les changements faits dans les 2 dernières secondes avant un arrêt brutal pourraient être perdus.
 
+### En cas d'erreur au déploiement
+
+- **`Couldn't find any versions for "three"`** (ou une erreur qui parle de Next.js / Bizerte) : Render construit **un autre projet du dépôt**. La branche par défaut du dépôt n'est pas celle du site. Dans Render → Settings :
+  - **Branch** : `claude/lyon1-student-info-platform-ohzn3d` ;
+  - **Root Directory** : `lyon1-lutte` ;
+  - en mode Node : **Build Command** `npm ci`, **Start Command** `npm start` ;
+  - puis **Manual Deploy → Deploy latest commit**.
+- Le site marche en mode **Docker** comme en mode **Node** : en mode Node, ffmpeg (nettoyage des vidéos) est installé automatiquement par npm.
+- Au démarrage, les journaux Render (onglet **Logs**) affichent une ligne `Stockage : Supabase · IA : … · Telegram : …` qui résume ce qui est bien configuré.
+
 ### Ailleurs
 
 Le `Dockerfile` marche aussi sur un VPS, Railway, Fly.io… Avec un disque permanent monté sur `/app/data`, Supabase n'est pas nécessaire. Mets `TRUST_PROXY=true` derrière un hébergeur.

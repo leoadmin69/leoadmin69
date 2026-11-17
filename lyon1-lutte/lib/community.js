@@ -15,8 +15,12 @@ import { postTelegram, tgEsc } from './telegram.js';
 
 const UPLOADS = path.join(DATA_DIR, 'uploads');
 fs.mkdirSync(UPLOADS, { recursive: true });
-const HAS_FFMPEG = spawnSync(process.env.FFMPEG_PATH || 'ffmpeg', ['-version']).status === 0;
-const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
+// ffmpeg : celui du système (image Docker) s'il existe, sinon la version installée par npm (hébergement « Node » sans Docker).
+const works = (bin) => !!bin && spawnSync(bin, ['-version']).status === 0;
+let staticFfmpeg = null;
+try { staticFfmpeg = (await import('ffmpeg-static')).default; } catch {}
+const FFMPEG = [process.env.FFMPEG_PATH, 'ffmpeg', staticFfmpeg].find(works) || 'ffmpeg';
+const HAS_FFMPEG = works(FFMPEG);
 const MAX_IMAGE = 15 * 1024 * 1024;
 // Supabase gratuit limite chaque fichier à 50 Mo : on reste en dessous quand il est utilisé.
 export const MAX_VIDEO_MB = Number(process.env.MAX_VIDEO_MB || (remoteEnabled() ? 45 : 150));
