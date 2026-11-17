@@ -105,8 +105,18 @@ const requireAdmin = (req, res, next) => (req.mod.role === 'admin' ? next() : ba
 // ---------- Lecture publique ----------
 const STATUS = ['bloque', 'partiel', 'ouvert', 'inconnu'];
 const STATUS_LABEL = { bloque: 'BLOQUÉ', partiel: 'PARTIELLEMENT BLOQUÉ', ouvert: 'OUVERT', inconnu: 'NON RENSEIGNÉ' };
-const BLOCUS = ['actif', 'partiel', 'leve', 'inconnu'];
-const BLOCUS_LABEL = { actif: 'BLOCUS EN COURS', partiel: 'BLOCUS PARTIEL', leve: 'PAS DE BLOCUS', inconnu: 'SITUATION NON CONFIRMÉE' };
+const BLOCUS = ['auto', 'actif', 'partiel', 'leve', 'inconnu'];
+// Statut affiché : choisi à la main par un modo, ou « auto » = déduit des bâtiments (par défaut).
+// « inconnu » (ancien réglage par défaut) est traité comme « auto ».
+function effectiveBlocus() {
+  const s = db.settings.blocus.state;
+  if (s !== 'auto' && s !== 'inconnu') return s;
+  if (db.buildings.some((x) => x.status === 'bloque')) return 'actif';
+  if (db.buildings.some((x) => x.status === 'partiel')) return 'partiel';
+  if (db.buildings.some((x) => x.status === 'ouvert')) return 'leve';
+  return 'inconnu';
+}
+const BLOCUS_LABEL = { actif: 'BLOCUS EN COURS', partiel: 'BLOCUS PARTIEL', leve: 'PAS DE BLOCUS', inconnu: 'SITUATION NON CONFIRMÉE', auto: 'AUTOMATIQUE' };
 const EVENT_TYPES = ['AG', 'manif', 'rassemblement', 'action', 'autre'];
 
 const publicReport = (r) => ({ id: r.id, titre: r.titre, date: r.date, lieu: r.lieu, participants: r.participants, resume: r.resume, flashs: r.flashs, votes: r.votes, rdv: r.rdv, batiments_bloques: r.batiments_bloques, revendications: r.revendications, publishedAt: r.publishedAt, org: r.org, source: r.source });
@@ -121,7 +131,7 @@ app.get('/api/health', (req, res) => res.json({ ok: true }));
 
 app.get('/api/state', (req, res) => {
   res.json({
-    blocus: db.settings.blocus,
+    blocus: { ...db.settings.blocus, effective: effectiveBlocus(), auto: ['auto', 'inconnu'].includes(db.settings.blocus.state) },
     buildings: db.buildings,
     events: upcomingEvents(),
     flashes: db.flashes.slice(0, 20),
@@ -273,7 +283,7 @@ async function flushBuildingAlert() {
     const relevant = s.campuses?.length ? changed.filter((b) => s.campuses.includes(b.campus)) : changed;
     if (!relevant.length) continue;
     const items = relevant.map((b) => ({ label: `${b.name} : ${STATUS_LABEL[b.status]}`, value: b.campus, tone: tone[b.status] }));
-    const { html, text } = renderEmail({ tone: anyBlocked ? 'red' : 'green', kicker: `LYON 1 · LA DOUA EN LUTTE · ${BLOCUS_LABEL[db.settings.blocus.state]}`, title, items, body: relevant.map((b) => b.note).filter(Boolean).join('\n'), token: s.token });
+    const { html, text } = renderEmail({ tone: anyBlocked ? 'red' : 'green', kicker: `LYON 1 · LA DOUA EN LUTTE · ${BLOCUS_LABEL[effectiveBlocus()]}`, title, items, body: relevant.map((b) => b.note).filter(Boolean).join('\n'), token: s.token });
     messages.push({ to: s.email, subject, html, text });
   }
   // Notification téléphone : la plus rapide, gratuite et sans limite. Ciblée par campus si l'abonné·e l'a choisi.
@@ -289,7 +299,7 @@ async function flushBuildingAlert() {
   const tgNames = (st) => changed.filter((b) => b.status === st).map((b) => tgEsc(b.name));
   const tgLines = [['bloque', '🔴 <b>BLOQUÉ</b>'], ['partiel', '🟠 <b>PARTIEL</b>'], ['ouvert', '🟢 <b>OUVERT</b>']].filter(([k]) => tgNames(k).length).map(([k, l]) => `${l} : ${tgNames(k).join(', ')}`);
   const tgNotes = changed.filter((b) => b.note).map((b) => `<i>${tgEsc(b.name)} : ${tgEsc(b.note)}</i>`);
-  postTelegram([`<b>${tgEsc(BLOCUS_LABEL[db.settings.blocus.state])}</b>`, ...tgLines, ...tgNotes].join('\n'), '/#/batiments');
+  postTelegram([`<b>${tgEsc(BLOCUS_LABEL[effectiveBlocus()])}</b>`, ...tgLines, ...tgNotes].join('\n'), '/#/batiments');
   if (EMAIL_MODE !== 'instant') return; // les emails partent dans le récapitulatif du matin
   const r = await sendMany(messages);
   console.log(`[alertes] bâtiments : ${messages.length} email(s), ${r.sent} envoyé(s)`);
@@ -322,7 +332,7 @@ async function sendDigest() {
   for (const s of db.subscribers.filter((x) => x.confirmed)) {
     const blds = db.buildings.filter((x) => (x.status === 'bloque' || x.status === 'partiel') && (!s.campuses?.length || s.campuses.includes(x.campus)));
     const nBlocked = blds.filter((x) => x.status === 'bloque').length;
-    const title = nBlocked ? `🔴 ${nBlocked} bâtiment${nBlocked > 1 ? 's' : ''} bloqué${nBlocked > 1 ? 's' : ''} ce matin` : b.state === 'actif' ? '🔴 Blocus en cours' : '🟢 Aucun bâtiment signalé bloqué';
+    const title = nBlocked ? `🔴 ${nBlocked} bâtiment${nBlocked > 1 ? 's' : ''} bloqué${nBlocked > 1 ? 's' : ''} ce matin` : effectiveBlocus() === 'actif' ? '🔴 Blocus en cours' : '🟢 Aucun bâtiment signalé bloqué';
     const lines = [];
     if (b.message) lines.push(b.message);
     if (alerts.length) lines.push('', '🚨 Alertes d’hier :', ...alerts.map((f) => `• ${f.text}`));
@@ -330,7 +340,7 @@ async function sendDigest() {
     if (s.alerts?.includes('reports') && reports.length) lines.push('', '📝 Nouveaux comptes rendus :', ...reports.map((r) => `• ${r.titre}`));
     lines.push('', 'Pour être prévenu·e tout de suite dans la journée : notifications de l’app ou chaîne Telegram.');
     const items = s.alerts?.includes('buildings') ? blds.map((x) => ({ label: `${x.name} : ${STATUS_LABEL[x.status]}`, value: x.campus, tone: tone[x.status] })) : [];
-    const { html, text } = renderEmail({ tone: nBlocked || b.state === 'actif' ? 'red' : 'green', kicker: `LYON 1 · LA DOUA EN LUTTE · ${BLOCUS_LABEL[b.state]}`, title, items, body: lines.join('\n').trim(), token: s.token });
+    const { html, text } = renderEmail({ tone: nBlocked || effectiveBlocus() === 'actif' ? 'red' : 'green', kicker: `LYON 1 · LA DOUA EN LUTTE · ${BLOCUS_LABEL[effectiveBlocus()]}`, title, items, body: lines.join('\n').trim(), token: s.token });
     messages.push({ to: s.email, subject: `☀️ Ce matin à Lyon 1 · ${title.replace(/^[^ ]+ /, '').replace(/ ce matin$/, '')}`, html, text });
   }
   const r = await sendMany(messages);
@@ -397,19 +407,20 @@ mod.post('/password', (req, res) => {
 // Blocus général
 mod.put('/blocus', (req, res) => {
   const b = db.settings.blocus;
-  const prev = b.state;
+  const prev = effectiveBlocus();
   b.state = oneOf(req.body.state, BLOCUS, b.state);
+  const eff = effectiveBlocus();
   b.message = clip(req.body.message, 400);
   b.updatedAt = now();
   b.by = req.mod.org;
   save();
   audit(req.mod, 'blocus', `${b.state} ${b.message}`);
-  feed(`${BLOCUS_LABEL[b.state]}${b.message ? ' : ' + b.message : ''}`, b.state === 'actif' ? 'alert' : b.state === 'leve' ? 'ok' : 'warn');
+  feed(`${BLOCUS_LABEL[eff]}${b.state === 'auto' ? ' (automatique, selon les bâtiments)' : ''}${b.message ? ' : ' + b.message : ''}`, eff === 'actif' ? 'alert' : eff === 'leve' ? 'ok' : 'warn');
   broadcast('blocus', b);
-  if (prev !== b.state && req.body.notify !== false) {
-    notify('buildings', { tone: b.state === 'leve' ? 'green' : 'red', subject: `${b.state === 'leve' ? '🟢' : '🔴'} ${BLOCUS_LABEL[b.state]} à Lyon 1`, kicker: 'LYON 1 · LA DOUA EN LUTTE', title: BLOCUS_LABEL[b.state], body: b.message });
+  if (prev !== eff && req.body.notify !== false) {
+    notify('buildings', { tone: eff === 'leve' ? 'green' : 'red', subject: `${eff === 'leve' ? '🟢' : '🔴'} ${BLOCUS_LABEL[eff]} à Lyon 1`, kicker: 'LYON 1 · LA DOUA EN LUTTE', title: BLOCUS_LABEL[eff], body: b.message });
   }
-  res.json(b);
+  res.json({ ...b, effective: eff });
 });
 
 // Bâtiments

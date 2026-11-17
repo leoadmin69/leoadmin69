@@ -86,7 +86,10 @@ const BLOCUS = {
   partiel: 'BLOCUS PARTIEL',
   leve: 'PAS DE BLOCUS',
   inconnu: 'SITUATION NON CONFIRMÉE',
+  auto: 'AUTOMATIQUE',
 };
+// Statut réellement affiché (le serveur le déduit des bâtiments en mode automatique)
+const blocusNow = (b) => b?.effective || (b?.state === 'auto' ? 'inconnu' : b?.state) || 'inconnu';
 const EVENT_TYPE = { AG: ['AG', 'purple'], manif: ['Manif', 'red'], rassemblement: ['Rassemblement', 'orange'], action: ['Action', 'green'], autre: ['Rendez-vous', 'grey'] };
 const FLASH_ICO = { decision: '⚖️', vote: '🗳️', info: 'ℹ️', action: '📣', alerte: '🚨' };
 const DEMAND_STATUS = { 'en-lutte': ['En lutte', 'red'], obtenu: ['Obtenu ✊', 'green'], refuse: ['Refusé', 'grey'] };
@@ -135,9 +138,10 @@ function renderAlertBar() {
   if (!d) return;
   const blocked = d.buildings.filter((b) => b.status === 'bloque');
   const partial = d.buildings.filter((b) => b.status === 'partiel');
-  if (!blocked.length && !partial.length && d.blocus.state !== 'actif') { bar.hidden = true; return; }
+  const eff = blocusNow(d.blocus);
+  if (!blocked.length && !partial.length && eff !== 'actif') { bar.hidden = true; return; }
   const parts = [];
-  if (d.blocus.state === 'actif') parts.push(`${BLOCUS.actif}${d.blocus.message ? ' : ' + d.blocus.message : ''}`);
+  if (eff === 'actif') parts.push(`${BLOCUS.actif}${d.blocus.message ? ' : ' + d.blocus.message : ''}`);
   if (blocked.length) parts.push(`BLOQUÉ : ${blocked.map((b) => b.name).join(' · ')}`);
   if (partial.length) parts.push(`PARTIEL : ${partial.map((b) => b.name).join(' · ')}`);
   const txt = esc(parts.join('   ///   '));
@@ -178,9 +182,9 @@ function viewLive() {
   const next = d.events.slice(0, 3);
   const lastReport = d.reports[0];
   view().innerHTML = `
-    <section class="hero ${esc(b.state)}">
+    <section class="hero ${esc(blocusNow(b))}">
       <div class="kicker">Lyon 1 · La Doua en lutte</div>
-      <div class="state" data-glitch="${esc(BLOCUS[b.state])}">${esc(BLOCUS[b.state])}</div>
+      <div class="state" data-glitch="${esc(BLOCUS[blocusNow(b)])}">${esc(BLOCUS[blocusNow(b)])}</div>
       ${b.message ? `<div class="msg">${esc(b.message)}</div>` : '<div class="msg muted">Les infos sont mises à jour en direct par les étudiant·es syndiqué·es.</div>'}
       <div class="meta">MAJ ${esc(ago(b.updatedAt))}${b.by ? ' · ' + esc(b.by) : ''}</div>
       <div class="stats">
@@ -760,8 +764,9 @@ function modSituation(el) {
   const canDictate = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
   el.innerHTML = `
     <div class="card">
-      <div class="kicker">Blocus général · un tap = publié</div>
-      <div class="segmented status-seg" id="bstate" style="margin-top:10px">${Object.entries(BLOCUS).map(([k, l]) => `<button data-s="${k}" class="${k === b.state ? 'on ' + ({ actif: 'bloque', partiel: 'partiel', leve: 'ouvert' }[k] || '') : ''}">${{ actif: '🔴 Blocus', partiel: '🟠 Partiel', leve: '🟢 Pas de blocus', inconnu: '?' }[k]}</button>`).join('')}</div>
+      <div class="kicker">Titre de l’accueil · un tap = publié</div>
+      <div class="segmented status-seg" id="bstate" style="margin-top:10px">${['auto', 'actif', 'partiel', 'leve'].map((k) => `<button data-s="${k}" class="${(b.auto ? 'auto' : b.state) === k ? 'on ' + ({ auto: 'auto', actif: 'bloque', partiel: 'partiel', leve: 'ouvert' }[k]) : ''}">${{ auto: '🤖 Auto', actif: '🔴 Blocus', partiel: '🟠 Partiel', leve: '🟢 Levé' }[k]}</button>`).join('')}</div>
+      <p class="faint small" id="bhint" style="margin:6px 2px 0">${b.auto ? `Automatique : le titre suit les bâtiments (actuellement « ${esc(BLOCUS[blocusNow(b)])} »).` : 'Choisi à la main : il ne bouge plus avec les bâtiments. Touche « Auto » pour qu’il les suive.'}</p>
       <div class="field"><input type="text" id="bmsg" maxlength="400" placeholder="Message court (ex : AG 12h au Déambu, piquet dès 7h)" value="${esc(b.message)}"></div>
       <label class="check small"><input type="checkbox" id="bnotify" checked> Alerte email si le statut change</label>
     </div>
@@ -803,9 +808,12 @@ function modSituation(el) {
   $('#bstate').onclick = async (e) => {
     const s = e.target.closest('[data-s]')?.dataset.s;
     if (!s) return;
-    $$('#bstate button').forEach((x) => (x.className = x.dataset.s === s ? 'on ' + ({ actif: 'bloque', partiel: 'partiel', leve: 'ouvert' }[s] || '') : ''));
-    await act(() => api('/api/mod/blocus', { method: 'PUT', body: { state: s, message: $('#bmsg').value, notify: $('#bnotify').checked } }), BLOCUS[s]);
-    state.data.blocus.state = s;
+    $$('#bstate button').forEach((x) => (x.className = x.dataset.s === s ? 'on ' + ({ auto: 'auto', actif: 'bloque', partiel: 'partiel', leve: 'ouvert' }[s] || '') : ''));
+    const r = await act(() => api('/api/mod/blocus', { method: 'PUT', body: { state: s, message: $('#bmsg').value, notify: $('#bnotify').checked } }));
+    Object.assign(state.data.blocus, r, { auto: s === 'auto' });
+    toast(s === 'auto' ? `Automatique : « ${BLOCUS[r.effective]} »` : BLOCUS[s]);
+    const h = $('#bhint');
+    if (h) h.textContent = s === 'auto' ? `Automatique : le titre suit les bâtiments (actuellement « ${BLOCUS[r.effective]} »).` : 'Choisi à la main : il ne bouge plus avec les bâtiments. Touche « Auto » pour qu’il les suive.';
   };
   $('#bmsg').onchange = () => act(() => api('/api/mod/blocus', { method: 'PUT', body: { state: state.data.blocus.state, message: $('#bmsg').value, notify: false } }), 'Message publié.');
 
@@ -987,7 +995,7 @@ function pill(ctx, x, y, text, bg, fg) {
 }
 function storyCampus(ctx, W, H) {
   const d = state.data;
-  const st = d.blocus.state;
+  const st = blocusNow(d.blocus);
   const color = { actif: '#ff453a', partiel: '#ff9f0a', leve: '#30d158', inconnu: '#a1a1aa' }[st];
   storyFrame(ctx, W, H, color);
   let y = 420;
@@ -1769,7 +1777,7 @@ function scheduleRefresh() {
     try { await refresh(); } catch { return; }
     const r = route().split('/')[0];
     if (r === 'chat') { renderNav(); renderAlertBar(); return; }
-    if (r === 'modo' && state.me) { renderNav(); renderAlertBar(); if (state.modTab === 'situation') window.drawTiles?.(); return; }
+    if (r === 'modo' && state.me) { renderNav(); renderAlertBar(); if (state.modTab === 'situation') { window.drawTiles?.(); const h = $('#bhint'); if (h && state.data.blocus.auto) h.textContent = `Automatique : le titre suit les bâtiments (actuellement « ${BLOCUS[blocusNow(state.data.blocus)]} »).`; } return; }
     render();
   }, 250);
 }

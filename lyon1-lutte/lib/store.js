@@ -14,7 +14,7 @@ const REMOTE_FILE = 'db.json';
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const empty = () => ({
-  settings: { blocus: { state: 'inconnu', message: '', updatedAt: null, by: '' } },
+  settings: { blocus: { state: 'auto', message: '', updatedAt: null, by: '' } },
   feed: [],          // fil « live » public (actions des modos, sans données perso)
   buildings: [],
   events: [],
