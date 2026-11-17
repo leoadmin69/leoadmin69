@@ -14,6 +14,8 @@ import { aiEnabled, aiProviders, analyzePdf } from './lib/ai.js';
 import { registerCommunity, MAX_VIDEO_MB } from './lib/community.js';
 import { registerExtras } from './lib/extras.js';
 import { isSystemNick } from './public/nicks.js';
+import { EMOTES } from './public/emotes.js';
+const EMOTE_SET = new Set(EMOTES.map((e) => e.code));
 import { bannedList, findBanned, normalize as normalizeWord, BANNED_BASE } from './lib/moderation.js';
 import { telegramEnabled, telegramUrl, postTelegram, tgEsc } from './lib/telegram.js';
 import { DEFAULT_SITE, site, siteName, modSites, canSite, siteOf, migrateSites, effectiveBlocus, wantsSite, isAdmin } from './lib/sites.js';
@@ -58,13 +60,13 @@ const visitor = (req) => crypto.createHmac('sha256', SECRET).update(`${new Date(
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 // Empreinte anonyme par appareil (cookie aléatoire, le même que pour les votes), qui change chaque jour.
 // Sur le wifi du campus, des centaines d'étudiant·es partagent la même IP : on ne peut pas limiter par IP seule.
-function deviceKey(req, res) {
+function deviceKey(req, res, stable = false) {
   let d = parseCookies(req.headers.cookie).l1_dev;
   if (!/^[A-Za-z0-9_-]{20,64}$/.test(d || '')) {
     d = crypto.randomBytes(24).toString('base64url');
     res.append('Set-Cookie', `l1_dev=${d}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${400 * 86400}${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
   }
-  return crypto.createHmac('sha256', SECRET).update(`${new Date().toISOString().slice(0, 10)}|dev|${d}`).digest('hex').slice(0, 16);
+  return crypto.createHmac('sha256', SECRET).update(`${stable ? 'stable' : new Date().toISOString().slice(0, 10)}|dev|${d}`).digest('hex').slice(0, 16);
 }
 
 // Limiteur simple en mémoire.
@@ -196,7 +198,8 @@ app.get('/api/reports/:id', (req, res) => {
 
 // ---------- Chat anonyme ----------
 const NICK = /^[\p{L}\p{N} _-]{2,24}$/u;
-const publicMsg = (m) => ({ id: m.id, channel: m.channel, nick: m.nick, text: m.text, at: m.at, mod: m.mod || null, reply: m.reply || null });
+const reactCounts = (m) => Object.fromEntries(Object.entries(m.reactions || {}).filter(([, l]) => l.length).map(([c, l]) => [c, l.length]));
+const publicMsg = (m) => ({ id: m.id, channel: m.channel, nick: m.nick, text: m.text, at: m.at, mod: m.mod || null, reply: m.reply || null, reactions: reactCounts(m) });
 
 // Liste noire (déjà normalisée) envoyée à l'app : le message est bloqué sur le téléphone avant même d'être envoyé.
 app.get('/api/chat-rules', (req, res) => res.json({ words: bannedList() }));
@@ -244,6 +247,29 @@ app.post('/api/chat/:id/report', (req, res) => {
   if (m.reports.length >= 3 && !m.hidden) { m.hidden = true; broadcast('chat-del', { id: m.id }); }
   save();
   res.json({ ok: true });
+});
+
+// Réactions (stickers posés sous un message) : une par sticker et par appareil, un 2e tap la retire.
+app.post('/api/chat/:id/react', (req, res) => {
+  const m = db.messages.find((x) => x.id === req.params.id && !x.hidden);
+  if (!m) return bad(res, 'Message introuvable.', 404);
+  const code = String(req.body.emote || '');
+  if (!EMOTE_SET.has(code)) return bad(res, 'Sticker inconnu.');
+  const v = deviceKey(req, res, true);
+  if (limited(`react:${v}`, 40, 60000) || limited(`reactip:${visitor(req)}`, 600, 60000)) return bad(res, 'Doucement 🙂', 429);
+  m.reactions ||= {};
+  const list = (m.reactions[code] ||= []);
+  const i = list.indexOf(v);
+  if (i >= 0) list.splice(i, 1);
+  else {
+    if (Object.keys(m.reactions).filter((c) => m.reactions[c].length).length >= 12 && !list.length) return bad(res, 'Trop de stickers différents sous ce message.');
+    list.push(v);
+  }
+  if (!list.length) delete m.reactions[code];
+  save();
+  const reactions = reactCounts(m);
+  broadcast('chat-react', { id: m.id, reactions });
+  res.json({ on: i < 0, reactions });
 });
 
 // ---------- Revendications : soutien anonyme ----------

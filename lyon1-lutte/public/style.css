@@ -533,3 +533,34 @@ button.opt:active { transform: scale(0.98); }
 .composer .emote-btn img { width: 30px; height: 30px; filter: grayscale(0.4); transition: filter .15s, transform .15s; }
 .composer .emote-btn:hover img { filter: none; transform: rotate(-12deg) scale(1.08); }
 .msg .who { flex-wrap: wrap; } .msg .who b { white-space: nowrap; }
+
+/* Chat : glisser pour répondre, appui long pour réagir */
+.msg { position: relative; touch-action: pan-y; -webkit-touch-callout: none; --sx: 0px; }
+.msg .bubble, .msg .reacts { transform: translateX(var(--sx)); transition: transform .25s cubic-bezier(.2,1.4,.5,1); }
+.msg.swiping .bubble, .msg.swiping .reacts { transition: none; }
+.msg .bubble { -webkit-user-select: none; user-select: none; }
+@media (hover: hover) { .msg .bubble { -webkit-user-select: text; user-select: text; } }
+.swipe-ico { position: absolute; left: -4px; top: 50%; width: 30px; height: 30px; margin-top: -8px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,0.12); color: var(--text); font-size: 15px; opacity: 0; transform: scale(.4); transition: opacity .15s, transform .15s; pointer-events: none; }
+.msg.swiping .swipe-ico { opacity: .7; transform: scale(.8); }
+.msg.armed .swipe-ico { opacity: 1; transform: scale(1.05); background: var(--blue); }
+.msg.held .bubble { transform: scale(1.03); box-shadow: 0 8px 30px rgba(0,0,0,.6); transition: transform .15s; }
+.reacts { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 6px 0; }
+.reacts:empty { display: none; }
+.msg.me .reacts { justify-content: flex-end; }
+.react { display: inline-flex; align-items: center; gap: 3px; border: 1px solid rgba(255,255,255,0.12); background: rgba(44,44,46,0.95); color: var(--text); border-radius: 999px; padding: 2px 8px 2px 4px; font-size: 12px; cursor: pointer; animation: reactIn .25s cubic-bezier(.3,1.6,.6,1); }
+.react img { width: 20px; height: 20px; }
+.react.on { border-color: var(--blue); background: rgba(10,132,255,0.25); }
+@keyframes reactIn { from { transform: scale(.4); } to { transform: scale(1); } }
+.react-shade { position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,0.35); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
+.react-pop { position: fixed; z-index: 91; background: var(--card-solid); border: 0.5px solid var(--sep); border-radius: 22px; padding: 8px; box-shadow: 0 12px 40px rgba(0,0,0,.6); animation: popIn .18s cubic-bezier(.3,1.5,.6,1); }
+@keyframes popIn { from { transform: scale(.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.react-quick { display: flex; justify-content: space-between; gap: 2px; }
+.react-quick button, .react-all button { border: 0; background: transparent; border-radius: 12px; padding: 3px; cursor: pointer; }
+.react-quick img { width: 34px; height: 34px; display: block; }
+.react-quick button:active, .react-all button:active { transform: scale(1.25); }
+.react-quick .more { width: 40px; font-size: 22px; color: var(--text); background: rgba(255,255,255,0.08); border-radius: 50%; }
+.react-all { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 2px; max-height: 210px; overflow-y: auto; }
+.react-all img { width: 100%; display: block; }
+.react-acts { display: flex; gap: 6px; margin-top: 8px; border-top: 0.5px solid var(--sep); padding-top: 8px; }
+.react-acts button { flex: 1; border: 0; background: rgba(255,255,255,0.08); color: var(--text); border-radius: 12px; padding: 9px; font-size: 14px; cursor: pointer; }
+@media (hover: none) { .msg .act { display: none; } }

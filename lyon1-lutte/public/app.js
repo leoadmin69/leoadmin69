@@ -521,13 +521,20 @@ function nick() {
 const EMOTE_CODES = new Set(EMOTES.map((e) => e.code));
 const withEmotes = (escaped) => escaped.replace(/:([a-z0-9]+):/g, (all, c) => (EMOTE_CODES.has(c) ? `<img class="emote" src="/emotes/${c}.svg" alt=":${c}:" title=":${c}:" draggable="false">` : all));
 const onlyEmotes = (t) => { const x = t.trim(); return /^(:[a-z0-9]+:\s*){1,3}$/.test(x) && x.match(/:([a-z0-9]+):/g).every((c) => EMOTE_CODES.has(c.slice(1, -1))); };
+// Réactions sous un message ; on retient sur le téléphone celles qu'on a posées
+const myReacts = () => store.get('l1-reacts', {});
+function reactsHtml(m) {
+  const r = Object.entries(m.reactions || {}).filter(([, n]) => n > 0);
+  const mine = myReacts()[m.id] || [];
+  return `<div class="reacts">${r.map(([c, n]) => (EMOTE_CODES.has(c) ? `<button class="react ${mine.includes(c) ? 'on' : ''}" data-react="${esc(c)}"><img src="/emotes/${esc(c)}.svg" alt=":${esc(c)}:"><b>${n}</b></button>` : '')).join('')}</div>`;
+}
 function msgHtml(m) {
   const me = m.nick === nick() && !m.mod;
   const forMe = m.reply && !me && m.reply.nick === nick();
   return `<div class="msg ${me ? 'me' : ''} ${m.mod ? 'modo' : ''} ${forMe ? 'for-me' : ''}" data-id="${esc(m.id)}">
     <div class="who">${m.mod ? '🛡️ ' : ''}<b>${esc(m.nick)}</b>${m.mod ? ` <span class="pill green" style="padding:1px 6px;font-size:10px">${esc(m.mod)}</span>` : ''} <span class="faint">${esc(hhmm(m.at))}</span>
-      <button class="act" data-reply="${esc(m.id)}" aria-label="Répondre">↩ répondre</button>${me ? '' : ` <button class="act rep" data-rep="${esc(m.id)}">signaler</button>`}</div>
-    <div class="bubble ${onlyEmotes(m.text) && !m.reply ? 'jumbo' : ''}">${m.reply ? `<div class="quote" data-goto="${esc(m.reply.id)}"><b>↩ ${esc(m.reply.nick)}</b><span>${withEmotes(esc(m.reply.text))}</span></div>` : ''}${withEmotes(esc(m.text))}</div></div>`;
+      <button class="act" data-reply="${esc(m.id)}" aria-label="Répondre">↩ répondre</button><button class="act" data-menu="${esc(m.id)}" aria-label="Réagir">＋ réagir</button>${me ? '' : ` <button class="act rep" data-rep="${esc(m.id)}">signaler</button>`}</div>
+    <div class="bubble ${onlyEmotes(m.text) && !m.reply ? 'jumbo' : ''}">${m.reply ? `<div class="quote" data-goto="${esc(m.reply.id)}"><b>↩ ${esc(m.reply.nick)}</b><span>${withEmotes(esc(m.reply.text))}</span></div>` : ''}${withEmotes(esc(m.text))}</div>${reactsHtml(m)}<span class="swipe-ico" aria-hidden="true">↩</span></div>`;
 }
 async function viewChat() {
   const chans = state.data.channels;
@@ -612,14 +619,103 @@ async function viewChat() {
     if (m) { $('#replyx').onclick = () => setReply(null); ta.focus(); }
   }
   setReply(null);
+
+  // ---- Réactions ----
+  async function react(id, code) {
+    try {
+      const r = await api(`/api/chat/${encodeURIComponent(id)}/react`, { method: 'POST', body: { emote: code } });
+      const mine = myReacts(); const l = new Set(mine[id] || []);
+      if (r.on) l.add(code); else l.delete(code);
+      mine[id] = [...l]; if (!l.size) delete mine[id];
+      const keys = Object.keys(mine); if (keys.length > 400) for (const k of keys.slice(0, keys.length - 400)) delete mine[k];
+      store.set('l1-reacts', mine);
+      updateReacts(id, r.reactions);
+    } catch (err) { toast(err.message); }
+  }
+  const QUICK = ['poing', 'mdr', 'coeur', 'feu', 'cheh', 'choc', 'gg'];
+  function openMenu(id) {
+    closeMenu();
+    const el = $(`.msg[data-id="${CSS.escape(id)}"]`);
+    if (!el) return;
+    navigator.vibrate?.(12);
+    el.classList.add('held');
+    const me = el.classList.contains('me');
+    const pop = document.createElement('div');
+    pop.className = 'react-pop';
+    pop.innerHTML = `<div class="react-quick">${QUICK.map((c) => `<button data-pick="${c}"><img src="/emotes/${c}.svg" alt=":${c}:"></button>`).join('')}<button class="more" data-more aria-label="Tous les stickers">＋</button></div>
+      <div class="react-all" hidden>${EMOTES.map((e) => `<button data-pick="${esc(e.code)}" title="${esc(e.label)}"><img src="/emotes/${esc(e.code)}.svg" alt=""></button>`).join('')}</div>
+      <div class="react-acts"><button data-do="reply">↩ Répondre</button>${me ? '' : '<button data-do="report">⚑ Signaler</button>'}</div>`;
+    document.body.appendChild(pop);
+    const r = el.getBoundingClientRect();
+    const w = Math.min(330, innerWidth - 16);
+    pop.style.width = w + 'px';
+    pop.style.left = Math.max(8, Math.min(innerWidth - w - 8, me ? r.right - w : r.left)) + 'px';
+    const top = r.top - pop.offsetHeight - 8;
+    pop.style.top = (top > 60 ? top : Math.min(r.bottom + 8, innerHeight - pop.offsetHeight - 8)) + 'px';
+    const shade = document.createElement('div');
+    shade.className = 'react-shade';
+    document.body.appendChild(shade);
+    shade.onclick = closeMenu;
+    pop.onclick = async (e) => {
+      if (e.target.closest('[data-more]')) { $('.react-all', pop).hidden = false; $('.react-quick', pop).hidden = true; return; }
+      const c = e.target.closest('[data-pick]')?.dataset.pick;
+      const d = e.target.closest('[data-do]')?.dataset.do;
+      closeMenu();
+      if (c) react(id, c);
+      if (d === 'reply') replyTo(id);
+      if (d === 'report' && confirm('Signaler ce message aux modos ?')) { try { await api(`/api/chat/${id}/report`, { method: 'POST' }); toast('Merci, les modos vont regarder.'); } catch (err) { toast(err.message); } }
+    };
+  }
+  function closeMenu() { $$('.react-pop, .react-shade').forEach((x) => x.remove()); $$('.msg.held').forEach((x) => x.classList.remove('held')); }
+  window.addEventListener('hashchange', closeMenu, { once: true });
+  function replyTo(rid) {
+    const el = $(`.msg[data-id="${CSS.escape(rid)}"]`);
+    const m = (state.chatMsgs || []).find((x) => x.id === rid) || (el && { id: rid, nick: $('.who b', el).textContent, text: $('.bubble', el).innerText });
+    if (m) setReply({ id: m.id, nick: m.nick, text: m.text });
+  }
+
+  // ---- Gestes : glisser vers la droite = répondre (comme Insta), appui long = réactions ----
+  const box = $('#msgs');
+  if (matchMedia('(hover: none)').matches && charterOk() && !store.get('l1-chat-tip', false)) { store.set('l1-chat-tip', true); setTimeout(() => toast('Astuce : glisse un message vers la droite pour répondre, garde le doigt dessus pour réagir'), 800); }
+  let g = null;
+  box.addEventListener('pointerdown', (e) => {
+    const el = e.target.closest('.msg');
+    if (!el || e.target.closest('button, a, .quote') || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    g = { el, id: el.dataset.id, x: e.clientX, y: e.clientY, dx: 0, swiping: false, pid: e.pointerId };
+    g.timer = setTimeout(() => { if (g && !g.swiping) { const id = g.id; g = null; openMenu(id); } }, 450);
+  });
+  box.addEventListener('pointermove', (e) => {
+    if (!g || e.pointerId !== g.pid) return;
+    const dx = e.clientX - g.x, dy = e.clientY - g.y;
+    if (!g.swiping && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) clearTimeout(g.timer);
+    if (!g.swiping && dx > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) { g.swiping = true; g.el.classList.add('swiping'); try { box.setPointerCapture(g.pid); } catch {} }
+    if (!g.swiping) { if (Math.abs(dy) > 10) g = null; return; }
+    g.dx = Math.max(0, Math.min(90, dx * 0.7));
+    g.el.style.setProperty('--sx', g.dx + 'px');
+    g.el.classList.toggle('armed', g.dx > 55);
+    if (g.dx > 55 && !g.buzz) { g.buzz = true; navigator.vibrate?.(8); }
+  });
+  const end = () => {
+    if (!g) return;
+    clearTimeout(g.timer);
+    const { el, id, dx, swiping } = g;
+    g = null;
+    if (!swiping) return;
+    el.classList.remove('swiping', 'armed');
+    el.style.setProperty('--sx', '0px');
+    if (dx > 55) replyTo(id);
+  };
+  box.addEventListener('pointerup', end);
+  box.addEventListener('pointercancel', end);
+  box.addEventListener('contextmenu', (e) => { const el = e.target.closest('.msg'); if (el) { e.preventDefault(); if (!$('.react-pop')) openMenu(el.dataset.id); } });
+
   $('#msgs').onclick = async (e) => {
+    const rc = e.target.closest('[data-react]');
+    if (rc) return react(rc.closest('.msg').dataset.id, rc.dataset.react);
+    const mid = e.target.closest('[data-menu]')?.dataset.menu;
+    if (mid) return openMenu(mid);
     const rid = e.target.closest('[data-reply]')?.dataset.reply;
-    if (rid) {
-      const el = $(`.msg[data-id="${CSS.escape(rid)}"]`);
-      const m = (state.chatMsgs || []).find((x) => x.id === rid) || (el && { id: rid, nick: $('.who b', el).textContent, text: el.dataset.text || $('.bubble', el).innerText });
-      if (m) setReply({ id: m.id, nick: m.nick, text: m.text });
-      return;
-    }
+    if (rid) return replyTo(rid);
     const go = e.target.closest('[data-goto]')?.dataset.goto;
     if (go) {
       const t = $(`.msg[data-id="${CSS.escape(go)}"]`);
@@ -2311,6 +2407,7 @@ function connectLive() {
   es.addEventListener('pages', scheduleRefresh);
   es.addEventListener('poll', () => { scheduleRefresh(); if (route() === 'votes' && !$('.sheet')) viewPolls(); });
   for (const [ev, r] of [['blog', 'blog'], ['testimonies', 'temoignages']]) es.addEventListener(ev, () => { if (route() === r && !$('.sheet')) render(); });
+  es.addEventListener('chat-react', (e) => { const { id, reactions } = JSON.parse(e.data); updateReacts(id, reactions); });
   es.addEventListener('chat-del', (e) => { const id = JSON.parse(e.data).id; $(`.msg[data-id="${CSS.escape(id)}"]`)?.remove(); });
   es.addEventListener('demand', (e) => {
     const { id, support } = JSON.parse(e.data);
@@ -2723,4 +2820,11 @@ function findBannedLocal(text) {
   const n = ` ${normWord(text)} `;
   const glued = ` ${n.replace(/\b([a-z]) (?=[a-z]\b)/g, '$1')} `;
   return list.find((w) => n.includes(` ${w} `) || glued.includes(` ${w} `)) || null;
+}
+
+function updateReacts(id, reactions) {
+  const m = (state.chatMsgs || []).find((x) => x.id === id);
+  if (m) m.reactions = reactions;
+  const el = $(`.msg[data-id="${CSS.escape(id)}"] .reacts`);
+  if (el) el.outerHTML = reactsHtml({ id, reactions });
 }
