@@ -2530,6 +2530,40 @@ function appCardHtml() {
 function refreshAppCards() { $$('[data-install]').forEach((b) => (b.hidden = isStandalone())); }
 document.addEventListener('click', (e) => { if (e.target.closest('[data-install]')) showInstallHelp(); });
 
+// ---------- Pop-up d'accueil : installer l'app + activer les notifications ----------
+// Dans un navigateur : à chaque visite (une fois par session). Dans l'app installée : seulement si les notifs ne sont pas activées.
+const sess = { get(k) { try { return sessionStorage.getItem(k); } catch { return '1'; } }, set(k) { try { sessionStorage.setItem(k, '1'); } catch {} } };
+async function welcomePopup() {
+  if (sess.get('l1-welcome') || route().startsWith('modo') || $('.sheet') || $('.react-pop')) return;
+  const standalone = isStandalone();
+  let pushOn = false;
+  try { pushOn = !!(await currentPushSub()) && Notification.permission === 'granted'; } catch {}
+  if (standalone && (pushOn || !pushSupported())) return;
+  if (!standalone && pushOn && !isIOS && !installPrompt) return; // déjà abonné·e et rien à installer
+  sess.set('l1-welcome');
+  const needInstall = !standalone;
+  const iosBrowser = isIOS && !standalone;
+  sheet(`<div class="welcome">
+      <div class="welcome-head"><div class="kicker">LYON 1 · LA DOUA EN LUTTE</div><h2>Ne rate rien de la mobilisation ✊</h2>
+      <p class="muted">Bâtiments bloqués, AG, manifs, votes : sois prévenu·e en direct, gratuitement, sans compte.</p></div>
+      ${needInstall ? `<button class="welcome-step" id="w-install" type="button"><span class="w-ico">📲</span><span class="grow"><b>1. Installer l’app</b><span>Une icône sur ton écran d’accueil, ouverte en 1 tap${isIOS ? ' (obligatoire sur iPhone pour les notifs)' : ''}.</span></span><span class="chev">${icon('chev', 18)}</span></button>` : ''}
+      ${pushOn ? '' : `<button class="welcome-step" id="w-push" type="button"><span class="w-ico">🔔</span><span class="grow"><b>${needInstall ? '2. ' : ''}Activer les notifications</b><span>${iosBrowser ? 'Après avoir installé l’app, ouvre-la et active-les ici.' : 'Une alerte sur ton téléphone dès qu’un bâtiment est bloqué ou qu’une AG est annoncée.'}</span></span><span class="chev">${icon('chev', 18)}</span></button>`}
+      <button class="btn ghost w-later" id="w-later" type="button">Plus tard</button>
+    </div>`, (el, close) => {
+    $('#w-later', el).onclick = close;
+    if ($('#w-install', el)) $('#w-install', el).onclick = () => { close(); showInstallHelp(); };
+    if ($('#w-push', el)) $('#w-push', el).onclick = async () => {
+      if (iosBrowser) { close(); showInstallHelp(true); return; }
+      const b = $('#w-push', el); b.disabled = true;
+      try {
+        const ok = await enablePush(['buildings', 'urgent', 'events', 'reports'], [publicSite()]);
+        if (ok) { toast('Notifications activées ✊ Règle-les dans Alertes.'); b.classList.add('done'); $('b', b).textContent = '✓ Notifications activées'; if (!$('#w-install', el)) setTimeout(close, 900); }
+      } catch (e) { toast(e.message); }
+      b.disabled = false;
+    };
+  });
+}
+
 // ---------- Démarrage ----------
 (async function start() {
   render(true);
@@ -2539,6 +2573,7 @@ document.addEventListener('click', (e) => { if (e.target.closest('[data-install]
   render(true);
   connectLive();
   registerSW();
+  setTimeout(welcomePopup, 1800);
   setInterval(() => { if (route() === '' && !document.hidden) { const m = $('.hero .meta'); if (m && state.data) m.textContent = `MAJ ${ago(state.data.blocus.updatedAt)}${state.data.blocus.by ? ' · ' + state.data.blocus.by : ''}`; } }, 30000);
 })();
 

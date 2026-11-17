@@ -24,7 +24,7 @@ Style iOS, sombre, « terminal live » ; marche sur téléphone (barre d'onglets
 | **Entraide** | « Je propose / Je cherche » (cours, hébergement, repas, trajets…), réponses anonymes, numéros et emails refusés, masqué après 3 signalements, expire en 14 jours. |
 | **Parler à qui ?** | Contacts des syndicats/collectifs + numéros d'urgence et d'écoute. |
 | **Alertes** | **Notifications sur le téléphone** (gratuites, sans compte) et/ou email : bâtiment bloqué, alerte urgente, nouvelles AG/manifs, comptes rendus. Filtre par campus. |
-| **App** | S'installe sur l'écran d'accueil (Android et iPhone), s'ouvre même sans réseau avec les dernières infos. |
+| **App** | S'installe sur l'écran d'accueil (Android et iPhone), s'ouvre même sans réseau avec les dernières infos. À chaque visite dans un navigateur, une fenêtre propose d'installer l'app et d'activer les notifications (une fois par visite, « Plus tard » pour la fermer) ; dans l'app installée, elle ne revient que si les notifications ne sont pas activées. |
 
 ## Espace modos (étudiant·es syndiqué·es)
 
