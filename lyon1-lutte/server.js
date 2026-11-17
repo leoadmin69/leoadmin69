@@ -56,6 +56,16 @@ const oneOf = (v, list, d) => (list.includes(v) ? v : d);
 // Identifiant visiteur anonyme : hash de l'IP avec une graine qui change chaque jour (aucune IP stockée).
 const visitor = (req) => crypto.createHmac('sha256', SECRET).update(`${new Date().toISOString().slice(0, 10)}|${req.ip}`).digest('hex').slice(0, 16);
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
+// Empreinte anonyme par appareil (cookie aléatoire, le même que pour les votes), qui change chaque jour.
+// Sur le wifi du campus, des centaines d'étudiant·es partagent la même IP : on ne peut pas limiter par IP seule.
+function deviceKey(req, res) {
+  let d = parseCookies(req.headers.cookie).l1_dev;
+  if (!/^[A-Za-z0-9_-]{20,64}$/.test(d || '')) {
+    d = crypto.randomBytes(24).toString('base64url');
+    res.append('Set-Cookie', `l1_dev=${d}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${400 * 86400}${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
+  }
+  return crypto.createHmac('sha256', SECRET).update(`${new Date().toISOString().slice(0, 10)}|dev|${d}`).digest('hex').slice(0, 16);
+}
 
 // Limiteur simple en mémoire.
 const buckets = new Map();
@@ -186,7 +196,7 @@ app.get('/api/reports/:id', (req, res) => {
 
 // ---------- Chat anonyme ----------
 const NICK = /^[\p{L}\p{N} _-]{2,24}$/u;
-const publicMsg = (m) => ({ id: m.id, channel: m.channel, nick: m.nick, text: m.text, at: m.at, mod: m.mod || null });
+const publicMsg = (m) => ({ id: m.id, channel: m.channel, nick: m.nick, text: m.text, at: m.at, mod: m.mod || null, reply: m.reply || null });
 
 // Liste noire (déjà normalisée) envoyée à l'app : le message est bloqué sur le téléphone avant même d'être envoyé.
 app.get('/api/chat-rules', (req, res) => res.json({ words: bannedList() }));
@@ -206,10 +216,18 @@ app.post('/api/chat', (req, res) => {
   if (!modNow && req.body.charter !== true) return bad(res, 'Lis et accepte la charte du chat avant d’écrire.', 403);
   if (findBanned(nick)) return bad(res, 'Ce pseudo contient un mot interdit par la charte.');
   if (findBanned(text)) return bad(res, 'Message bloqué : il contient un mot ou une expression interdit·e par la charte du chat.');
-  const v = visitor(req);
-  if (limited(`chat:${v}`, 1, 2500) || limited(`chatm:${v}`, 20, 60000)) return bad(res, 'Doucement 🙂 attends quelques secondes.', 429);
+  const v = deviceKey(req, res);
+  if (limited(`chat:${v}`, 1, 1500) || limited(`chatm:${v}`, 20, 60000)) return bad(res, 'Doucement 🙂 attends quelques secondes.', 429);
+  if (limited(`chatip:${visitor(req)}`, 300, 60000)) return bad(res, 'Le chat est très sollicité depuis ce réseau, réessaie dans une minute.', 429);
   const mod = currentMod(req);
-  const m = { id: newId(), channel, nick, text, at: now(), v, reports: [], mod: mod ? mod.org : null };
+  if ((text.match(/:[a-z0-9]+:/g) || []).length > 15) return bad(res, 'Trop de stickers dans un seul message (15 max).');
+  // Réponse à un message : on garde l'auteur et un extrait (le message d'origine peut ensuite être masqué)
+  let reply = null;
+  if (req.body.replyTo) {
+    const o = db.messages.find((x) => x.id === String(req.body.replyTo) && x.channel === channel && !x.hidden);
+    if (o) reply = { id: o.id, nick: o.mod ? `${o.nick} (${o.mod})` : o.nick, text: o.text.slice(0, 100) };
+  }
+  const m = { id: newId(), channel, nick, text, at: now(), v, reports: [], mod: mod ? mod.org : null, reply };
   db.messages.push(m);
   if (db.messages.length > 6000) db.messages = db.messages.slice(-5000);
   save();
@@ -219,7 +237,8 @@ app.post('/api/chat', (req, res) => {
 app.post('/api/chat/:id/report', (req, res) => {
   const m = db.messages.find((x) => x.id === req.params.id);
   if (!m) return bad(res, 'Introuvable', 404);
-  const v = visitor(req);
+  const v = deviceKey(req, res);
+  if (limited(`chatrep:${visitor(req)}`, 60, 3600e3)) return bad(res, 'Trop de signalements depuis ce réseau.', 429);
   if (!m.reports.includes(v)) m.reports.push(v);
   // Masqué automatiquement après 3 signalements ; un modo peut le rétablir.
   if (m.reports.length >= 3 && !m.hidden) { m.hidden = true; broadcast('chat-del', { id: m.id }); }

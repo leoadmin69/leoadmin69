@@ -506,3 +506,30 @@ button.opt:active { transform: scale(0.98); }
 .composer.shake { animation: shake 0.4s; }
 @keyframes shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
 .nick-big { font-family: ui-monospace, Menlo, monospace; font-size: 24px; font-weight: 700; text-align: center; padding: 18px 10px; margin: 6px 0 10px; border: 1px dashed rgba(48,209,88,0.5); border-radius: 14px; color: var(--green); }
+
+/* Chat : réponses et stickers */
+.msg .act { border: 0; background: none; color: var(--faint); font-size: 11px; cursor: pointer; padding: 0; opacity: 0.55; }
+.msg .act:hover { opacity: 1; color: var(--text); }
+@media (hover: hover) { .msg .act { opacity: 0; } .msg:hover .act, .msg:focus-within .act { opacity: 0.8; } }
+.msg .quote { display: block; border-left: 3px solid rgba(255,255,255,0.55); background: rgba(0,0,0,0.22); border-radius: 8px; padding: 4px 8px; margin: 0 0 6px; font-size: 13px; cursor: pointer; white-space: normal; }
+.msg .quote b { display: block; font-size: 12px; opacity: 0.9; }
+.msg .quote span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; opacity: 0.85; }
+.msg.for-me .bubble { box-shadow: 0 0 0 2px var(--orange); }
+.msg.flash .bubble { animation: flash 1.2s; }
+@keyframes flash { 0%, 40% { box-shadow: 0 0 0 3px var(--green); } 100% { box-shadow: none; } }
+.emote { width: 28px; height: 28px; vertical-align: -8px; margin: 0 1px; }
+.quote .emote, .replybar .emote { width: 18px; height: 18px; vertical-align: -4px; }
+.bubble.jumbo { background: transparent !important; border: 0 !important; padding: 2px 0; }
+.bubble.jumbo .emote { width: 64px; height: 64px; vertical-align: middle; }
+.replybar { display: flex; gap: 8px; align-items: center; margin-top: 8px; padding: 6px 10px; border-left: 3px solid var(--blue); background: rgba(10,132,255,0.12); border-radius: 10px; font-size: 13px; }
+.replybar .grow { flex: 1; min-width: 0; }
+.replybar span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.replybar button { border: 0; background: none; color: var(--text); font-size: 16px; cursor: pointer; }
+.emote-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 4px; max-height: 190px; overflow-y: auto; margin-top: 8px; padding: 8px; background: var(--card-solid); border: 0.5px solid var(--sep); border-radius: 16px; }
+.emote-picker button { border: 0; background: transparent; border-radius: 10px; padding: 4px; cursor: pointer; aspect-ratio: 1; }
+.emote-picker button:hover { background: rgba(255,255,255,0.08); transform: scale(1.12); }
+.emote-picker img { width: 100%; height: 100%; }
+.composer .emote-btn { background: transparent; padding: 4px; }
+.composer .emote-btn img { width: 30px; height: 30px; filter: grayscale(0.4); transition: filter .15s, transform .15s; }
+.composer .emote-btn:hover img { filter: none; transform: rotate(-12deg) scale(1.08); }
+.msg .who { flex-wrap: wrap; } .msg .who b { white-space: nowrap; }

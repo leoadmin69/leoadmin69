@@ -1,4 +1,5 @@
 import { randomNick, isSystemNick } from './nicks.js';
+import { EMOTES } from './emotes.js';
 // Lyon 1 · La Doua en lutte : application monopage (sans framework).
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -516,11 +517,17 @@ function nick() {
   if (!isSystemNick(n)) { n = randomNick(); store.set('l1-nick', n); }
   return n;
 }
+// Stickers : « :code: » dans le texte → image (public/emotes/*.svg). Pas d'emoji standard dans le sélecteur.
+const EMOTE_CODES = new Set(EMOTES.map((e) => e.code));
+const withEmotes = (escaped) => escaped.replace(/:([a-z0-9]+):/g, (all, c) => (EMOTE_CODES.has(c) ? `<img class="emote" src="/emotes/${c}.svg" alt=":${c}:" title=":${c}:" draggable="false">` : all));
+const onlyEmotes = (t) => { const x = t.trim(); return /^(:[a-z0-9]+:\s*){1,3}$/.test(x) && x.match(/:([a-z0-9]+):/g).every((c) => EMOTE_CODES.has(c.slice(1, -1))); };
 function msgHtml(m) {
   const me = m.nick === nick() && !m.mod;
-  return `<div class="msg ${me ? 'me' : ''} ${m.mod ? 'modo' : ''}" data-id="${esc(m.id)}">
-    <div class="who">${m.mod ? '🛡️ ' : ''}<b>${esc(m.nick)}</b>${m.mod ? ` <span class="pill green" style="padding:1px 6px;font-size:10px">${esc(m.mod)}</span>` : ''} <span class="faint">${esc(hhmm(m.at))}</span>${me ? '' : ` <button class="rep" data-rep="${esc(m.id)}">signaler</button>`}</div>
-    <div class="bubble">${esc(m.text)}</div></div>`;
+  const forMe = m.reply && !me && m.reply.nick === nick();
+  return `<div class="msg ${me ? 'me' : ''} ${m.mod ? 'modo' : ''} ${forMe ? 'for-me' : ''}" data-id="${esc(m.id)}">
+    <div class="who">${m.mod ? '🛡️ ' : ''}<b>${esc(m.nick)}</b>${m.mod ? ` <span class="pill green" style="padding:1px 6px;font-size:10px">${esc(m.mod)}</span>` : ''} <span class="faint">${esc(hhmm(m.at))}</span>
+      <button class="act" data-reply="${esc(m.id)}" aria-label="Répondre">↩ répondre</button>${me ? '' : ` <button class="act rep" data-rep="${esc(m.id)}">signaler</button>`}</div>
+    <div class="bubble ${onlyEmotes(m.text) && !m.reply ? 'jumbo' : ''}">${m.reply ? `<div class="quote" data-goto="${esc(m.reply.id)}"><b>↩ ${esc(m.reply.nick)}</b><span>${withEmotes(esc(m.reply.text))}</span></div>` : ''}${withEmotes(esc(m.text))}</div></div>`;
 }
 async function viewChat() {
   const chans = state.data.channels;
@@ -533,7 +540,10 @@ async function viewChat() {
       <div class="notice">🕶️ Pas de compte, pas d’email. Tu es <b>${esc(nick())}</b> · <a href="#" id="renick">changer</a> · <a href="#" id="charte">📜 charte</a>. Ne donne jamais ton nom, ton numéro étudiant ni d’info qui t’identifie. ${ch ? esc(ch.description) : ''}</div>
       <div class="msgs" id="msgs"><div class="empty faint mono">chargement…</div></div>
       ${charterOk() ? '' : charterHtml(true)}
+      <div class="replybar" id="replybar" hidden></div>
+      <div class="emote-picker" id="picker" hidden>${EMOTES.map((e) => `<button type="button" data-emote="${esc(e.code)}" title="${esc(e.label)} · :${esc(e.code)}:"><img src="/emotes/${esc(e.code)}.svg" alt="${esc(e.label)}"></button>`).join('')}</div>
       <form class="composer" id="composer" ${charterOk() ? '' : 'hidden'}>
+        <button type="button" class="emote-btn" id="emobtn" aria-label="Stickers"><img src="/emotes/mdr.svg" alt=""></button>
         <textarea id="text" rows="1" maxlength="600" placeholder="Message dans #${esc(ch?.name || '')}" aria-label="Message"></textarea>
         <button type="submit" aria-label="Envoyer">${icon('send', 20)}</button>
       </form>
@@ -574,14 +584,49 @@ async function viewChat() {
       toast('🚫 Message supprimé : il contient un mot ou une expression interdit·e par la charte du chat.');
       return;
     }
-    const btn = $('#composer button');
+    const btn = $('#composer button[type=submit]');
     btn.disabled = true;
-    try { await api('/api/chat', { method: 'POST', body: { channel: state.chatChannel, nick: nick(), text, charter: charterOk() } }); ta.value = ''; ta.style.height = ''; }
+    try { await api('/api/chat', { method: 'POST', body: { channel: state.chatChannel, nick: nick(), text, charter: charterOk(), replyTo: state.replyTo?.id } }); ta.value = ''; ta.style.height = ''; setReply(null); $('#picker').hidden = true; }
     catch (err) { toast(err.message); if (/charte/.test(err.message) && /bloqué/.test(err.message)) ta.value = ''; }
     btn.disabled = false;
     ta.focus();
   };
+  // Stickers
+  $('#emobtn').onclick = () => { $('#picker').hidden = !$('#picker').hidden; };
+  $('#picker').onclick = (e) => {
+    const c = e.target.closest('[data-emote]')?.dataset.emote;
+    if (!c) return;
+    const st = ta.selectionStart ?? ta.value.length, en = ta.selectionEnd ?? st;
+    const before = ta.value.slice(0, st), ins = `${before && !/\s$/.test(before) ? ' ' : ''}:${c}: `;
+    ta.value = before + ins + ta.value.slice(en);
+    ta.focus(); ta.selectionStart = ta.selectionEnd = st + ins.length;
+    ta.dispatchEvent(new Event('input'));
+  };
+  // Répondre à un message
+  function setReply(m) {
+    state.replyTo = m;
+    const bar = $('#replybar');
+    if (!bar) return;
+    bar.hidden = !m;
+    bar.innerHTML = m ? `<div class="grow">↩ Réponse à <b>${esc(m.nick)}</b><span>${withEmotes(esc(m.text.slice(0, 100)))}</span></div><button type="button" id="replyx" aria-label="Annuler la réponse">✕</button>` : '';
+    if (m) { $('#replyx').onclick = () => setReply(null); ta.focus(); }
+  }
+  setReply(null);
   $('#msgs').onclick = async (e) => {
+    const rid = e.target.closest('[data-reply]')?.dataset.reply;
+    if (rid) {
+      const el = $(`.msg[data-id="${CSS.escape(rid)}"]`);
+      const m = (state.chatMsgs || []).find((x) => x.id === rid) || (el && { id: rid, nick: $('.who b', el).textContent, text: el.dataset.text || $('.bubble', el).innerText });
+      if (m) setReply({ id: m.id, nick: m.nick, text: m.text });
+      return;
+    }
+    const go = e.target.closest('[data-goto]')?.dataset.goto;
+    if (go) {
+      const t = $(`.msg[data-id="${CSS.escape(go)}"]`);
+      if (t) { t.scrollIntoView({ block: 'center', behavior: 'smooth' }); t.classList.remove('flash'); void t.offsetWidth; t.classList.add('flash'); }
+      else toast('Message trop ancien ou retiré.');
+      return;
+    }
     const id = e.target.dataset.rep;
     if (!id) return;
     if (!confirm('Signaler ce message aux modos ?')) return;
@@ -604,6 +649,7 @@ function onChat(m) {
   const near = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
   if (!$('.msg', box)) box.innerHTML = '';
   box.insertAdjacentHTML('beforeend', msgHtml(m));
+  (state.chatMsgs ||= []).push(m);
   if (near || m.nick === nick()) box.scrollTop = 1e9;
 }
 
