@@ -560,7 +560,7 @@ function sheet(html, setup) {
 // Espace modos
 // =====================================================================
 const MOD_TABS = [
-  ['situation', '🚧 Situation'], ['agenda', '📅 Agenda'], ['cr', '🤖 CR + IA'], ['flash', '⚡ Flash'],
+  ['situation', '🚧 Bâtiments'], ['story', '📸 Story Insta'], ['agenda', '📅 Agenda'], ['cr', '🤖 CR + IA'], ['flash', '⚡ Flash'],
   ['votes', '🗳️ Votes'], ['blog', '✍️ Blog'], ['temoignages', '🛡️ Témoignages'], ['revendications', '✊ Revendications'], ['contacts', '📇 Contacts'], ['chat', '🛡️ Chat'], ['comptes', '👥 Comptes'], ['journal', '📜 Journal'], ['moi', '🔑 Mon compte'],
 ];
 async function viewModo() {
@@ -590,54 +590,480 @@ async function viewModo() {
     <div id="mod"></div>`;
   $('#mtabs').onclick = (e) => { if (e.target.dataset.t) { state.modTab = e.target.dataset.t; render(true); } };
   api('/api/mod/stats').then((s) => { const el = $('#mstats'); if (el) el.textContent = `${s.subscribers} abonné·es · IA ${s.aiEnabled ? 'ON' : 'OFF'} · email ${s.mailEnabled ? 'ON' : 'OFF'}${s.reported ? ` · ${s.reported} msg signalé(s)` : ''}`; }).catch(() => {});
-  const fn = { votes: modPolls, blog: modBlog, temoignages: modTestimonies, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, journal: modJournal, moi: modMe }[state.modTab] || modSituation;
+  const fn = { story: modStory, votes: modPolls, blog: modBlog, temoignages: modTestimonies, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, journal: modJournal, moi: modMe }[state.modTab] || modSituation;
   try { await fn($('#mod')); } catch (err) { if (/Connexion modo/.test(err.message)) { state.me = null; render(true); } else toast(err.message); }
 }
 const act = async (fn, ok) => { try { const r = await fn(); if (ok) toast(ok); return r; } catch (e) { toast(e.message); throw e; } };
 
+// ----- Situation : mise à jour éclair des bâtiments -----
+// Trois façons, du plus rapide au plus précis :
+//  1. Écrire ou dicter une phrase : « Thémis, Nautibus bloqués, Darwin partiel, le reste ouvert »
+//  2. Toucher plusieurs tuiles puis un seul bouton 🔴 / 🟠 / 🟢
+//  3. Reprendre la liste du dernier compte rendu d'AG
+// Chaque envoi peut être annulé pendant 10 secondes (l'email d'alerte en attente est alors retiré).
+const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+function lev(a, b) {
+  if (Math.abs(a.length - b.length) > 2) return 9;
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+const STATUS_WORDS = [
+  ['ouvert', /^(debloqu|rouvert|reouvert|ouvert|ouvre|libre|accessible|leve|normal)/],
+  ['partiel', /^(partiel|filtr|semi|moitie|demi)/],
+  ['bloque', /^(bloqu|blocus|ferme|piquet|occup|barricad)/],
+];
+const ALIASES = { deambu: 'deambulatoire', deambulatoire: 'deambulatoire', bu: 'bu sciences', 'bu sciences': 'bu sciences', rocke: 'rockefeller', rockef: 'rockefeller' };
+function buildingIndex(buildings) {
+  const names = buildings.map((b) => ({ b, key: norm(b.name), words: norm(b.name).split(' ') }));
+  const campuses = [...new Set(buildings.map((b) => b.campus))].map((c) => ({ campus: c, key: norm(c).replace(/^(la|le|les) /, '') }));
+  return { names, campuses };
+}
+// Renvoie { changes: Map(id → status), unknown: [mots non reconnus] }
+function parseQuick(text, buildings) {
+  const { names, campuses } = buildingIndex(buildings);
+  const changes = new Map();
+  const unknown = [];
+  const clauses = String(text).split(/[\n.;|·]+|(?:\s+-\s+)/).map((c) => c.trim()).filter(Boolean);
+  for (const clause of clauses) {
+    const toks = norm(clause).split(' ').filter(Boolean);
+    const items = []; // { kind: 'b'|'campus'|'rest'|'all'|'status', pos, value }
+    for (let i = 0; i < toks.length; i++) {
+      const t = toks[i];
+      const st = STATUS_WORDS.find(([, re]) => re.test(t));
+      if (st) { items.push({ kind: 'status', pos: i, value: st[0] }); continue; }
+      if ((t === 'reste' || t === 'autres') ) { items.push({ kind: 'rest', pos: i }); continue; }
+      if ((t === 'tout' || t === 'tous' || t === 'toute' || t === 'toutes') && !toks.slice(i + 1, i + 4).some((x) => campuses.some((c) => c.key.split(' ').includes(x)) || x === 'reste')) { items.push({ kind: 'all', pos: i }); continue; }
+      // Nom de bâtiment : on essaie d'abord les noms en plusieurs mots
+      let hit = null;
+      for (const n of names) {
+        const len = n.words.length;
+        const chunk = toks.slice(i, i + len).join(' ');
+        if (chunk === n.key || ALIASES[chunk] === n.key || ALIASES[t] === n.key) { hit = { n, len: ALIASES[t] === n.key ? 1 : len }; break; }
+      }
+      if (!hit && t.length >= 4) {
+        const near = names.filter((n) => n.words.length === 1 && lev(t, n.key) <= (t.length >= 7 ? 2 : 1));
+        if (near.length === 1) hit = { n: near[0], len: 1 };
+      }
+      if (hit) { items.push({ kind: 'b', pos: i, value: hit.n.b }); i += hit.len - 1; continue; }
+      const camp = campuses.find((c) => c.key === t || c.key.split(' ').includes(t) && t.length > 3);
+      if (camp) { items.push({ kind: 'campus', pos: i, value: camp.campus }); i += camp.key.split(' ').filter((w) => toks.slice(i + 1, i + 3).includes(w)).length; continue; }
+      if (t.length >= 4 && !/^(est|sont|les|des|aux|avec|pour|dans|entree|entrees|batiment|batiments|campus|cote|depuis|matin|soir|aujourd|hui|maintenant|reste|toute|tout|tous|encore|plus|aussi|egalement|devant)$/.test(t)) unknown.push(t);
+    }
+    const statuses = items.filter((x) => x.kind === 'status');
+    if (!statuses.length) continue;
+    const targets = items.filter((x) => x.kind !== 'status');
+    for (const tg of targets) {
+      // statut le plus proche APRÈS la cible dans la phrase, sinon le plus proche AVANT
+      const after = statuses.find((s) => s.pos > tg.pos);
+      const before = [...statuses].reverse().find((s) => s.pos < tg.pos);
+      const st = (after || before).value;
+      if (tg.kind === 'b') changes.set(tg.value.id, st);
+      if (tg.kind === 'campus') for (const b of buildings) if (b.campus === tg.value && !changes.has(b.id)) changes.set(b.id, st);
+      if (tg.kind === 'all') for (const b of buildings) changes.set(b.id, st);
+      if (tg.kind === 'rest') tg.restStatus = st;
+    }
+    if (!targets.length && statuses.length === 1 && /^(tout|tous|toute)/.test(norm(clause))) for (const b of buildings) changes.set(b.id, statuses[0].value);
+    for (const tg of targets.filter((x) => x.kind === 'rest')) for (const b of buildings) if (!changes.has(b.id)) changes.set(b.id, tg.restStatus);
+  }
+  return { changes, unknown: [...new Set(unknown)].slice(0, 6) };
+}
+
+let lastUndo = null;
+function showUndo(previous, label) {
+  lastUndo = previous;
+  const bar = $('#undo');
+  if (!bar) return;
+  bar.hidden = false;
+  $('#undo-txt', bar).textContent = label;
+  clearTimeout(showUndo.t);
+  showUndo.t = setTimeout(() => { bar.hidden = true; lastUndo = null; }, 10000);
+}
+async function applyChanges(list, label) {
+  if (!list.length) return toast('Rien à changer.');
+  const r = await act(() => api('/api/mod/buildings-batch', { method: 'PUT', body: { changes: list } }));
+  if (!r.changed) return toast('Déjà à jour.');
+  for (const c of list) { const b = state.data.buildings.find((x) => x.id === c.id); if (b) b.status = c.status; }
+  window.drawTiles?.();
+  showUndo(r.previous, `${label} · ${r.changed} bâtiment${r.changed > 1 ? 's' : ''}`);
+}
+
 function modSituation(el) {
   const d = state.data;
   const b = d.blocus;
-  const byCampus = {};
-  for (const x of d.buildings) (byCampus[x.campus] ||= []).push(x);
+  const lastCR = d.reports.find((r) => r.batiments_bloques?.length);
+  const canDictate = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
   el.innerHTML = `
     <div class="card">
-      <div class="kicker">Blocus général</div>
-      <div class="segmented status-seg" id="bstate" style="margin-top:10px">${Object.entries(BLOCUS).map(([k, l]) => `<button data-s="${k}" class="${k === b.state ? 'on ' + (k === 'actif' ? 'bloque' : k === 'partiel' ? 'partiel' : k === 'leve' ? 'ouvert' : '') : ''}">${l}</button>`).join('')}</div>
-      <div class="field"><input type="text" id="bmsg" maxlength="400" placeholder="Message court (ex : AG à 12h au Déambu, piquet dès 7h)" value="${esc(b.message)}"></div>
-      <label class="check"><input type="checkbox" id="bnotify" checked> Envoyer une alerte email si le statut change</label>
-      <button class="btn" id="bsave">Publier le statut</button>
+      <div class="kicker">Blocus général · un tap = publié</div>
+      <div class="segmented status-seg" id="bstate" style="margin-top:10px">${Object.entries(BLOCUS).map(([k, l]) => `<button data-s="${k}" class="${k === b.state ? 'on ' + ({ actif: 'bloque', partiel: 'partiel', leve: 'ouvert' }[k] || '') : ''}">${{ actif: '🔴 Blocus', partiel: '🟠 Partiel', leve: '🟢 Pas de blocus', inconnu: '?' }[k]}</button>`).join('')}</div>
+      <div class="field"><input type="text" id="bmsg" maxlength="400" placeholder="Message court (ex : AG 12h au Déambu, piquet dès 7h)" value="${esc(b.message)}"></div>
+      <label class="check small"><input type="checkbox" id="bnotify" checked> Alerte email si le statut change</label>
     </div>
-    <h2 class="section">Bâtiments <span class="faint small">un tap = publié en direct · alerte email groupée après 1 min</span></h2>
-    ${Object.entries(byCampus).map(([campus, list]) => `
-      <div class="card"><div class="kicker">${esc(campus)}</div>
-      ${list.map((x) => `
-        <div class="mod-bld" data-id="${esc(x.id)}">
-          <div><b>${esc(x.name)}</b> <button class="icon-btn" data-del="${esc(x.id)}" title="Supprimer">${icon('trash', 16)}</button><div class="faint small">${x.updatedAt ? 'MAJ ' + esc(ago(x.updatedAt)) + ' · ' + esc(x.by) : 'jamais renseigné'}</div></div>
-          <div class="segmented status-seg">${Object.entries(STATUS).map(([k, s]) => `<button data-st="${k}" class="${k === x.status ? 'on ' + k : ''}">${k === 'inconnu' ? '?' : s.label}</button>`).join('')}</div>
-          <input type="text" data-note maxlength="240" placeholder="Note (ex : entrée côté tram)" value="${esc(x.note)}">
-        </div>`).join('')}</div>`).join('')}
-    <div class="card"><form class="form" id="addb" style="grid-template-columns:1fr 1fr auto;align-items:end">
-      <div class="field"><label>Nouveau bâtiment</label><input type="text" id="bn" required maxlength="80"></div>
-      <div class="field"><label>Campus</label><input type="text" id="bc" list="campuses" maxlength="60" required><datalist id="campuses">${Object.keys(byCampus).map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>
-      <button class="btn small">${icon('plus', 16)}</button></form></div>`;
-  let bstate = b.state;
-  $('#bstate').onclick = (e) => { const s = e.target.dataset.s; if (!s) return; bstate = s; $$('#bstate button').forEach((x) => (x.className = x.dataset.s === s ? 'on ' + (s === 'actif' ? 'bloque' : s === 'partiel' ? 'partiel' : s === 'leve' ? 'ouvert' : '') : '')); };
-  $('#bsave').onclick = () => act(() => api('/api/mod/blocus', { method: 'PUT', body: { state: bstate, message: $('#bmsg').value, notify: $('#bnotify').checked } }), 'Statut publié.');
-  el.onclick = async (e) => {
-    const row = e.target.closest('.mod-bld');
-    const st = e.target.dataset.st;
-    if (row && st) {
-      await act(() => api(`/api/mod/buildings/${row.dataset.id}`, { method: 'PUT', body: { status: st } }), `${STATUS[st].label}`);
-      $$('button[data-st]', row).forEach((x) => (x.className = x.dataset.st === st ? 'on ' + st : ''));
-    }
-    const del = e.target.closest('[data-del]')?.dataset.del;
-    if (del && confirm('Supprimer ce bâtiment de la liste ?')) { await act(() => api(`/api/mod/buildings/${del}`, { method: 'DELETE' }), 'Supprimé.'); }
+
+    <div class="card quick" style="margin-top:12px">
+      <div class="kicker">⚡ Saisie éclair : écris ou dicte comme tu parles</div>
+      <div class="quick-row">
+        <textarea id="qtext" rows="2" placeholder="Thémis, Nautibus bloqués. Darwin partiel. Le reste ouvert."></textarea>
+        ${canDictate ? `<button class="mic" id="mic" type="button" aria-label="Dicter">🎙️</button>` : ''}
+      </div>
+      <div id="qpreview" class="qpreview faint small">Exemples : « toute la Doua bloquée » · « Lippmann débloqué » · « tout est ouvert »</div>
+      <div class="btn-row" style="margin-top:10px">
+        <button class="btn red" id="qapply" disabled>Appliquer</button>
+        ${lastCR ? `<button class="btn ghost small" id="qcr">📋 Reprendre l’AG (${lastCR.batiments_bloques.length})</button>` : ''}
+        <button class="btn ghost small" id="qall">🟢 Tout rouvrir</button>
+        <button class="btn ghost small" id="qstory">📸 Story Insta</button>
+      </div>
+    </div>
+
+    <h2 class="section">Bâtiments <span class="faint small">touche pour sélectionner, puis choisis la couleur</span></h2>
+    <div id="tiles"></div>
+
+    <details class="card" style="margin-top:14px"><summary class="kicker" style="cursor:pointer">＋ Ajouter un bâtiment</summary>
+      <form class="form" id="addb" style="margin-top:10px">
+        <div class="grid cols-2"><div class="field"><label>Nom</label><input type="text" id="bn" required maxlength="80"></div>
+        <div class="field"><label>Campus</label><input type="text" id="bc" list="campuses" maxlength="60" required><datalist id="campuses">${[...new Set(d.buildings.map((x) => x.campus))].map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div></div>
+        <button class="btn small">Ajouter</button></form></details>
+
+    <div class="actionbar" id="abar" hidden>
+      <span id="abar-n" class="mono"></span>
+      <button data-set="bloque" class="ab red">🔴 Bloqué</button>
+      <button data-set="partiel" class="ab orange">🟠 Partiel</button>
+      <button data-set="ouvert" class="ab green">🟢 Ouvert</button>
+      <button data-set="clear" class="ab ghost" aria-label="Désélectionner">✕</button>
+    </div>
+    <div class="actionbar undo" id="undo" hidden><span id="undo-txt"></span><button class="ab ghost" id="undo-btn">↩️ Annuler</button></div>`;
+
+  // Blocus : publication immédiate au tap
+  $('#bstate').onclick = async (e) => {
+    const s = e.target.closest('[data-s]')?.dataset.s;
+    if (!s) return;
+    $$('#bstate button').forEach((x) => (x.className = x.dataset.s === s ? 'on ' + ({ actif: 'bloque', partiel: 'partiel', leve: 'ouvert' }[s] || '') : ''));
+    await act(() => api('/api/mod/blocus', { method: 'PUT', body: { state: s, message: $('#bmsg').value, notify: $('#bnotify').checked } }), BLOCUS[s]);
+    state.data.blocus.state = s;
   };
-  el.onchange = (e) => {
-    if (e.target.matches('[data-note]')) { const id = e.target.closest('.mod-bld').dataset.id; act(() => api(`/api/mod/buildings/${id}`, { method: 'PUT', body: { note: e.target.value } }), 'Note enregistrée.'); }
+  $('#bmsg').onchange = () => act(() => api('/api/mod/blocus', { method: 'PUT', body: { state: state.data.blocus.state, message: $('#bmsg').value, notify: false } }), 'Message publié.');
+
+  // Saisie éclair
+  const qt = $('#qtext');
+  let parsed = { changes: new Map(), unknown: [] };
+  const preview = () => {
+    parsed = parseQuick(qt.value, state.data.buildings);
+    const all = [...parsed.changes].map(([id, st]) => ({ b: state.data.buildings.find((x) => x.id === id), st })).filter((x) => x.b);
+    const list = all.filter((x) => x.b.status !== x.st);
+    const same = all.filter((x) => x.b.status === x.st);
+    const btn = $('#qapply');
+    btn.disabled = !list.length;
+    btn.textContent = list.length ? `Appliquer ${list.length} changement${list.length > 1 ? 's' : ''}` : 'Appliquer';
+    $('#qpreview').innerHTML = qt.value.trim()
+      ? (list.length ? list.map(({ b, st }) => `<span class="pill ${STATUS[st].pill}">${STATUS[st].dot} ${esc(b.name)}</span>`).join(' ') : '<span class="faint">Aucun changement détecté. Mets un mot comme « bloqué », « partiel » ou « ouvert ».</span>')
+        + (same.length ? `<span class="faint small">· déjà à jour : ${same.slice(0, 6).map((x) => esc(x.b.name)).join(', ')}${same.length > 6 ? '…' : ''}</span>` : '')
+        + (parsed.unknown.length ? `<div class="small" style="color:var(--orange);margin-top:6px">Pas reconnu : ${parsed.unknown.map(esc).join(', ')}</div>` : '')
+      : 'Exemples : « toute la Doua bloquée » · « Lippmann débloqué » · « tout est ouvert »';
+  };
+  qt.oninput = preview;
+  qt.onkeydown = (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) $('#qapply').click(); };
+  $('#qapply').onclick = async () => {
+    const list = [...parsed.changes].map(([id, status]) => ({ id, status }));
+    await applyChanges(list, 'Saisie éclair');
+    qt.value = ''; preview();
+  };
+  if ($('#qcr')) $('#qcr').onclick = () => { qt.value = `${lastCR.batiments_bloques.join(', ')} bloqués`; preview(); qt.focus(); };
+  $('#qall').onclick = () => { if (confirm('Passer TOUS les bâtiments en ouvert ?')) applyChanges(state.data.buildings.map((x) => ({ id: x.id, status: 'ouvert' })), 'Tout rouvert'); };
+  $('#qstory').onclick = () => openStory('campus');
+  if ($('#mic')) {
+    $('#mic').onclick = () => {
+      const R = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const rec = new R();
+      rec.lang = 'fr-FR'; rec.interimResults = true; rec.maxAlternatives = 1;
+      const base = qt.value ? qt.value.trim() + '. ' : '';
+      $('#mic').classList.add('on');
+      rec.onresult = (ev) => { qt.value = base + [...ev.results].map((r) => r[0].transcript).join(' '); preview(); };
+      rec.onend = () => $('#mic')?.classList.remove('on');
+      rec.onerror = (ev) => { toast(ev.error === 'not-allowed' ? 'Autorise le micro pour dicter.' : 'Dictée interrompue.'); };
+      rec.start();
+    };
+  }
+
+  // Tuiles à sélection multiple
+  const sel = new Set();
+  window.drawTiles = drawTiles;
+  function drawTiles() {
+    const byCampus = {};
+    for (const x of state.data.buildings) (byCampus[x.campus] ||= []).push(x);
+    const box = $('#tiles');
+    if (!box) return;
+    box.innerHTML = Object.entries(byCampus).map(([campus, list]) => `
+      <div class="campus-block">
+        <div class="campus-head"><span class="kicker">${esc(campus)}</span><span class="faint small">${list.filter((x) => x.status === 'bloque').length}/${list.length} bloqués</span><button class="btn small ghost" data-campus="${esc(campus)}">${list.every((x) => sel.has(x.id)) ? 'Aucun' : 'Tout'}</button></div>
+        <div class="qtiles">${list.map((x) => `<button class="qt ${x.status} ${sel.has(x.id) ? 'sel' : ''}" data-id="${esc(x.id)}"><span class="qdot">${STATUS[x.status].dot}</span><span class="qn">${esc(x.name)}</span>${x.note ? '<span class="qnote">✎</span>' : ''}</button>`).join('')}</div>
+      </div>`).join('');
+    const bar = $('#abar');
+    bar.hidden = !sel.size;
+    $('#abar-n').textContent = `${sel.size} sélect.`;
+  }
+  drawTiles();
+  let pressTimer = null;
+  $('#tiles').addEventListener('pointerdown', (e) => {
+    const t = e.target.closest('.qt');
+    if (!t) return;
+    // appui long = éditer la note / supprimer
+    pressTimer = setTimeout(() => { pressTimer = 'long'; editBuilding(t.dataset.id); }, 550);
+  });
+  $('#tiles').addEventListener('pointerup', () => { if (pressTimer !== 'long') clearTimeout(pressTimer); });
+  $('#tiles').addEventListener('contextmenu', (e) => { if (e.target.closest('.qt')) e.preventDefault(); });
+  $('#tiles').onclick = (e) => {
+    const c = e.target.closest('[data-campus]')?.dataset.campus;
+    if (c) {
+      const ids = state.data.buildings.filter((x) => x.campus === c).map((x) => x.id);
+      const all = ids.every((id) => sel.has(id));
+      ids.forEach((id) => (all ? sel.delete(id) : sel.add(id)));
+      return drawTiles();
+    }
+    const t = e.target.closest('.qt');
+    if (!t) return;
+    if (pressTimer === 'long') { pressTimer = null; return; }
+    sel.has(t.dataset.id) ? sel.delete(t.dataset.id) : sel.add(t.dataset.id);
+    if (navigator.vibrate) navigator.vibrate(8);
+    drawTiles();
+  };
+  $('#abar').onclick = async (e) => {
+    const s = e.target.closest('[data-set]')?.dataset.set;
+    if (!s) return;
+    if (s !== 'clear') await applyChanges([...sel].map((id) => ({ id, status: s })), STATUS[s].label);
+    sel.clear();
+    drawTiles();
+  };
+  $('#undo-btn').onclick = async () => {
+    if (!lastUndo) return;
+    const prev = lastUndo; lastUndo = null;
+    $('#undo').hidden = true;
+    await act(() => api('/api/mod/buildings-batch', { method: 'PUT', body: { changes: prev, undo: true } }), 'Annulé, aucun email ne partira.');
+    for (const c of prev) { const x = state.data.buildings.find((y) => y.id === c.id); if (x) x.status = c.status; }
+    drawTiles();
   };
   $('#addb').onsubmit = async (e) => { e.preventDefault(); await act(() => api('/api/mod/buildings', { method: 'POST', body: { name: $('#bn').value, campus: $('#bc').value } }), 'Bâtiment ajouté.'); await refresh(); render(true); };
+}
+function editBuilding(id) {
+  const x = state.data.buildings.find((y) => y.id === id);
+  if (!x) return;
+  sheet(`<h3>${esc(x.name)}</h3><form class="form" id="eb">
+    <div class="field"><label>Note visible par tous (ex : entrée côté tram ouverte)</label><input type="text" id="en" maxlength="240" value="${esc(x.note)}"></div>
+    <div class="field"><label>Nom</label><input type="text" id="enm" maxlength="80" value="${esc(x.name)}"></div>
+    <div class="btn-row"><button class="btn">Enregistrer</button><button type="button" class="btn red ghost" id="edel">Supprimer le bâtiment</button></div>
+    <p class="faint small">Astuce : appui long sur une tuile pour ouvrir cette fiche.</p></form>`, (root, close) => {
+    $('#eb', root).onsubmit = async (e) => {
+      e.preventDefault();
+      await act(() => api(`/api/mod/buildings/${id}`, { method: 'PUT', body: { note: $('#en', root).value, name: $('#enm', root).value } }), 'Enregistré.');
+      x.note = $('#en', root).value; x.name = $('#enm', root).value || x.name;
+      close(); window.drawTiles?.();
+    };
+    $('#edel', root).onclick = async () => { if (!confirm('Supprimer ce bâtiment de la liste ?')) return; await act(() => api(`/api/mod/buildings/${id}`, { method: 'DELETE' }), 'Supprimé.'); close(); await refresh(); render(true); };
+  });
+}
+
+// =====================================================================
+// Stories Instagram (1080 × 1920), générées dans le navigateur
+// =====================================================================
+const SF = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+const MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+function wrapText(ctx, text, maxW) {
+  const words = String(text).split(/\s+/);
+  const lines = [];
+  let line = '';
+  for (const w of words) {
+    const test = line ? line + ' ' + w : w;
+    if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = w; } else line = test;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+function fitFont(ctx, text, maxW, size, min, weight = 800, fam = SF) {
+  for (; size > min; size -= 4) { ctx.font = `${weight} ${size}px ${fam}`; if (ctx.measureText(text).width <= maxW) break; }
+  return size;
+}
+function drawBlock(ctx, text, x, y, maxW, size, weight, color, lh = 1.18, maxLines = 4, fam = SF) {
+  ctx.font = `${weight} ${size}px ${fam}`;
+  ctx.fillStyle = color;
+  let lines = wrapText(ctx, text, maxW);
+  if (lines.length > maxLines) { lines = lines.slice(0, maxLines); lines[maxLines - 1] += '…'; }
+  lines.forEach((l, i) => ctx.fillText(l, x, y + i * size * lh));
+  return y + lines.length * size * lh;
+}
+function rrect(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
+function storyFrame(ctx, W, H, accent) {
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  const g = ctx.createRadialGradient(W * 0.2, 0, 0, W * 0.2, 0, H * 0.75);
+  g.addColorStop(0, accent + '66'); g.addColorStop(1, '#00000000');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  // pluie de code discrète
+  ctx.font = `28px ${MONO}`;
+  const chars = 'LYON1BLOCUSAG01✊';
+  for (let i = 0; i < 160; i++) { ctx.fillStyle = `rgba(0,255,156,${Math.random() * 0.12})`; ctx.fillText(chars[i % chars.length], (i * 137) % W, (i * 263) % H); }
+  // lignes de balayage
+  ctx.fillStyle = 'rgba(255,255,255,0.025)';
+  for (let y = 0; y < H; y += 6) ctx.fillRect(0, y, W, 2);
+  // en-tête
+  ctx.fillStyle = '#ff453a'; rrect(ctx, 80, 150, 120, 120, 26); ctx.fill();
+  ctx.fillStyle = '#000'; rrect(ctx, 86, 156, 108, 108, 22); ctx.fill();
+  ctx.fillStyle = '#00ff9c'; ctx.font = `800 52px ${MONO}`; ctx.fillText('L1', 106, 230);
+  ctx.fillStyle = '#fff'; ctx.font = `800 54px ${MONO}`; ctx.fillText('EN LUTTE', 230, 205);
+  ctx.fillStyle = '#a1a1aa'; ctx.font = `500 32px ${SF}`;
+  ctx.fillText(new Date().toLocaleString('fr-FR', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }), 230, 255);
+  // pied
+  ctx.fillStyle = 'rgba(255,255,255,0.08)'; rrect(ctx, 80, H - 250, W - 160, 130, 30); ctx.fill();
+  ctx.fillStyle = '#00ff9c'; ctx.font = `700 40px ${MONO}`; ctx.fillText(`➜ ${location.host}`, 120, H - 172);
+  ctx.fillStyle = '#d1d1d6'; ctx.font = `500 30px ${SF}`; ctx.fillText('Infos en direct · alertes email · chat anonyme', 120, H - 130);
+}
+function pill(ctx, x, y, text, bg, fg) {
+  ctx.font = `800 34px ${MONO}`;
+  const w = ctx.measureText(text).width + 48;
+  ctx.fillStyle = bg; rrect(ctx, x, y, w, 64, 32); ctx.fill();
+  ctx.fillStyle = fg; ctx.fillText(text, x + 24, y + 44);
+  return w;
+}
+function storyCampus(ctx, W, H) {
+  const d = state.data;
+  const st = d.blocus.state;
+  const color = { actif: '#ff453a', partiel: '#ff9f0a', leve: '#30d158', inconnu: '#a1a1aa' }[st];
+  storyFrame(ctx, W, H, color);
+  let y = 420;
+  pill(ctx, 80, y - 70, '● LIVE · STATUT DU CAMPUS', 'rgba(255,69,58,0.18)', '#ff453a');
+  const title = BLOCUS[st];
+  const size = fitFont(ctx, title, W - 160, 150, 80);
+  ctx.save(); ctx.shadowColor = color; ctx.shadowBlur = 40;
+  y = drawBlock(ctx, title, 80, y + 120, W - 160, size, 900, color, 1.0, 2);
+  ctx.restore();
+  if (d.blocus.message) y = drawBlock(ctx, d.blocus.message, 80, y + 20, W - 160, 46, 600, '#f2f2f7', 1.25, 3);
+  const groups = [['bloque', '🔴 BLOQUÉS', '#ff453a'], ['partiel', '🟠 PARTIELS', '#ff9f0a']];
+  y += 50;
+  for (const [k, label, c] of groups) {
+    const list = d.buildings.filter((x) => x.status === k);
+    if (!list.length) continue;
+    ctx.fillStyle = c; ctx.font = `800 38px ${MONO}`; ctx.fillText(`${label} (${list.length})`, 80, y + 40);
+    y += 70;
+    // noms en « tuiles »
+    let x = 80;
+    ctx.font = `800 46px ${SF}`;
+    for (const b of list) {
+      const w = ctx.measureText(b.name).width + 56;
+      if (x + w > W - 80) { x = 80; y += 92; }
+      if (y > H - 520) { ctx.fillStyle = c; ctx.fillText('…', x, y + 58); break; }
+      ctx.fillStyle = c + '33'; rrect(ctx, x, y, w, 76, 22); ctx.fill();
+      ctx.strokeStyle = c; ctx.lineWidth = 3; rrect(ctx, x, y, w, 76, 22); ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.fillText(b.name, x + 28, y + 54);
+      x += w + 16;
+    }
+    y += 120;
+  }
+  const open = d.buildings.filter((x) => x.status === 'ouvert').length;
+  if (open) { ctx.fillStyle = '#30d158'; ctx.font = `800 38px ${MONO}`; ctx.fillText(`🟢 OUVERTS : ${open}`, 80, y + 30); y += 80; }
+  if (!d.buildings.some((x) => x.status === 'bloque' || x.status === 'partiel') && !open) { y = drawBlock(ctx, 'Aucun bâtiment signalé pour le moment.', 80, y + 30, W - 160, 44, 600, '#a1a1aa'); }
+  const ev = d.events[0];
+  if (ev && y < H - 560) {
+    const top = Math.max(y + 20, H - 560);
+    ctx.fillStyle = 'rgba(191,90,242,0.16)'; rrect(ctx, 80, top, W - 160, 260, 34); ctx.fill();
+    ctx.fillStyle = '#bf5af2'; ctx.font = `800 34px ${MONO}`; ctx.fillText(`PROCHAIN RDV · ${EVENT_TYPE[ev.type][0].toUpperCase()}`, 120, top + 62);
+    drawBlock(ctx, ev.title, 120, top + 125, W - 240, 50, 800, '#fff', 1.15, 1);
+    ctx.fillStyle = '#d1d1d6'; ctx.font = `600 38px ${SF}`;
+    ctx.fillText(`${dayLabel(ev.start)} · ${hhmm(ev.start)}${ev.place ? ' · ' + ev.place : ''}`.slice(0, 48), 120, top + 210);
+  }
+}
+function storyEvent(ctx, W, H, ev) {
+  const [label, tone] = EVENT_TYPE[ev.type];
+  const color = { purple: '#bf5af2', red: '#ff453a', orange: '#ff9f0a', green: '#30d158', grey: '#0a84ff' }[tone];
+  storyFrame(ctx, W, H, color);
+  pill(ctx, 80, 380, `📣 ${label.toUpperCase()}`, color + '30', color);
+  let y = drawBlock(ctx, ev.title, 80, 560, W - 160, fitFont(ctx, ev.title, (W - 160) * 2, 110, 70, 900), 900, '#fff', 1.05, 4);
+  y += 60;
+  ctx.fillStyle = color; ctx.font = `900 64px ${SF}`; ctx.fillText(dayLabel(ev.start).replace(/^./, (c) => c.toUpperCase()), 80, y + 60);
+  ctx.save(); ctx.shadowColor = color; ctx.shadowBlur = 30; ctx.font = `900 230px ${MONO}`; ctx.fillText(hhmm(ev.start), 70, y + 300); ctx.restore();
+  y += 380;
+  if (ev.place) y = drawBlock(ctx, `📍 ${ev.place}`, 80, y, W - 160, 56, 800, '#fff', 1.2, 2);
+  if (ev.address) y = drawBlock(ctx, ev.address, 80, y + 6, W - 160, 38, 500, '#a1a1aa', 1.25, 2);
+  if (ev.description) drawBlock(ctx, ev.description, 80, y + 50, W - 160, 40, 500, '#d1d1d6', 1.35, Math.max(1, Math.floor((H - 330 - y - 50) / 54)));
+}
+function storyReport(ctx, W, H, r) {
+  storyFrame(ctx, W, H, '#0a84ff');
+  pill(ctx, 80, 380, '📝 COMPTE RENDU D’AG', 'rgba(10,132,255,0.2)', '#0a84ff');
+  let y = drawBlock(ctx, r.titre, 80, 540, W - 160, 76, 900, '#fff', 1.1, 3);
+  if (r.resume) y = drawBlock(ctx, r.resume, 80, y + 10, W - 160, 38, 500, '#d1d1d6', 1.3, 3);
+  y += 30;
+  const C = { decision: '#bf5af2', vote: '#0a84ff', action: '#00ff9c', alerte: '#ff453a', info: '#8e8e93' };
+  for (const f of r.flashs) {
+    if (y > H - 470) break;
+    ctx.font = `500 36px ${SF}`;
+    const lines = wrapText(ctx, f.texte, W - 260).slice(0, 2);
+    const h = 90 + lines.length * 46;
+    ctx.fillStyle = 'rgba(28,28,30,0.9)'; rrect(ctx, 80, y, W - 160, h, 26); ctx.fill();
+    ctx.fillStyle = C[f.type]; rrect(ctx, 80, y, 12, h, 6); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = `800 40px ${SF}`; ctx.fillText(`${FLASH_ICO[f.type]} ${f.titre}`.slice(0, 40), 120, y + 58);
+    ctx.fillStyle = '#d1d1d6'; ctx.font = `500 36px ${SF}`; lines.forEach((l, i) => ctx.fillText(l, 120, y + 108 + i * 46));
+    y += h + 18;
+  }
+}
+async function storyPoll(ctx, W, H, p) {
+  storyFrame(ctx, W, H, '#0a84ff');
+  pill(ctx, 80, 380, `🗳️ VOTE ANONYME · ${p.total} VOTES`, 'rgba(10,132,255,0.2)', '#0a84ff');
+  let y = drawBlock(ctx, p.question, 80, 560, W - 160, 84, 900, '#fff', 1.1, 3) + 40;
+  const total = p.counts.reduce((a, b) => a + b, 0) || 1;
+  const max = Math.max(...p.counts);
+  p.options.forEach((o, i) => {
+    const pct = Math.round((p.counts[i] / total) * 100);
+    ctx.fillStyle = 'rgba(118,118,128,0.25)'; rrect(ctx, 80, y, W - 160, 120, 28); ctx.fill();
+    ctx.fillStyle = p.counts[i] === max ? '#00ff9c55' : '#0a84ff55'; rrect(ctx, 80, y, Math.max(56, (W - 160) * pct / 100), 120, 28); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = `800 48px ${SF}`; ctx.fillText(o.slice(0, 26), 120, y + 78);
+    ctx.font = `800 52px ${MONO}`; const t = `${pct}%`; ctx.fillText(t, W - 120 - ctx.measureText(t).width, y + 80);
+    y += 145;
+  });
+  ctx.fillStyle = '#a1a1aa'; ctx.font = `500 34px ${SF}`; ctx.fillText(p.open ? `Vote en cours · clôture dans ${remaining(p.closesAt)}` : 'Vote clos · résultat indicatif', 80, y + 40);
+}
+
+async function openStory(kind = 'campus') {
+  const d = state.data;
+  const polls = await api('/api/mod/polls').catch(() => []);
+  const options = [
+    ['campus', '🏛️ Statut du campus', null],
+    ...d.events.slice(0, 4).map((e) => [`ev:${e.id}`, `📣 ${EVENT_TYPE[e.type][0]} · ${e.title.slice(0, 26)}`, e]),
+    ...(d.reports[0] ? [[`cr:${d.reports[0].id}`, `📝 CR · ${d.reports[0].titre.slice(0, 24)}`, d.reports[0]]] : []),
+    ...polls.filter((p) => !p.hidden && p.total).slice(0, 2).map((p) => [`poll:${p.id}`, `🗳️ ${p.question.slice(0, 28)}`, p]),
+  ];
+  sheet(`<h3>📸 Story Instagram</h3>
+    <div class="tabs-inline" id="skind">${options.map(([k, l]) => `<button data-k="${esc(k)}">${esc(l)}</button>`).join('')}</div>
+    <div class="story-prev"><img id="simg" alt="Aperçu de la story"></div>
+    <div class="btn-row" style="margin-top:12px"><button class="btn red" id="sshare">Partager</button><a class="btn ghost" id="sdl" download="story-lyon1.png">Télécharger</a></div>
+    <p class="faint small">Format 1080 × 1920, prêt pour Instagram. Sur téléphone, « Partager » ouvre directement Instagram.</p>`, (root) => {
+    let blob = null;
+    const draw = async (k) => {
+      $$('#skind button', root).forEach((b) => b.classList.toggle('on', b.dataset.k === k));
+      const opt = options.find((o) => o[0] === k) || options[0];
+      const c = document.createElement('canvas');
+      c.width = 1080; c.height = 1920;
+      const ctx = c.getContext('2d');
+      if (k.startsWith('ev:')) storyEvent(ctx, 1080, 1920, opt[2]);
+      else if (k.startsWith('cr:')) storyReport(ctx, 1080, 1920, opt[2]);
+      else if (k.startsWith('poll:')) await storyPoll(ctx, 1080, 1920, opt[2]);
+      else storyCampus(ctx, 1080, 1920);
+      blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+      const url = URL.createObjectURL(blob);
+      $('#simg', root).src = url;
+      $('#sdl', root).href = url;
+      $('#sdl', root).download = `story-lyon1-${k.split(':')[0]}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.png`;
+    };
+    $('#skind', root).onclick = (e) => { const k = e.target.closest('[data-k]')?.dataset.k; if (k) draw(k); };
+    $('#sshare', root).onclick = async () => {
+      if (!blob) return;
+      const file = new File([blob], 'story-lyon1.png', { type: 'image/png' });
+      if (navigator.canShare?.({ files: [file] })) { try { await navigator.share({ files: [file] }); } catch {} }
+      else { $('#sdl', root).click(); toast('Image téléchargée : publie-la en story.'); }
+    };
+    draw(options.some((o) => o[0] === kind) ? kind : 'campus');
+  });
+}
+async function modStory(el) {
+  el.innerHTML = `<div class="card"><div class="kicker">Stories Instagram prêtes à publier</div><p class="muted">Statut du campus, prochain rendez-vous, dernier compte rendu ou résultat de vote, au format 1080 × 1920, aux couleurs du site et avec les infos à jour.</p><button class="btn red" id="ostory">📸 Créer une story</button></div>`;
+  $('#ostory').onclick = () => openStory('campus');
 }
 
 async function modAgenda(el) {
@@ -1268,7 +1694,7 @@ function scheduleRefresh() {
     try { await refresh(); } catch { return; }
     const r = route().split('/')[0];
     if (r === 'chat') { renderNav(); renderAlertBar(); return; }
-    if (r === 'modo' && state.me && state.modTab !== 'situation') { renderNav(); renderAlertBar(); return; }
+    if (r === 'modo' && state.me) { renderNav(); renderAlertBar(); if (state.modTab === 'situation') window.drawTiles?.(); return; }
     render();
   }, 250);
 }

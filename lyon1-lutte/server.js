@@ -326,6 +326,37 @@ mod.put('/buildings/:id', (req, res) => {
   broadcast('buildings', { id: b.id });
   res.json(b);
 });
+// Plusieurs bâtiments d'un coup (sélection multiple, saisie rapide, dictée) : une seule ligne dans le fil, un seul email.
+// undo:true = annulation juste après une erreur : l'alerte email en attente est retirée au lieu d'être renvoyée.
+mod.put('/buildings-batch', (req, res) => {
+  const changes = Array.isArray(req.body.changes) ? req.body.changes.slice(0, 200) : [];
+  const undo = !!req.body.undo;
+  const previous = [];
+  const moved = { bloque: [], partiel: [], ouvert: [], inconnu: [] };
+  for (const c of changes) {
+    const b = db.buildings.find((x) => x.id === c.id);
+    if (!b) continue;
+    const status = oneOf(c.status, STATUS, b.status);
+    if (c.note !== undefined) b.note = clip(c.note, 240);
+    if (status === b.status && c.note === undefined) continue;
+    previous.push({ id: b.id, status: b.status, note: b.note });
+    const changed = status !== b.status;
+    b.status = status;
+    b.updatedAt = now();
+    b.by = req.mod.org;
+    if (!changed) continue;
+    moved[status].push(b.name);
+    if (undo) pendingBuildings.delete(b.id);
+    else if (status !== 'inconnu') queueBuildingAlert(b);
+  }
+  if (!previous.length) return res.json({ previous, changed: 0 });
+  save();
+  const parts = [['bloque', 'BLOQUÉ'], ['partiel', 'PARTIEL'], ['ouvert', 'OUVERT'], ['inconnu', 'NON RENSEIGNÉ']].filter(([k]) => moved[k].length).map(([k, l]) => `${l} : ${moved[k].join(', ')}`);
+  if (parts.length) feed(`${undo ? 'Correction · ' : ''}${parts.join(' · ')}`, moved.bloque.length ? 'alert' : moved.partiel.length ? 'warn' : 'ok');
+  audit(req.mod, undo ? 'bâtiments (annulation)' : 'bâtiments (lot)', parts.join(' · '));
+  broadcast('buildings', {});
+  res.json({ previous, changed: previous.length });
+});
 mod.delete('/buildings/:id', (req, res) => {
   const i = db.buildings.findIndex((x) => x.id === req.params.id);
   if (i < 0) return bad(res, 'Introuvable', 404);
