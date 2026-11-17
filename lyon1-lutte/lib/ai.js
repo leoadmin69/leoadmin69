@@ -114,10 +114,15 @@ async function pickModel(key, fetchList, choose, fallback) {
 }
 const version = (s) => (s.match(/(\d+(?:\.\d+)?)/) || [0, 0])[1] * 1;
 
-// Gemini : le modèle « flash » le plus récent et stable (gratuit, rapide, lit les PDF).
+// Gemini : le modèle RAPIDE le plus récent et stable (gratuit, lit les PDF).
+// Google renomme ses gammes : « flash » jusqu'à Gemini 3.8, « hydrogen » depuis Gemini 4 (nov. 2026).
+// Les gros modèles (« pro », « carbon », « argon ») sont exclus : plus lents et sans quota gratuit généreux.
+const FAST = /^gemini-[\d.]+-(flash|hydrogen)(-[\w.-]+)?$/;
+const EXCLUDE = /lite|image|tts|audio|live|thinking|embedding|8b|native|robotics|computer/;
 const GEMINI_BASE = () => (process.env.GEMINI_BASE || 'https://generativelanguage.googleapis.com').replace(/\/$/, '');
-async function geminiModel() {
+async function geminiModel(refresh = false) {
   if (process.env.GEMINI_MODEL) return process.env.GEMINI_MODEL;
+  if (refresh) delete modelCache.gemini;
   return pickModel('gemini', async () => {
     const r = await fetch(`${GEMINI_BASE()}/v1beta/models?pageSize=200`, { headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY }, signal: AbortSignal.timeout(10000) });
     if (!r.ok) throw await httpError(r, 'Gemini');
@@ -125,10 +130,10 @@ async function geminiModel() {
   }, (models) => {
     const ok = models.filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
       .map((m) => m.name.replace(/^models\//, ''))
-      .filter((n) => /^gemini-[\d.]+-flash/.test(n) && !/lite|image|tts|audio|live|thinking|embedding|8b|native/.test(n));
+      .filter((n) => FAST.test(n) && !EXCLUDE.test(n));
     ok.sort((a, b) => (/preview|exp/.test(a) - /preview|exp/.test(b)) || version(b) - version(a) || a.length - b.length);
     return ok[0];
-  }, 'gemini-2.5-flash');
+  }, 'gemini-4-hydrogen');
 }
 // Le format de schéma de Gemini : types en majuscules, pas d'additionalProperties.
 function geminiSchema(s) {
@@ -141,8 +146,8 @@ function geminiSchema(s) {
   }
   return out;
 }
-async function analyzeWithGemini(pdf, onEvent) {
-  const model = await geminiModel();
+async function analyzeWithGemini(pdf, onEvent, retried = false) {
+  const model = await geminiModel(retried);
   onEvent({ t: 'log', m: `IA : Google ${model} (gratuit) lit le PDF…` });
   const res = await fetch(`${GEMINI_BASE()}/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`, {
     method: 'POST',
@@ -151,9 +156,15 @@ async function analyzeWithGemini(pdf, onEvent) {
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: SYSTEM }] },
       contents: [{ role: 'user', parts: [{ inline_data: { mime_type: 'application/pdf', data: pdf.toString('base64') } }, { text: 'Voici le compte rendu. Produis le JSON des flash infos.' }] }],
-      generationConfig: { responseMimeType: 'application/json', responseSchema: geminiSchema(SCHEMA), temperature: 0.2, maxOutputTokens: 8192 },
+      generationConfig: { responseMimeType: 'application/json', responseSchema: geminiSchema(SCHEMA), temperature: 0.2, maxOutputTokens: 32768 },
     }),
   });
+  // Modèle retiré ou renommé par Google : on relit la liste des modèles et on réessaie une fois.
+  if (res.status === 404 && !retried && !process.env.GEMINI_MODEL) {
+    await res.text().catch(() => {});
+    onEvent({ t: 'log', m: `Le modèle ${model} n'existe plus, recherche du nouveau nom…` });
+    return analyzeWithGemini(pdf, onEvent, true);
+  }
   if (!res.ok) throw await httpError(res, 'Gemini');
   let text = '';
   let finish = '';

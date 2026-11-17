@@ -57,10 +57,12 @@ Sans `RESEND_API_KEY`/SMTP, les inscriptions sont enregistrées mais les emails 
 
 | Ordre | Service | Prix | Lit les scans | Clé |
 |---|---|---|---|---|
-| 1 | Google Gemini (modèle « flash » le plus récent, choisi automatiquement) | gratuit | oui | `GEMINI_API_KEY` sur aistudio.google.com |
+| 1 | Google Gemini (modèle rapide le plus récent, choisi automatiquement : `gemini-4-hydrogen` en novembre 2026) | gratuit | oui | `GEMINI_API_KEY` sur aistudio.google.com |
 | 2 | Groq (meilleur modèle ouvert dispo, choisi automatiquement) | gratuit | non (texte) | `GROQ_API_KEY` sur console.groq.com |
 | 3 | Claude | payant, facultatif | oui | `ANTHROPIC_API_KEY` |
 | 4 | Extraction locale | gratuit | non | aucune |
+
+Le site lit la liste des modèles de Google et prend le plus récent de la gamme rapide (« flash » jusqu'à Gemini 3.8, « hydrogen » depuis Gemini 4), en évitant les versions « preview » et les gros modèles payants (carbon, argon). Si Google renomme ou retire un modèle, le site relit la liste et prend le nouveau nom tout seul. Pour forcer un modèle : `GEMINI_MODEL=gemini-4-hydrogen`.
 
 Si une IA a épuisé son quota gratuit ou est en panne, la suivante prend le relais automatiquement, et le modo le voit dans le terminal en direct.
 
