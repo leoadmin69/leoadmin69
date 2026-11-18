@@ -30,7 +30,7 @@ const DEMANDS_V1 = [
   ['Plus de moyens', 'Rénover thermiquement les bâtiments et logements universitaires inadaptés aux fortes chaleurs et basses températures', ''],
   ['Plus de moyens', 'Suspendre les enseignant·es accusé·es de VSS ou de discriminations systémiques', ''],
   ['Contre l’influence des entreprises destructrices', 'Abroger les partenariats de l’ESR avec toutes les entreprises génocidaires, complices de crimes de guerre et écocidaires, et les entreprises d’armement profiteuses de guerres',
-    'Les lieux d’études et de recherche du campus ont par exemple des collaborations avec MBDA, Thalès (fournissant des armes à Israël), TotalEnergies (polluant et accusé de crimes de guerre au Mozambique).'],
+    'Les lieux d’études et de recherche du campus ont par exemple des collaborations avec MBDA, Thales (fournissant des armes à Israël), TotalEnergies (polluant et accusé de crimes de guerre au Mozambique).'],
   ['Contre l’influence des entreprises destructrices', 'Mettre en place des instances démocratiques de contrôle des partenariats, composées de représentant·es étudiant·es élu·es démocratiquement', ''],
   ['INSA', 'Conventionner CROUS les restaurants INSA', 'Afin de désengorger le restaurant Puvis de Chavannes, qui ne peut répondre à lui seul aux demandes des étudiant·es du campus.'],
   ['INSA', 'Maintenir les Filières Internationales de l’INSA', ''],

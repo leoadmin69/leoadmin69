@@ -154,7 +154,7 @@ function requireMod(req, res, next) {
   req.mod = mod;
   presence.set(mod.id, Date.now());
   // Compte « terrain » (personnes des piquets) : seulement les bâtiments et les signalements
-  if (mod.role === 'terrain' && !TERRAIN_OK.some((r) => r.test(`${req.method} ${req.path}`))) return bad(res, 'Compte terrain : tu peux seulement mettre à jour les bâtiments.', 403);
+  if (mod.role === 'terrain' && !TERRAIN_OK.some((r) => r.test(`${req.method} ${req.path}`))) return bad(res, 'Compte piquet : tu peux seulement mettre à jour les bâtiments.', 403);
   next();
 }
 // Qui est connecté·e en ce moment dans l'espace modo (pour savoir qu'on n'est pas seul·e à modifier)
@@ -268,7 +268,7 @@ app.post('/api/chat', (req, res) => {
   const modNow = chatMod(req);
   if (!modNow && req.body.charter !== true) return bad(res, 'Lis et accepte la charte du chat avant d’écrire.', 403);
   if (findBanned(nick)) return bad(res, 'Ce pseudo contient un mot interdit par la charte.');
-  if (findBanned(text)) return bad(res, 'Message bloqué : il contient un mot ou une expression interdit·e par la charte du chat.');
+  if (findBanned(text)) return bad(res, 'Message bloqué : il contient un mot ou une expression interdits par la charte du chat.');
   const v = deviceKey(req, res);
   if (limited(`chat:${v}`, 1, 1500) || limited(`chatm:${v}`, 20, 60000)) return bad(res, 'Doucement 🙂 attends quelques secondes.', 429);
   if (limited(`chatip:${visitor(req)}`, 300, 60000)) return bad(res, 'Le chat est très sollicité depuis ce réseau, réessaie dans une minute.', 429);
@@ -1264,7 +1264,7 @@ mod.get('/mods', requireAdmin, (req, res) => res.json(db.mods.map((m) => {
 })));
 mod.post('/mods', requireAdmin, (req, res) => {
   const username = clip(req.body.username, 40).toLowerCase();
-  if (!/^[a-z0-9._-]{3,40}$/.test(username)) return bad(res, 'Identifiant : 3 à 40 caractères (lettres, chiffres, . _ -).');
+  if (!/^[a-z0-9._-]{3,40}$/.test(username)) return bad(res, 'Identifiant : 3 à 40 caractères (lettres minuscules, chiffres, . _ -).');
   if (db.mods.some((m) => m.username === username)) return bad(res, 'Identifiant déjà pris.');
   const password = crypto.randomBytes(9).toString('base64url');
   const role = ['admin', 'terrain'].includes(req.body.role) ? req.body.role : 'mod';
@@ -1283,7 +1283,7 @@ mod.put('/mods/:id', requireAdmin, (req, res) => {
   if (req.body.org !== undefined) m.org = clip(req.body.org, 80) || m.org;
   if (Array.isArray(req.body.sites)) {
     const msites = req.body.sites.filter((x) => site(x));
-    if (m.role !== 'admin' && !msites.length) return bad(res, 'Au moins un site.');
+    if (m.role !== 'admin' && !msites.length) return bad(res, 'Choisis au moins un site pour ce compte.');
     m.sites = msites;
   }
   if (req.body.role && m.id !== req.mod.id && m.role !== 'terrain') m.role = req.body.role === 'admin' ? 'admin' : 'mod';
@@ -1293,7 +1293,7 @@ mod.put('/mods/:id', requireAdmin, (req, res) => {
 // Nouveau lien de connexion pour un compte terrain (l'ancien lien et les sessions ouvertes ne marchent plus)
 mod.post('/mods/:id/link', requireAdmin, (req, res) => {
   const m = db.mods.find((x) => x.id === req.params.id && x.role === 'terrain');
-  if (!m) return bad(res, 'Compte terrain introuvable.', 404);
+  if (!m) return bad(res, 'Compte piquet introuvable.', 404);
   const t = crypto.randomBytes(24).toString('base64url');
   m.linkHash = hashLink(t); m.version = (m.version || 1) + 1; m.disabled = false; save();
   audit(req.mod, 'nouveau lien terrain', m.username);

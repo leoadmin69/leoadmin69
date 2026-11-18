@@ -78,7 +78,7 @@ Le ou la président·e de l'université est responsable de l'ordre dans les loca
 - Ne signe pas un document que tu n'as pas compris.
 - Fais prévenir la legal team dès que possible.
 
-> Texte d'information générale, à faire relire et valider par vos syndicats ou votre legal team.`,
+> Texte d'information générale, à faire relire et valider par tes syndicats ou ta legal team.`,
 };
 
 export function registerExtras(app, mod, ctx) {
@@ -169,7 +169,7 @@ export function registerExtras(app, mod, ctx) {
   app.get('/api/frise', (req, res) => res.json(timeline(String(req.query.site || ''))));
   // Lignes d'historique (presse, souvenirs des AG…) : tout·e modo ajoute ; on modifie/supprime les siennes, l'admin toutes.
   const readHist = (b, h = {}) => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(b.date ?? h.date ?? '')) throw new Error('Date AAAA-MM-JJ.');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(b.date ?? h.date ?? '')) throw new Error('Date invalide (format AAAA-MM-JJ).');
     const text = clip(b.text ?? h.text, 300);
     if (text.length < 4) throw new Error('Texte trop court.');
     const url = clip(b.url ?? h.url, 400);
@@ -200,7 +200,7 @@ export function registerExtras(app, mod, ctx) {
   });
   mod.put('/frise/start', (req, res) => {
     if (!isAdmin(req.mod)) return bad(res, 'Réservé à l’admin.', 403);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(req.body.start || '')) return bad(res, 'Date AAAA-MM-JJ.');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(req.body.start || '')) return bad(res, 'Date invalide (format AAAA-MM-JJ).');
     db.settings.mobilisationStart = req.body.start; save();
     res.json({ ok: true });
   });
@@ -359,8 +359,8 @@ export function registerExtras(app, mod, ctx) {
       const when = new Date(e.start).toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
       const going = Object.keys(e.going || {}).length;
       const sid = siteOf(e);
-      sendPush('events', { title: `⏰ Dans 1 h · ${e.type} · ${e.title}`, body: `${when}${e.place ? ' · ' + e.place : ''}${going ? ` · ${going} personnes y vont` : ''}`, url: '/#/agenda', tag: `rappel-${e.id}` }, (s) => wantsSite(s, sid)).catch(() => {});
-      for (const chat of telegramChats(sid)) postTelegram(`⏰ <b>Dans 1 h · ${tgEsc(e.type)}</b>\n${tgEsc(e.title)}\n${tgEsc(when)}${e.place ? ' · ' + tgEsc(e.place) : ''}${going ? `\n✋ ${going} personnes y vont` : ''}`, '/#/agenda', chat);
+      sendPush('events', { title: `⏰ Dans 1 h · ${e.type} · ${e.title}`, body: `${when}${e.place ? ' · ' + e.place : ''}${going ? ` · ${going} ${going > 1 ? 'personnes y vont' : 'personne y va'}` : ''}`, url: '/#/agenda', tag: `rappel-${e.id}` }, (s) => wantsSite(s, sid)).catch(() => {});
+      for (const chat of telegramChats(sid)) postTelegram(`⏰ <b>Dans 1 h · ${tgEsc(e.type)}</b>\n${tgEsc(e.title)}\n${tgEsc(when)}${e.place ? ' · ' + tgEsc(e.place) : ''}${going ? `\n✋ ${going} ${going > 1 ? 'personnes y vont' : 'personne y va'}` : ''}`, '/#/agenda', chat);
       feed(`${siteName(sid)} · ⏰ Dans 1 h : ${e.type} · ${e.title}${e.place ? ' · ' + e.place : ''}`, 'info');
     }
   }

@@ -494,7 +494,7 @@ function viewReports() {
         <div style="font-weight:700;font-size:20px;margin:6px 0">${esc(r.titre)}</div>
         <div class="muted">${esc(r.resume)}</div>
         <div class="chips" style="margin-top:10px">
-          <span class="pill blue">${r.flashs.length} flash</span>
+          <span class="pill blue">${r.flashs.length} flash${r.flashs.length > 1 ? 's' : ''}</span>
           ${r.votes.length ? `<span class="pill purple">${r.votes.length} vote${r.votes.length > 1 ? 's' : ''}</span>` : ''}
           ${r.rdv.length ? `<span class="pill green">${r.rdv.length} rdv</span>` : ''}
           ${r.batiments_bloques.length ? `<span class="pill red">${r.batiments_bloques.length} bât. bloqué(s)</span>` : ''}
@@ -665,7 +665,7 @@ async function viewChat() {
     if (bad) {
       ta.value = ''; ta.style.height = '';
       const c = $('#composer'); c.classList.remove('banned', 'shake'); void c.offsetWidth; c.classList.add('shake');
-      toast('🚫 Message supprimé : il contient un mot ou une expression interdit·e par la charte du chat.');
+      toast('🚫 Message supprimé : il contient un mot ou une expression interdits par la charte du chat.');
       return;
     }
     const btn = $('#composer button[type=submit]');
@@ -851,7 +851,7 @@ function viewContacts() {
     <div class="list">
       <a class="row" href="tel:112" style="color:inherit"><div class="grow"><div class="title">112</div><div class="sub">Urgences (police, pompiers, SAMU)</div></div><span class="pill red">Appeler</span></a>
       <a class="row" href="tel:15" style="color:inherit"><div class="grow"><div class="title">15</div><div class="sub">SAMU, urgence médicale</div></div><span class="pill red">Appeler</span></a>
-      <a class="row" href="tel:3114" style="color:inherit"><div class="grow"><div class="title">3114</div><div class="sub">Prévention du suicide, 24h/24, gratuit</div></div><span class="pill blue">Appeler</span></a>
+      <a class="row" href="tel:3114" style="color:inherit"><div class="grow"><div class="title">3114</div><div class="sub">Prévention du suicide, 24 h/24, gratuit</div></div><span class="pill blue">Appeler</span></a>
       <a class="row" href="tel:0800235236" style="color:inherit"><div class="grow"><div class="title">Fil Santé Jeunes · 0 800 235 236</div><div class="sub">Écoute anonyme et gratuite pour les 12-25 ans</div></div><span class="pill blue">Appeler</span></a>
     </div>`;
 }
@@ -997,7 +997,7 @@ async function viewModo() {
   $('#msites').onclick = (e) => { const id = e.target.closest('[data-ms]')?.dataset.ms; if (id) { state.modSite = id; store.set('l1-modsite', id); applyScope(); render(true); } };
   showPresence();
   modPushCard();
-  api('/api/mod/stats').then((s) => { const el = $('#mstats'); if (el) el.innerHTML = `${s.pushSubs} téléphone(s) · ${s.subscribers} email(s) · IA ${esc(s.aiEnabled ? s.aiProviders.join(' → ') : 'sans IA')} · emails ${s.mailProvider ? `${esc(s.mailProvider)} ${s.mailQuota.used}/${s.mailQuota.limit} aujourd’hui` : 'OFF'} · stockage ${s.storage === 'temporaire' ? '<b style="color:var(--red)">TEMPORAIRE (configure Supabase !)</b>' : esc(s.storage)}${s.reported ? ` · ${s.reported} msg signalé(s)` : ''}`; }).catch(() => {});
+  api('/api/mod/stats').then((s) => { const el = $('#mstats'); if (el) el.innerHTML = `${s.pushSubs} téléphone(s) · ${s.subscribers} email(s) · ${s.aiEnabled ? 'IA ' + esc(s.aiProviders.join(' → ')) : 'sans IA'} · emails ${s.mailProvider ? `${esc(s.mailProvider)} ${s.mailQuota.used}/${s.mailQuota.limit} aujourd’hui` : 'OFF'} · stockage ${s.storage === 'temporaire' ? '<b style="color:var(--red)">TEMPORAIRE (configure Supabase !)</b>' : esc(s.storage)}${s.reported ? ` · ${s.reported} msg signalé(s)` : ''}`; }).catch(() => {});
   const fn = { story: modStory, instagram: modInstagram, votes: modPolls, blog: modBlog, temoignages: modTestimonies, entraide: modEntraide, droits: modDroits, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, sites: modSites, audience: modAudience, journal: modJournal, moi: modMe }[state.modTab] || modSituation;
   try { await fn($('#mod')); } catch (err) { if (/Connexion modo/.test(err.message)) { state.me = null; render(true); } else toast(err.message); }
 }
@@ -1219,13 +1219,13 @@ function modSituation(el) {
   el.innerHTML = `
     <div id="sightings"></div>
     <div id="pubres"></div>
-    ${state.me.role === 'terrain' ? '<div class="card terrain-hint">📍 <b>Compte terrain</b> : touche les bâtiments que tu vois, puis 🔴 🟠 🟢. Confirme chaque matin, même si rien n’a changé : c’est ce qui rend l’info fiable.</div>' : ''}
+    ${state.me.role === 'terrain' ? '<div class="card terrain-hint">📍 <b>Compte piquet</b> : touche les bâtiments que tu vois, puis 🔴 🟠 🟢. Confirme chaque matin, même si rien n’a changé : c’est ce qui rend l’info fiable.</div>' : ''}
     <div class="card" ${state.me.role === 'terrain' ? 'hidden' : ''}>
       <div class="kicker">Titre de l’accueil · ${esc(siteShort(state.modSite))} · un tap = publié</div>
       <div class="segmented status-seg" id="bstate" style="margin-top:10px">${['auto', 'actif', 'partiel', 'leve'].map((k) => `<button data-s="${k}" class="${(b.auto ? 'auto' : b.state) === k ? 'on ' + ({ auto: 'auto', actif: 'bloque', partiel: 'partiel', leve: 'ouvert' }[k]) : ''}">${{ auto: '🤖 Auto', actif: '🔴 Blocus', partiel: '🟠 Partiel', leve: '🟢 Levé' }[k]}</button>`).join('')}</div>
       <p class="faint small" id="bhint" style="margin:6px 2px 0">${b.auto ? `Automatique : le titre suit les bâtiments (actuellement « ${esc(BLOCUS[blocusNow(b)])} »).` : 'Choisi à la main : il ne bouge plus avec les bâtiments. Touche « Auto » pour qu’il les suive.'}</p>
       <div class="field"><input type="text" id="bmsg" maxlength="400" placeholder="Message court (ex : AG 12h au Déambu, piquet dès 7h)" value="${esc(b.message)}"></div>
-      <label class="check small"><input type="checkbox" id="bnotify" checked> Alerte email si le statut change</label>
+      <label class="check small"><input type="checkbox" id="bnotify" checked> Prévenir les abonné·es (notification, Telegram, email) si le titre change</label>
     </div>
 
     <div class="card quick" style="margin-top:12px">
@@ -1572,7 +1572,7 @@ function storyReport(ctx, W, H, r) {
 }
 async function storyPoll(ctx, W, H, p) {
   storyFrame(ctx, W, H, '#0a84ff');
-  pill(ctx, 80, 380, `🗳️ VOTE ANONYME · ${p.total} VOTES`, 'rgba(10,132,255,0.2)', '#0a84ff');
+  pill(ctx, 80, 380, `🗳️ VOTE ANONYME · ${p.total} VOTE${p.total > 1 ? 'S' : ''}`, 'rgba(10,132,255,0.2)', '#0a84ff');
   let y = drawBlock(ctx, p.question, 80, 560, W - 160, 84, 900, '#fff', 1.1, 3) + 40;
   const total = p.counts.reduce((a, b) => a + b, 0) || 1;
   const max = Math.max(...p.counts);
@@ -1581,7 +1581,7 @@ async function storyPoll(ctx, W, H, p) {
     ctx.fillStyle = 'rgba(118,118,128,0.25)'; rrect(ctx, 80, y, W - 160, 120, 28); ctx.fill();
     ctx.fillStyle = p.counts[i] === max ? '#00ff9c55' : '#0a84ff55'; rrect(ctx, 80, y, Math.max(56, (W - 160) * pct / 100), 120, 28); ctx.fill();
     ctx.fillStyle = '#fff'; ctx.font = `800 48px ${SF}`; ctx.fillText(o.slice(0, 26), 120, y + 78);
-    ctx.font = `800 52px ${MONO}`; const t = `${pct}%`; ctx.fillText(t, W - 120 - ctx.measureText(t).width, y + 80);
+    ctx.font = `800 52px ${MONO}`; const t = `${pct} %`; ctx.fillText(t, W - 120 - ctx.measureText(t).width, y + 80);
     y += 145;
   });
   ctx.fillStyle = '#a1a1aa'; ctx.font = `500 34px ${SF}`; ctx.fillText(p.open ? `Vote en cours · clôture dans ${remaining(p.closesAt)}` : 'Vote clos · résultat indicatif', 80, y + 40);
@@ -1747,7 +1747,7 @@ function stepCards(ctx, x, y, w, steps, accent) {
 function tuto1(ctx, W, H) {
   tutoFrame(ctx, W, H, 1);
   drawBlock(ctx, 'Reçois une notif dès qu’un bâtiment est bloqué', 70, 260, 600, 66, 900, '#fff', 1.08, 5);
-  drawBlock(ctx, '3 étapes · 30 secondes · gratuit, sans compte, sans email', 70, 640, 560, 34, 600, '#00ff9c', 1.25, 3);
+  drawBlock(ctx, '4 étapes · 30 secondes · gratuit, sans compte, sans email', 70, 640, 560, 34, 600, '#00ff9c', 1.25, 3);
   phoneMock(ctx, 650, 200, 360, { notif: true });
   ctx.fillStyle = '#fff'; ctx.font = `800 40px ${SF}`; ctx.fillText('Fais défiler →', 70, H - 130);
 }
@@ -1826,7 +1826,7 @@ function storyResults(ctx, W, H, p) {
     ctx.fillStyle = 'rgba(118,118,128,0.25)'; rrect(ctx, 80, y, W - 160, 110, 28); ctx.fill();
     ctx.fillStyle = n === max && total ? '#00ff9c66' : '#0a84ff55'; rrect(ctx, 80, y, Math.max(56, (W - 160) * pct / 100), 110, 28); ctx.fill();
     ctx.fillStyle = '#fff'; ctx.font = `800 44px ${SF}`; ctx.fillText(p.options[i].slice(0, 24), 120, y + 70);
-    ctx.font = `800 48px ${MONO}`; const t = `${pct}%`; ctx.fillText(t, W - 120 - ctx.measureText(t).width, y + 72);
+    ctx.font = `800 48px ${MONO}`; const t = `${pct} %`; ctx.fillText(t, W - 120 - ctx.measureText(t).width, y + 72);
     y += 130;
   });
   drawBlock(ctx, `${total} vote${total > 1 ? 's' : ''} · vote anonyme et indicatif : les décisions se prennent en AG`, 80, y + 40, W - 160, 34, 600, '#a1a1aa', 1.25, 2);
@@ -1914,7 +1914,7 @@ async function modAgenda(el) {
         <div class="field"><label>Adresse (pour l’itinéraire)</label><input type="text" id="ea" maxlength="200" placeholder="Bd du 11 Novembre 1918, Villeurbanne"></div>
       </div>
       <div class="field"><label>Infos (ordre du jour, parcours, consignes)</label><textarea id="eds" maxlength="1500"></textarea></div>
-      <label class="check"><input type="checkbox" id="en"> Alerter les abonné·es par email</label>
+      <label class="check"><input type="checkbox" id="en"> Alerter les abonné·es (notification + email)</label>
       ${state.me.role === 'admin' ? allSitesBox('eall') : ''}
       <div class="btn-row"><button class="btn">Publier</button><button type="button" class="btn ghost" id="ecancel" hidden>Annuler</button></div>
     </form></div>
@@ -2222,19 +2222,19 @@ async function modAccounts(el) {
       <div class="field"><label>Sites où ce modo peut agir</label></div>
       <div class="chips" id="msitesNew">${siteList().map((x) => `<label class="check" style="padding:2px 8px 2px 0"><input type="checkbox" name="ns" value="${esc(x.id)}" ${x.id === state.modSite ? 'checked' : ''}> ${esc(x.short)}</label>`).join('')}</div>
       <label class="check"><input type="checkbox" id="ma"> Admin : tous les sites, comptes et réglages</label>
-      <label class="check"><input type="checkbox" id="mt"> <span>📍 Compte <b>terrain</b> (piquet) : seulement les bâtiments, connexion par lien ou QR code, sans mot de passe</span></label>
+      <label class="check"><input type="checkbox" id="mt"> <span>📍 Compte <b>piquet</b> : seulement les bâtiments, photo obligatoire, connexion par lien ou QR code, sans mot de passe</span></label>
       <button class="btn">Créer et générer le mot de passe</button></form></div>
     ${modPushSummary(mods)}
-    <div class="list" style="margin-top:14px">${mods.map((m) => `<div class="row"><div class="grow"><div class="title">${esc(m.username)} ${m.role === 'admin' ? '<span class="pill purple">admin</span>' : m.role === 'terrain' ? '<span class="pill orange">📍 terrain</span>' : ''} ${m.disabled ? '<span class="pill grey">désactivé</span>' : m.modPush ? `<span class="pill green" title="Dernière activation ${esc(ago(m.modPushAt))}">🔔 alertes · ${m.modPush} tél.</span>` : '<span class="pill orange">🔕 alertes non activées</span>'}</div><div class="sub">${esc(m.org)} · ${m.role === 'admin' ? 'tous les sites' : esc((m.sites || []).map(siteShort).join(', ') || 'aucun site')}</div></div>
+    <div class="list" style="margin-top:14px">${mods.map((m) => `<div class="row"><div class="grow"><div class="title">${esc(m.username)} ${m.role === 'admin' ? '<span class="pill purple">admin</span>' : m.role === 'terrain' ? '<span class="pill orange">📍 piquet</span>' : ''} ${m.disabled ? '<span class="pill grey">désactivé</span>' : m.modPush ? `<span class="pill green" title="Dernière activation ${esc(ago(m.modPushAt))}">🔔 alertes · ${m.modPush} tél.</span>` : '<span class="pill orange">🔕 alertes non activées</span>'}</div><div class="sub">${esc(m.org)} · ${m.role === 'admin' ? 'tous les sites' : esc((m.sites || []).map(siteShort).join(', ') || 'aucun site')}</div></div>
       ${m.id === state.me.id ? '' : `<button class="btn small ghost" data-edit="${esc(m.id)}">Modifier</button>`}${m.role === 'terrain' ? `<button class="btn small ghost" data-link="${esc(m.id)}">Nouveau lien</button>` : `<button class="btn small ghost" data-reset="${esc(m.id)}">Nouveau mdp</button>`}${m.disabled || m.id === state.me.id ? '' : `<button class="btn small red" data-off="${esc(m.id)}">Désactiver</button>`}</div>`).join('')}</div>`;
-  const showLink = (m) => sheet(`<h3>📍 Lien terrain · ${esc(m.org)}</h3>
+  const showLink = (m) => sheet(`<h3>📍 Lien piquet · ${esc(m.org)}</h3>
     <p class="muted">À ouvrir sur le téléphone de la personne du piquet (ou à scanner) : elle est connectée directement, avec seulement les bâtiments de ${esc((m.sites || []).map(siteShort).join(', '))}.</p>
     <div class="qr-box">${qrImg(m.link)}</div>
     <div class="secret" style="font-size:12px;word-break:break-all">${esc(m.link)}</div>
     <div class="btn-row"><button class="btn" id="lcopy">Copier le lien</button>${navigator.share ? '<button class="btn ghost" id="lshare">Partager…</button>' : ''}</div>
     <p class="faint small">Envoie-le par Signal. Il ne sera plus affiché : en cas de perte, « Nouveau lien » (l’ancien cessera de marcher).</p>`, (root) => {
       $('#lcopy', root).onclick = async () => { try { await navigator.clipboard.writeText(m.link); toast('Lien copié ✅'); } catch { prompt('Lien :', m.link); } };
-      if ($('#lshare', root)) $('#lshare', root).onclick = () => navigator.share({ title: 'Accès terrain · La Doua en lutte', text: 'Ton accès terrain pour mettre à jour les bâtiments :', url: m.link }).catch(() => {});
+      if ($('#lshare', root)) $('#lshare', root).onclick = () => navigator.share({ title: 'Accès piquet · La Doua en lutte', text: 'Ton accès piquet pour mettre à jour les bâtiments :', url: m.link }).catch(() => {});
     });
   const showPw = (m) => sheet(`<h3>Accès pour ${esc(m.username)}</h3><p class="muted">Transmets-le en main propre ou par messagerie chiffrée (Signal). Il ne sera plus affiché.</p><div class="secret">${esc(m.password)}</div><p class="faint small">La personne pourra le changer dans « Mon compte ».</p>`);
   $('#mf').onsubmit = async (e) => { e.preventDefault(); const m = await act(() => api('/api/mod/mods', { method: 'POST', body: { username: $('#mu').value, org: $('#mo').value, role: $('#ma').checked ? 'admin' : $('#mt').checked ? 'terrain' : 'mod', sites: $$('input[name=ns]:checked').map((x) => x.value) } })); m.link ? showLink(m) : showPw(m); await modAccounts(el); };
@@ -2323,7 +2323,7 @@ function pollHtml(p) {
       const n = p.counts ? p.counts[i] : null;
       const pct = n !== null && total ? Math.round((n / total) * 100) : 0;
       if (p.open && !voted) return `<button class="opt" data-opt="${i}">${esc(o)}</button>`;
-      return `<div class="opt res ${p.myVote === i ? 'mine' : ''}"><i style="width:${pct}%"></i><span>${p.myVote === i ? '✓ ' : ''}${esc(o)}</span><b>${n === null ? '?' : pct + '%'}</b></div>`;
+      return `<div class="opt res ${p.myVote === i ? 'mine' : ''}"><i style="width:${pct}%"></i><span>${p.myVote === i ? '✓ ' : ''}${esc(o)}</span><b>${n === null ? '?' : pct + ' %'}</b></div>`;
     }).join('')}</div>
     <div class="faint small" style="margin-top:8px">${voted ? 'Ton vote est enregistré (anonyme). ' : ''}${!p.counts ? 'Résultats affichés à la clôture. ' : ''}Lancé par ${esc(p.org)} · fin ${esc(fmt(p.closesAt, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}</div>
     <button class="btn small ghost" data-share-poll="${esc(p.id)}" style="margin-top:10px">${icon('share', 16)} Partager ce vote</button>
@@ -2473,7 +2473,7 @@ async function viewTestimonies() {
       <div class="list" style="margin-top:8px;background:transparent;border:0">
         <a class="row" href="#/contacts" style="color:inherit;padding-left:0"><div class="grow"><div class="title">Syndicats & legal team</div><div class="sub">Contacts listés par les organisations étudiantes</div></div><span class="chev">${icon('chev', 18)}</span></a>
         <a class="row" href="tel:0969390000" style="color:inherit;padding-left:0"><div class="grow"><div class="title">Défenseur des droits · 09 69 39 00 00</div><div class="sub">Saisine gratuite en cas de manquement des forces de l’ordre</div></div><span class="pill blue">Appeler</span></a>
-        <a class="row" href="tel:3114" style="color:inherit;padding-left:0"><div class="grow"><div class="title">3114 · écoute 24h/24</div><div class="sub">Si c’est trop lourd à porter, parles-en</div></div><span class="pill blue">Appeler</span></a>
+        <a class="row" href="tel:3114" style="color:inherit;padding-left:0"><div class="grow"><div class="title">3114 · écoute 24 h/24</div><div class="sub">Si c’est trop lourd à porter, parles-en</div></div><span class="pill blue">Appeler</span></a>
       </div>
     </div>
     <h2 class="section">Témoignages publiés</h2>
@@ -2960,7 +2960,7 @@ async function drawSightings() {
   state.sightSeen = keyNow;
   if (!list.length) { box.innerHTML = ''; return; }
   box.innerHTML = `<div class="card sight-card ${strong.length ? 'hot' : ''}" style="margin-bottom:12px">
-    <div class="kicker">📣 Signalements des étudiant·es · ${r.threshold} concordants = à vérifier</div>
+    <div class="kicker">📣 Signalements des étudiant·es · ${r.threshold} signalements concordants = à vérifier</div>
     ${list.map((x) => `<div class="sight-row" data-b="${esc(x.building)}" data-st="${esc(x.status)}" data-from="${esc(x.current)}">
       <div class="grow"><b>${esc(x.name)}</b> → ${STATUS[x.status].dot} ${esc(STATUS[x.status].label)}
         <div class="faint small">${x.count} personne${x.count > 1 ? 's' : ''} · dernier ${esc(ago(x.last))} · affiché : ${esc(STATUS[x.current].label)}</div>
@@ -3168,7 +3168,7 @@ async function modDroits(el) {
   const p = await api('/api/mod/pages/droits');
   el.innerHTML = `
     <div class="card"><div class="kicker">⚖️ Page « ${esc(p.title)} » · ${p.published ? '<span style="color:var(--green)">publiée</span>' : '<span style="color:var(--orange)">brouillon, invisible du public</span>'}</div>
-      <p class="muted small">Un brouillon est déjà écrit. <b>Faites-le relire par vos syndicats ou votre legal team</b> avant de publier : une erreur sur les droits peut coûter cher à un·e étudiant·e. ${p.canEdit ? '' : 'Seul·e l’admin peut modifier et publier cette page : envoie-lui tes corrections.'}</p>
+      <p class="muted small">Un brouillon est déjà écrit. <b>Fais-le relire par tes syndicats ou ta legal team</b> avant de publier : une erreur sur les droits peut coûter cher à un·e étudiant·e. ${p.canEdit ? '' : 'Seul·e l’admin peut modifier et publier cette page : envoie-lui tes corrections.'}</p>
       ${p.updatedAt ? `<p class="faint small">MAJ ${esc(ago(p.updatedAt))}${p.by ? ' par ' + esc(p.by) : ''}</p>` : ''}
     </div>
     ${p.canEdit ? `<form class="form card" id="dform" style="margin-top:12px">
@@ -3484,7 +3484,7 @@ async function telegramCard() {
     <p class="faint small" style="margin:8px 0 0">${st.sent} message(s) envoyé(s) depuis le dernier démarrage${st.lastOkAt ? ` · dernier ${esc(ago(st.lastOkAt))}` : ''}${st.lastError ? `<br><span style="color:var(--red)">Dernière erreur ${esc(ago(st.lastErrorAt))} (${esc(st.lastErrorChat || '')}) : ${esc(st.lastError)}</span>` : ''}</p>
     ${!t.configured.token || !t.configured.chat ? `<details style="margin-top:8px"><summary class="small" style="cursor:pointer">Comment relier la chaîne (5 min)</summary><ol class="steps small">
       <li>Sur Telegram, ouvre <b>@BotFather</b> → <code>/newbot</code> → copie le <b>jeton</b>.</li>
-      <li>Crée une <b>chaîne</b> (publique, ex. @ladoua_enlutte), puis <b>Administrateurs → Ajouter</b> ton bot avec « Publier des messages ».</li>
+      <li>Crée une <b>chaîne</b> (publique, ex. @ladoualyon1), puis <b>Administrateurs → Ajouter</b> ton bot avec « Publier des messages ».</li>
       <li>Sur Render → ton service → <b>Environment</b> : <code>TELEGRAM_BOT_TOKEN</code> = le jeton, <code>TELEGRAM_CHAT_ID</code> = @nom_de_la_chaine. Enregistre (le site redémarre).</li>
       <li>Reviens ici et touche « Envoyer un test ».</li></ol></details>` : ''}
   </div>`;
@@ -3563,7 +3563,7 @@ async function modAudience(el) {
   const dayLbl = (d) => new Date(d + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
   const kindLbl = { buildings: 'Bâtiments bloqués', urgent: 'Alertes urgentes', events: 'AG & manifs', reports: 'Comptes rendus' };
   el.innerHTML = `
-    <p class="muted small">Chiffres anonymes : chaque téléphone ou ordinateur est compté par une empreinte aléatoire, sans nom ni adresse IP. Le site ne peut pas savoir si c’est un·e étudiant·e ou un personnel (il n’y a pas de compte).${a.since ? ` Comptage depuis le ${esc(dayLbl(a.since))}.` : ' Le comptage commence avec cette mise à jour.'}</p>
+    <p class="muted small">Chiffres anonymes : chaque téléphone ou ordinateur est compté par une empreinte aléatoire, sans nom ni adresse IP. Le site ne peut pas savoir si c’est un·e étudiant·e ou un membre du personnel (il n’y a pas de compte).${a.since ? ` Comptage depuis le ${esc(dayLbl(a.since))}.` : ' Le comptage commence avec cette mise à jour.'}</p>
     <div class="aud-tiles">
       ${tile(n(a.push.total), '🔔 notifications activées', `téléphones / ordinateurs abonnés · ${n(a.push.allSites)} suivent tous les sites`)}
       ${tile(n(a.everApp), '📲 ont ouvert l’app installée', `${n(a.month.installs)} installation${a.month.installs > 1 ? 's' : ''} vue${a.month.installs > 1 ? 's' : ''} sur 30 j`)}
@@ -3612,7 +3612,7 @@ async function modAudience(el) {
   chart.addEventListener('pointerleave', () => { tip.hidden = true; $$('.aud-col.on', chart).forEach((x) => x.classList.remove('on')); });
 }
 
-// ---------- Compte terrain : connexion par lien ----------
+// ---------- Compte piquet : connexion par lien ----------
 function openTerrainCamera(done) {
   if (!navigator.mediaDevices?.getUserMedia) return toast('Caméra indisponible sur cet appareil.');
   const ov = document.createElement('div');
