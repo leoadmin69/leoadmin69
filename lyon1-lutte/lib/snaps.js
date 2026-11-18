@@ -66,6 +66,10 @@ export function purgeSnaps() {
     if (!m.photo || m.photo.gone) continue;
     if (Date.now() - new Date(m.at).getTime() > SNAP_TTL) { deleteSnap(m.photo.id); m.photo.gone = true; m.photo.thumb = ''; n++; }
   }
+  for (const b of db.buildings || []) {
+    if (!b.terrainProof) continue;
+    if (Date.now() - new Date(b.terrainProof.at).getTime() > SNAP_TTL) { deleteSnap(b.terrainProof.id); delete b.terrainProof; n++; }
+  }
   if (n) save();
   return n;
 }

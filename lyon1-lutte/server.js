@@ -142,12 +142,12 @@ function audit(mod, action, detail = '', siteId = '') {
 
 // ---------- Session modo ----------
 function currentMod(req) { return readToken(parseCookies(req.headers.cookie)[COOKIE]); }
-const TERRAIN_OK = [/^PUT \/buildings-batch$/, /^PUT \/buildings\/[\w-]+$/, /^GET \/sightings$/, /^POST \/sightings\/(ignore|remind)$/, /^GET \/sightings\/photo\/[\w-]+$/, /^POST \/push\/(subscribe|unsubscribe|status)$/, /^GET \/presence$/, /^GET \/guide\.pdf$/];
+const TERRAIN_OK = [/^PUT \/buildings-batch$/, /^PUT \/buildings\/[\w-]+$/, /^POST \/terrain\/building\/[\w-]+\/photo$/, /^GET \/sightings$/, /^POST \/sightings\/(ignore|remind)$/, /^GET \/sightings\/photo\/[\w-]+$/, /^POST \/push\/(subscribe|unsubscribe|status)$/, /^GET \/presence$/, /^GET \/guide\.pdf$/];
 function requireMod(req, res, next) {
   const mod = currentMod(req);
   if (!mod) return bad(res, 'Connexion modo requise.', 401);
   // Protection CSRF : les requêtes d'écriture viennent du site lui-même (JSON ou PDF, jamais un formulaire externe).
-  if (req.method !== 'GET' && !/^(application\/json|application\/pdf)/.test(req.headers['content-type'] || '') && req.method !== 'DELETE') return bad(res, 'Type de contenu refusé.', 415);
+  if (req.method !== 'GET' && !/^(application\/json|application\/pdf|image\/jpeg)/.test(req.headers['content-type'] || '') && req.method !== 'DELETE') return bad(res, 'Type de contenu refusé.', 415);
   req.mod = mod;
   presence.set(mod.id, Date.now());
   // Compte « terrain » (personnes des piquets) : seulement les bâtiments et les signalements
@@ -213,7 +213,7 @@ app.get('/api/state', (req, res) => {
     // Anciens champs gardés pour les apps pas encore mises à jour (site principal)
     blocus: { ...(db.siteStatus[DEFAULT_SITE] || {}), effective: effectiveBlocus(DEFAULT_SITE), auto: ['auto', 'inconnu'].includes(db.siteStatus[DEFAULT_SITE]?.state || 'auto') },
     context: db.contexts?.[DEFAULT_SITE] || null,
-    buildings: db.buildings,
+    buildings: db.buildings.map(({ terrainProof, ...b }) => b),
     events: upcomingEvents(),
     flashes: liveFlashes().slice(0, 20),
     reports: db.reports.filter((r) => r.status === 'published').sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || '')).slice(0, 30).map(publicReport),
@@ -335,7 +335,11 @@ app.get('/api/chat/photo/:id', async (req, res) => {
 setInterval(purgeSnaps, 10 * 60e3).unref();
 // fichiers photo orphelins (envoi interrompu, plantage) : effacés au bout de 10 min
 setInterval(() => {
-  const used = new Set([...db.messages.filter((m) => m.photo && !m.photo.gone).map((m) => m.photo.id), ...(db.sightings || []).filter((s) => s.photo).map((s) => s.photo)]);
+  const used = new Set([
+    ...db.messages.filter((m) => m.photo && !m.photo.gone).map((m) => m.photo.id),
+    ...(db.sightings || []).filter((s) => s.photo).map((s) => s.photo),
+    ...(db.buildings || []).filter((b) => b.terrainProof?.id).map((b) => b.terrainProof.id),
+  ]);
   const n = sweepSnaps((id) => used.has(id));
   if (n) console.log(`[photo] ${n} fichier(s) orphelin(s) effacé(s)`);
 }, 15 * 60e3).unref();
@@ -766,6 +770,7 @@ mod.post('/buildings', (req, res) => {
   res.json(b);
 });
 mod.put('/buildings/:id', (req, res) => {
+  if (req.mod.role === 'terrain') return bad(res, 'Compte piquet : mets à jour un bâtiment avec une photo obligatoire.');
   const b = db.buildings.find((x) => x.id === req.params.id);
   if (!b) return bad(res, 'Introuvable', 404);
   if (!needSite(req, res, siteOf(b))) return;
@@ -785,11 +790,45 @@ mod.put('/buildings/:id', (req, res) => {
   broadcast('buildings', { id: b.id });
   res.json(b);
 });
+
+// Mise à jour « piquet » : une photo est obligatoire avant tout changement de statut.
+mod.post('/terrain/building/:id/photo', express.raw({ type: 'image/jpeg', limit: '2mb' }), async (req, res) => {
+  if (req.mod.role !== 'terrain') return bad(res, 'Réservé aux comptes piquet.', 403);
+  if (!Buffer.isBuffer(req.body) || !isJpeg(req.body)) return bad(res, 'Photo invalide.');
+  const status = oneOf(req.query.status, ['bloque', 'partiel', 'ouvert'], null);
+  if (!status) return bad(res, 'État invalide.');
+  const b = db.buildings.find((x) => x.id === req.params.id);
+  if (!b) return bad(res, 'Bâtiment introuvable.', 404);
+  if (!needSite(req, res, siteOf(b))) return;
+  const clean = stripJpeg(req.body);
+  if (!clean) return bad(res, 'Photo illisible.');
+  if (limited(`terrainph:${req.mod.id}`, 1, 5000)) return bad(res, 'Attends quelques secondes entre deux mises à jour.', 429);
+  const pid = `terrain-${newId()}${newId()}`;
+  try { await saveSnap(pid, clean); } catch (e) { return bad(res, 'Enregistrement de la photo impossible.', 500); }
+  if (b.terrainProof?.id) deleteSnap(b.terrainProof.id);
+  const prev = b.status;
+  b.status = status;
+  b.terrainProof = { id: pid, at: now(), status, by: req.mod.org };
+  delete b.yesterday;
+  delete b.resetAt;
+  touch(req, b);
+  save();
+  audit(req.mod, 'bâtiment piquet', `${b.name} → ${STATUS_LABEL[status]}`, siteOf(b));
+  if (prev !== status) {
+    feed(`${b.name} (${b.campus}) → ${STATUS_LABEL[status]} · confirmé sur place avec photo`, status === 'bloque' ? 'alert' : status === 'partiel' ? 'warn' : 'ok');
+    if (status !== 'inconnu') queueBuildingAlert(b);
+    extras?.onBuilding(b);
+  }
+  broadcast('buildings', { id: b.id });
+  res.json({ ...b, terrainProof: undefined });
+});
+
 // Plusieurs bâtiments d'un coup (sélection multiple, saisie rapide, dictée) : une seule ligne dans le fil, un seul email.
 // - « from » = statut que le modo voyait : si un·e autre modo l'a changé entre-temps, ce bâtiment n'est pas écrasé (conflit renvoyé).
 // - les bâtiments des sites où le modo n'a pas de droits sont ignorés.
 // - undo:true = annulation juste après une erreur : l'alerte email en attente est retirée au lieu d'être renvoyée.
 mod.put('/buildings-batch', (req, res) => {
+  if (req.mod.role === 'terrain') return bad(res, 'Compte piquet : mets à jour chaque bâtiment avec une photo obligatoire.');
   const changes = Array.isArray(req.body.changes) ? req.body.changes.filter((c) => c && typeof c === 'object' && typeof c.id === 'string').slice(0, 200) : [];
   const undo = !!req.body.undo;
   const previous = [];

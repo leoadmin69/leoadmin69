@@ -982,20 +982,20 @@ async function viewModo() {
   const mySites = isAdm ? siteList().map((x) => x.id) : (state.me.sites || []).filter((id) => siteList().some((x) => x.id === id));
   if (!mySites.includes(state.modSite)) { state.modSite = mySites.includes(store.get('l1-modsite', '')) ? store.get('l1-modsite', '') : mySites[0] || defaultSite(); applyScope(); }
   view().innerHTML = `
-    <h1 class="large-title">Espace modos</h1>
-    <p class="subtitle mono small">${esc(state.me.username)} · ${esc(state.me.org)} · ${isAdm ? 'admin (tous les sites)' : state.me.role === 'terrain' ? 'compte terrain (bâtiments)' : 'modo'} · <span id="mstats">…</span></p>
+    <h1 class="large-title">${isTerrain ? 'Bâtiments' : 'Espace modos'}</h1>
+    <p class="subtitle mono small">${esc(state.me.username)} · ${esc(state.me.org)}${isTerrain ? ' · compte piquet' : ` · ${isAdm ? 'admin (tous les sites)' : 'modo'} · <span id="mstats">…</span>`}</p>
     <div class="modsites" id="msites"><span class="faint small">Tu agis sur :</span>${mySites.map((id) => `<button data-ms="${esc(id)}" class="${id === state.modSite ? 'on' : ''}">📍 ${esc(siteShort(id))}</button>`).join('')}</div>
-    <a class="guide-link" href="/api/mod/guide.pdf" target="_blank" rel="noopener">📘 Guide des modos (PDF) : comment faire, à faire / à ne jamais faire</a>
+    ${isTerrain ? '' : `<a class="guide-link" href="/api/mod/guide.pdf" target="_blank" rel="noopener">📘 Guide des modos (PDF) : comment faire, à faire / à ne jamais faire</a>
     <div id="modpush"></div>
     <div class="presence" id="presence" hidden></div>
-    <div class="tabs-inline" id="mtabs">${tabs.map(([id, l]) => `<button data-t="${id}" class="${id === state.modTab ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <div class="tabs-inline" id="mtabs">${tabs.map(([id, l]) => `<button data-t="${id}" class="${id === state.modTab ? 'on' : ''}">${l}</button>`).join('')}</div>`}
     <div id="mod"></div>`;
   $('#mtabs').onclick = (e) => { if (e.target.dataset.t) { state.modTab = e.target.dataset.t; render(true); } };
   $('#msites').onclick = (e) => { const id = e.target.closest('[data-ms]')?.dataset.ms; if (id) { state.modSite = id; store.set('l1-modsite', id); applyScope(); render(true); } };
   showPresence();
   modPushCard();
   api('/api/mod/stats').then((s) => { const el = $('#mstats'); if (el) el.innerHTML = `${s.pushSubs} téléphone(s) · ${s.subscribers} email(s) · IA ${esc(s.aiEnabled ? s.aiProviders.join(' → ') : 'sans IA')} · emails ${s.mailProvider ? `${esc(s.mailProvider)} ${s.mailQuota.used}/${s.mailQuota.limit} aujourd’hui` : 'OFF'} · stockage ${s.storage === 'temporaire' ? '<b style="color:var(--red)">TEMPORAIRE (configure Supabase !)</b>' : esc(s.storage)}${s.reported ? ` · ${s.reported} msg signalé(s)` : ''}`; }).catch(() => {});
-  const fn = { story: modStory, votes: modPolls, blog: modBlog, temoignages: modTestimonies, entraide: modEntraide, droits: modDroits, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, sites: modSites, audience: modAudience, journal: modJournal, moi: modMe }[state.modTab] || modSituation;
+  const fn = { story: modStory, votes: modPolls, blog: modBlog, temoignages: modTestimonies, entraide: modEntraide, droits: modDroits, situation: isTerrain ? modTerrainSituation : modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, sites: modSites, audience: modAudience, journal: modJournal, moi: modMe }[state.modTab] || (isTerrain ? modTerrainSituation : modSituation);
   try { await fn($('#mod')); } catch (err) { if (/Connexion modo/.test(err.message)) { state.me = null; render(true); } else toast(err.message); }
 }
 // Autres modos connectés sur les mêmes sites : on le voit pour ne pas se marcher dessus
@@ -1010,6 +1010,117 @@ async function showPresence() {
 }
 setInterval(() => { if (route().startsWith('modo') && state.me && !document.hidden) showPresence(); }, 45000);
 const act = async (fn, ok) => { try { const r = await fn(); if (ok) toast(ok); return r; } catch (e) { toast(e.message); throw e; } };
+
+// Compte piquet : interface minimale, identique à la page publique des bâtiments.
+// Chaque mise à jour commence par une photo prise sur place ; sans photo, aucun statut ne part.
+function modTerrainSituation(el) {
+  const inSite = (b) => b.site === state.modSite;
+  let campus = 'Tous';
+  let query = '';
+
+  const renderGrid = () => {
+    const list = state.data.buildings.filter(inSite).filter((b) => {
+      const campusOk = campus === 'Tous' || b.campus === campus;
+      const words = normSearch(query).split(' ').filter(Boolean);
+      return campusOk && words.every((w) => normSearch(`${b.name} ${b.note || ''} ${b.campus}`).includes(w));
+    }).sort((a, b) => {
+      const order = { bloque: 0, partiel: 1, ouvert: 2, inconnu: 3 };
+      return order[a.status] - order[b.status] || a.name.localeCompare(b.name);
+    });
+    el.querySelector('#terrain-grid').innerHTML = list.map((b) => `
+      <div class="bld ${esc(b.status)}" data-building="${esc(b.id)}">
+        <div class="status">${STATUS[b.status].dot} ${STATUS[b.status].label}</div>
+        <div class="name">${esc(b.name)}</div>
+        <div class="campus">${esc(b.campus)}</div>
+        ${b.note ? `<div class="note">${esc(b.note)}</div>` : ''}
+        <div class="when">${b.updatedAt ? 'MAJ ' + esc(ago(b.updatedAt)) : ''}</div>
+        <button class="see-btn" data-update="${esc(b.id)}">📷 Mettre à jour</button>
+      </div>`).join('') || '<div class="empty">Aucun bâtiment trouvé.</div>';
+  };
+
+  const allBuildings = state.data.buildings.filter(inSite);
+  const campuses = ['Tous', ...new Set(allBuildings.map((b) => b.campus))];
+  el.innerHTML = `
+    <p class="subtitle">Touche un bâtiment, prends une photo de l’entrée, puis choisis son état.</p>
+    <div class="bsearch"><span aria-hidden="true">🔎</span><input type="search" id="terrain-search" placeholder="Chercher un bâtiment…" autocomplete="off"><button type="button" id="terrain-clear" hidden>✕</button></div>
+    ${campuses.length > 2 ? `<div class="segmented" id="terrain-campus">${campuses.map((c) => `<button data-c="${esc(c)}" class="${c === campus ? 'on' : ''}">${esc(c)}</button>`).join('')}</div>` : ''}
+    <div class="grid cols-3" id="terrain-grid"></div>`;
+
+  const input = $('#terrain-search', el);
+  input.oninput = () => { query = input.value; $('#terrain-clear', el).hidden = !query; renderGrid(); };
+  $('#terrain-clear', el).onclick = () => { query = ''; input.value = ''; $('#terrain-clear', el).hidden = true; input.focus(); renderGrid(); };
+  $('#terrain-campus', el)?.addEventListener('click', (e) => {
+    const c = e.target.dataset.c;
+    if (!c) return;
+    campus = c;
+    $$('#terrain-campus button').forEach((b) => b.classList.toggle('on', b.dataset.c === c));
+    renderGrid();
+  });
+  renderGrid();
+
+  el.onclick = (e) => {
+    const id = e.target.closest('[data-update]')?.dataset.update;
+    if (id) openTerrainBuilding(id);
+  };
+
+  function openTerrainBuilding(id) {
+    const b = state.data.buildings.find((x) => x.id === id);
+    if (!b) return;
+    sheet(`<h2 style="margin:0 0 4px">📍 ${esc(b.name)}</h2>
+      <p class="muted small" style="margin:0 0 14px">1. Prends une photo de l’entrée : obligatoire.</p>
+      <button type="button" class="see-photo need" id="tp-camera" style="width:100%;color:var(--text)"><span id="tp-txt">📷 Prendre une photo avec la caméra</span><small>Import désactivé : seule une photo prise sur place est acceptée.</small></button>
+      <p class="faint small" style="margin:12px 0 8px">2. Choisis ce que tu vois :</p>
+      <div class="see-grid locked" id="tp-grid">
+        <button class="ab red" data-st="bloque">🔴 Bloqué</button>
+        <button class="ab orange" data-st="partiel">🟠 Partiel</button>
+        <button class="ab green" data-st="ouvert">🟢 Ouvert</button>
+      </div>`, (root, close) => {
+      let photo = null;
+      $('#tp-camera', root).onclick = () => openTerrainCamera(async (blob) => {
+        if (!blob) return;
+        try {
+          photo = await shrinkPhoto(blob);
+          $('#tp-txt', root).textContent = '✅ Photo prise (touche pour reprendre)';
+          $('#tp-camera', root).classList.add('on');
+          $('#tp-camera', root).classList.remove('need');
+          $('#tp-grid', root).classList.remove('locked');
+        } catch {
+          photo = null;
+          $('#tp-txt', root).textContent = '📷 Photo illisible, réessaie';
+        }
+      });
+      root.onclick = async (e) => {
+        const status = e.target.closest('[data-st]')?.dataset.st;
+        if (!status) return;
+        if (!photo) {
+          $('#tp-camera', root).classList.remove('shake');
+          void $('#tp-camera', root).offsetWidth;
+          $('#tp-camera', root).classList.add('shake');
+          return toast('📷 Prends d’abord une photo : elle est obligatoire.');
+        }
+        if (root.dataset.busy) return;
+        root.dataset.busy = '1';
+        $('#tp-grid', root).classList.add('locked');
+        try {
+          const q = new URLSearchParams({ status });
+          const r = await fetch(`/api/mod/terrain/building/${encodeURIComponent(id)}/photo?${q}`, {
+            method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'image/jpeg' }, body: photo,
+          });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(j.error || 'Mise à jour impossible.');
+          Object.assign(b, { status, updatedAt: j.updatedAt, by: j.by });
+          toast(`✅ ${b.name} : ${STATUS[status].label}`);
+          close();
+          renderGrid();
+        } catch (err) {
+          toast(err.message);
+          delete root.dataset.busy;
+          $('#tp-grid', root)?.classList.remove('locked');
+        }
+      };
+    });
+  }
+}
 
 // ----- Situation : mise à jour éclair des bâtiments -----
 // Trois façons, du plus rapide au plus précis :
@@ -3465,6 +3576,54 @@ async function modAudience(el) {
 }
 
 // ---------- Compte terrain : connexion par lien ----------
+function openTerrainCamera(done) {
+  if (!navigator.mediaDevices?.getUserMedia) return toast('Caméra indisponible sur cet appareil.');
+  const ov = document.createElement('div');
+  ov.className = 'cam';
+  ov.innerHTML = `<div class="cam-frame"><video autoplay playsinline muted></video><div class="cam-flash"></div></div>
+    <div class="cam-top"><button class="cam-x" aria-label="Fermer">✕</button><span>Photo obligatoire · aucun import</span><button class="cam-flip" aria-label="Changer de caméra">🔄</button></div>
+    <div class="cam-bottom"><p>Photo prise directement sur place</p><button class="cam-shot" aria-label="Prendre la photo"></button></div>`;
+  document.body.appendChild(ov);
+  const video = $('video', ov);
+  let stream = null, facing = 'environment', closed = false, seq = 0;
+  const stop = () => { stream?.getTracks().forEach((t) => t.stop()); stream = null; };
+  const close = () => { closed = true; stop(); ov.remove(); };
+  const start = async () => {
+    stop();
+    const my = ++seq;
+    try {
+      const st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 1440 }, height: { ideal: 1440 } }, audio: false });
+      if (closed || my !== seq) { st.getTracks().forEach((t) => t.stop()); return; }
+      stream = st;
+      video.srcObject = stream;
+      video.classList.toggle('mirror', facing === 'user');
+    } catch (e) {
+      close();
+      toast(e.name === 'NotAllowedError' ? 'Autorise la caméra pour prendre la photo.' : 'Caméra indisponible.');
+    }
+  };
+  $('.cam-x', ov).onclick = close;
+  $('.cam-flip', ov).onclick = () => { facing = facing === 'user' ? 'environment' : 'user'; start(); };
+  $('.cam-shot', ov).onclick = () => {
+    if (!video.videoWidth) return;
+    const vw = video.videoWidth, vh = video.videoHeight;
+    let sx = 0, sy = 0, sw = vw, sh = vh;
+    if (vw / vh > 3 / 4) { sw = Math.round(vh * 3 / 4); sx = Math.round((vw - sw) / 2); }
+    else { sh = Math.round(vw / (3 / 4)); sy = Math.round((vh - sh) / 2); }
+    const k = Math.min(1, 1280 / sh);
+    const cv = document.createElement('canvas');
+    cv.width = Math.round(sw * k);
+    cv.height = Math.round(sh * k);
+    const c = cv.getContext('2d');
+    if (facing === 'user') { c.translate(cv.width, 0); c.scale(-1, 1); }
+    c.drawImage(video, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+    $('.cam-flash', ov).classList.add('on');
+    navigator.vibrate?.(20);
+    cv.toBlob((blob) => { close(); done(blob); }, 'image/jpeg', 0.82);
+  };
+  start();
+}
+
 async function terrainLogin(token) {
   view().innerHTML = '<div class="empty mono typing">Connexion…</div>';
   try {
