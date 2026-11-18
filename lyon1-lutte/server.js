@@ -53,6 +53,12 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.json({ limit: '200kb' }));
+// Requête illisible (JSON cassé, trop gros) : réponse claire, sans trace d'erreur dans les journaux
+app.use((err, req, res, next) => {
+  if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'Requête illisible.' });
+  if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'Envoi trop volumineux.' });
+  next(err);
+});
 
 // ---------- Utilitaires ----------
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
@@ -1074,6 +1080,11 @@ extras = registerExtras(app, mod, { broadcast, feed, audit, visitor, limited, cl
 app.get('/sw.js', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.setHeader('Service-Worker-Allowed', '/'); res.sendFile(path.join(ROOT, 'public', 'sw.js')); });
 app.use(express.static(path.join(ROOT, 'public'), { maxAge: '5m', index: 'index.html' }));
 app.use('/api', (req, res) => bad(res, 'Route inconnue', 404));
+app.use((err, req, res, next) => {
+  if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'Envoi trop volumineux.' });
+  console.error('[erreur]', req.method, req.path, err?.message || err);
+  if (!res.headersSent) res.status(err?.status && err.status < 500 ? err.status : 500).json({ error: err?.status && err.status < 500 ? 'Requête refusée.' : 'Erreur du serveur, réessaie.' });
+});
 app.get('*', (req, res) => res.sendFile(path.join(ROOT, 'public', 'index.html')));
 
 app.listen(PORT, () => {

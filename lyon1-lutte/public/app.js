@@ -1194,7 +1194,9 @@ function modSituation(el) {
   $('#tiles').addEventListener('pointerup', () => { if (pressTimer !== 'long') cancelPress(); });
   $('#tiles').addEventListener('pointercancel', cancelPress);
   $('#tiles').addEventListener('pointerleave', () => { if (pressTimer !== 'long') cancelPress(); });
-  window.addEventListener('scroll', () => { if (pressStart) cancelPress(); }, { passive: true });
+  // un seul écouteur de défilement pour toute la session (sinon un de plus à chaque rafraîchissement)
+  window.__tilesScroll = () => { if (pressStart) cancelPress(); };
+  if (!window.__tilesScrollOn) { window.__tilesScrollOn = true; window.addEventListener('scroll', () => window.__tilesScroll?.(), { passive: true }); }
   $('#tiles').addEventListener('contextmenu', (e) => { if (e.target.closest('.qt')) e.preventDefault(); });
   $('#tiles').onclick = (e) => {
     const c = e.target.closest('[data-campus]')?.dataset.campus;

@@ -674,3 +674,12 @@ body.has-alert .topbar { padding-top: 0; }
 .aud-table { width: 100%; font-size: 13px; border-collapse: collapse; margin-top: 6px; }
 .aud-table th, .aud-table td { text-align: left; padding: 4px 6px; border-top: 0.5px solid var(--sep); }
 @media (max-width: 560px) { .aud-row { grid-template-columns: 1fr 1fr; } }
+/* Petits écrans : rien ne doit élargir la page */
+@media (max-width: 420px) { .qtiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.qtiles > * { min-width: 0; }
+.qt .qn { overflow-wrap: anywhere; hyphens: auto; }
+input, select, textarea { max-width: 100%; min-width: 0; }
+input[type="file"] { width: 100%; font-size: 14px; }
+/* Fenêtre ouverte : les petits messages s'affichent en haut pour ne pas cacher son contenu */
+body:has(.sheet-backdrop) #toast { bottom: auto; top: calc(16px + var(--safe-t)); transform: translateX(-50%) translateY(-20px); }
+body:has(.sheet-backdrop) #toast.show { transform: translateX(-50%) translateY(0); }
