@@ -21,6 +21,7 @@ dans le même commit que le code.
 
 ## Passation (2026-11-18, fin de session Claude → relais à Copilot)
 **Dernier commit de Claude : voir `git log -15`.** Tout est poussé, rien en cours de modification.
+- Accès Copilot testé le 2026-11-18 : Render KO, Supabase KO
 
 ### En ligne
 - Production : **https://leoadmin69.onrender.com** (Render « Lyon1-ladoua-en-lutte », `srv-dbu3je68bjmc73a7vt1g`,
