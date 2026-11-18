@@ -9,7 +9,7 @@ import { remoteEnabled } from './lib/remote.js';
 import { publicKey, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe, sendPush, pushCount, PUSH_KINDS, modSubscribe, modUnsubscribe, modPushOn, sendModPush } from './lib/push.js';
 import { seed } from './lib/seed.js';
 import { ensureAdmin, hashPassword, verifyPassword, createToken, readToken, cookieHeader, parseCookies, COOKIE, publicMod, SECRET } from './lib/auth.js';
-import { mailEnabled, mailProvider, mailQuota, sendMany, renderEmail, SITE_URL, SITE_NAME, INSTAGRAM_URL } from './lib/mail.js';
+import { mailEnabled, mailProvider, mailQuota, sendMany, renderEmail, SITE_URL, SITE_NAME } from './lib/mail.js';
 import { aiEnabled, aiProviders, analyzePdf } from './lib/ai.js';
 import { registerCommunity, MAX_VIDEO_MB } from './lib/community.js';
 import { registerExtras } from './lib/extras.js';
@@ -205,7 +205,6 @@ app.get('/api/state', (req, res) => {
     maxVideoMb: MAX_VIDEO_MB,
     sightings: extras ? extras.sightingSummary().map(({ building, status, count }) => ({ building, status, count })) : [],
     droitsPublished: !!db.pages?.droits?.published,
-    instagram: INSTAGRAM_URL(),
     mailEnabled: mailEnabled(),
     aiEnabled: aiEnabled(),
   });

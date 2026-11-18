@@ -48,5 +48,3 @@ services:
         value: "@ladoualyon1"
       - key: TELEGRAM_URL
         value: https://t.me/ladoualyon1
-      - key: INSTAGRAM_URL
-        value: https://www.instagram.com/lyon1_ladoua.enlutte/

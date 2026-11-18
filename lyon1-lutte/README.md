@@ -89,9 +89,9 @@ Si une IA a épuisé son quota gratuit ou est en panne, la suivante prend le rel
 
 ⚠️ **Confidentialité** : avec la version **gratuite** de Gemini, Google peut utiliser les documents envoyés pour améliorer ses produits (et des personnes peuvent les relire). Un compte rendu qui contient des noms passe donc par Google *avant* que l'IA les retire. Pour éviter ça : retirer les noms du PDF avant de l'importer, ou mettre `AI_PROVIDERS=groq,gemini` pour passer d'abord par Groq (selon ses conditions, Groq ne se sert pas des requêtes de ses clients pour entraîner ses modèles).
 
-### Nom et Instagram
+### Nom, Instagram et Telegram
 
-Pas de logo : le site, les emails et les stories affichent seulement « Lyon 1 · La Doua en lutte ». Le compte Instagram (`INSTAGRAM_URL`, par défaut `@lyon1_ladoua.enlutte`) apparaît dans la barre latérale, sur l'accueil, la page contacts, le menu Plus, en pied de chaque email et sur chaque story.
+Pas de logo : le site, les emails et les stories affichent seulement « Lyon 1 · La Doua en lutte ». Il n'y a **pas de compte Instagram central** : chaque modo publie sur le compte Insta de son AG / syndicat (stories générées par le site, avec le lien du site). Le site renvoie vers la **chaîne Telegram** https://t.me/ladoualyon1 (logo Telegram) : barre latérale, accueil, contacts, alertes, menu Plus, pied des emails et des stories.
 
 ### Mise en ligne 100 % gratuite, sans nom de domaine
 

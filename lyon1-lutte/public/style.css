@@ -434,7 +434,9 @@ button.opt:active { transform: scale(0.98); }
 .closing { margin-top: 18px; border-color: rgba(255,69,58,0.5) !important; background: linear-gradient(140deg, rgba(255,69,58,0.25), var(--card) 70%) !important; font-weight: 700; }
 .closing p { margin: 0 0 10px; }
 .tg-card { display: flex; gap: 14px; align-items: center; color: inherit; border-color: rgba(42,171,238,0.5) !important; background: linear-gradient(120deg, rgba(42,171,238,0.2), var(--card) 65%) !important; }
-.tg-card .tg-ico { font: 800 13px var(--mono); padding: 8px 10px; border-radius: 10px; background: #229ED9; color: #fff; }
+.tg-card .tg-logo { flex-shrink: 0; filter: drop-shadow(0 4px 10px rgba(34,158,217,0.35)); }
+.tg-side { display: flex !important; gap: 10px; align-items: center; background: linear-gradient(90deg, rgba(34,158,217,0.2), rgba(34,158,217,0.05)) !important; }
+.tg-side b { color: #5ec2f2 !important; }
 .status-seg button.on.auto { background: var(--blue); }
 .sitebar { position: sticky; top: calc(var(--top-off) + var(--topbar-h, 41px)); z-index: 15; background: rgba(0,0,0,0.72); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); border-bottom: 0.5px solid var(--sep); }
 .sitebar-inner { max-width: 1100px; margin: 0 auto; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 8px 16px; }
@@ -633,14 +635,14 @@ body.has-alert .topbar { padding-top: 0; }
 .mp-site span { font-size: 13px; }
 .mp-site small { color: var(--muted); font-size: 12px; line-height: 1.35; }
 .mp-site.warn { border-color: rgba(255,159,10,0.6); background: rgba(255,159,10,0.08); }
-.tg-card.ko { border-color: rgba(255,69,58,0.5); }
-.tg-card.ok { border-color: rgba(48,209,88,0.45); }
+.tg-diag.ko { border-color: rgba(255,69,58,0.5); }
+.tg-diag.ok { border-color: rgba(48,209,88,0.45); }
 .tg-line { padding: 6px 0; font-size: 14px; border-top: 0.5px solid var(--sep); }
 .tg-line:first-of-type { border-top: 0; }
 .tg-line .btn { margin-left: 6px; }
 .tg-fix { margin-top: 4px; font-size: 13px; color: var(--orange); }
-.tg-card { display: block !important; }
-.tg-card > * { width: auto; }
+.tg-diag { display: block !important; }
+.tg-diag > * { width: auto; }
 
 /* Bilan après publication */
 .pub-card { margin: 0 0 12px; border-color: rgba(48,209,88,0.55); background: linear-gradient(135deg, rgba(48,209,88,0.14), rgba(28,28,30,0.85)); animation: up .25s; }

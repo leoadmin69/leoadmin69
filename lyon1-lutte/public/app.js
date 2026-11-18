@@ -161,10 +161,7 @@ const DEMAND_STATUS = { 'en-lutte': ['En lutte', 'red'], obtenu: ['Obtenu ✊', 
 
 // ---------- Dates (heure de Paris) ----------
 const TZ = 'Europe/Paris';
-const igUrl = () => state.data?.instagram || 'https://www.instagram.com/lyon1_ladoua.enlutte/';
-const igHandle = () => '@' + ((igUrl().match(/instagram\.com\/([^/?#]+)/) || [0, 'lyon1_ladoua.enlutte'])[1]);
-const tgCard = (text = 'Les alertes postées automatiquement, gratuit et sans limite') => (state.data?.telegramUrl ? `<a class="card tg-card" href="${esc(state.data.telegramUrl)}" target="_blank" rel="noopener" style="margin-top:14px"><span class="tg-ico">TG</span><div class="grow"><b>Rejoindre la chaîne Telegram</b><div class="muted small">${esc(text)}</div></div><span class="chev">${icon('chev', 18)}</span></a>` : '');
-const igCard = (text = 'Photos, vidéos et stories de la mobilisation') => `<a class="card ig-card" href="${esc(igUrl())}" target="_blank" rel="noopener" style="margin-top:14px"><span class="ig-ico">IG</span><div class="grow"><b>Suis ${esc(igHandle())}</b><div class="muted small">${esc(text)}</div></div><span class="chev">${icon('chev', 18)}</span></a>`;
+const tgCard = (text = 'Les alertes postées automatiquement, gratuit et sans limite') => (state.data?.telegramUrl ? `<a class="card tg-card" href="${esc(state.data.telegramUrl)}" target="_blank" rel="noopener" style="margin-top:14px"><svg class="tg-logo" viewBox="0 0 24 24" width="38" height="38" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#229ED9"/><path d="M5.4 11.7 16.9 7.3c.5-.2 1 .1.8.9l-1.9 9.1c-.1.6-.5.8-1.1.5l-3-2.2-1.4 1.4c-.2.2-.3.3-.6.3l.2-3 5.4-4.9c.2-.2 0-.3-.3-.1l-6.7 4.2-2.9-.9c-.6-.2-.6-.6.1-.9Z" fill="#fff"/></svg><div class="grow"><b>Rejoindre la chaîne Telegram</b><div class="muted small">${esc(text)}</div></div><span class="chev">${icon('chev', 18)}</span></a>` : '');
 const fmt = (iso, o) => new Date(iso).toLocaleString('fr-FR', { timeZone: TZ, ...o });
 const hhmm = (iso) => fmt(iso, { hour: '2-digit', minute: '2-digit' });
 const dayLabel = (iso) => {
@@ -330,7 +327,6 @@ function viewLive() {
 
     ${appCardHtml()}
     ${tgCard()}
-    ${igCard()}
     <a class="card" href="#/alertes" style="display:flex;gap:14px;align-items:center;margin-top:14px;color:inherit;border-color:rgba(255,69,58,0.4)">
       <div style="font-size:30px">🔔</div>
       <div class="grow"><b>Sois prévenu·e dès qu’un bâtiment est bloqué</b><div class="muted small">Notification sur ton téléphone (gratuit, sans compte) ou email.</div></div>
@@ -799,7 +795,6 @@ function viewContacts() {
     <h2 class="section">🕶️ Parler anonymement</h2>
     <a class="card" href="#/chat" style="display:block;color:inherit">Le <b>chat anonyme</b> est ouvert à tou·tes, sans compte. Salon <b>#Entraide</b> pour les cours, partiels, logement, soutien.</a>
     ${tgCard()}
-    ${igCard('Les infos de la mobilisation, en direct sur Instagram')}
     <h2 class="section">🆘 Urgences & écoute</h2>
     <div class="list">
       <a class="row" href="tel:112" style="color:inherit"><div class="grow"><div class="title">112</div><div class="sub">Urgences (police, pompiers, SAMU)</div></div><span class="pill red">Appeler</span></a>
@@ -849,7 +844,7 @@ async function viewAlerts() {
         <p class="faint small">Ton email sert uniquement à ces alertes. Il n’est jamais affiché ni transmis. Tu recevras un email de confirmation. Les emails gratuits sont limités par jour : les notifications restent le moyen le plus sûr.</p>
       </form>` : '<p class="muted" style="margin:0">Les alertes par email ne sont pas encore activées. Active les notifications ci-dessus : c’est plus rapide.</p>'}
     </div>
-    ${igCard('Les infos aussi sur Instagram')}`;
+    `;
   const pick = (n) => $$(`input[name=${n}]:checked`).map((x) => x.value);
   if ($('#pushOn')) $('#pushOn').onclick = async (e) => {
     e.target.disabled = true;
@@ -884,7 +879,7 @@ function viewPlus() {
   const sub = { votes: 'Donne ton avis, anonymement', blog: 'Articles et tribunes', temoignages: 'Violences : témoigner', frise: 'La mobilisation jour par jour', entraide: 'Je propose / je cherche', droits: 'Absences, examens, interpellation', cr: 'Les AG en flash infos', revendications: 'Soutiens les revendications', contacts: 'Syndicats, écoute, urgences', alertes: 'Notifs quand un bâtiment est bloqué', modo: 'Accès syndicats' };
   view().innerHTML = `<h1 class="large-title">Plus</h1><p class="subtitle">Tout ce qu’il faut savoir sur la mobilisation.</p>
     <div class="menu-grid">${items.map((n) => `<a href="#/${n.id}">${icon(n.icon)}<span>${n.label}<br><small>${sub[n.id] || ''}</small></span></a>`).join('')}</div>
-    ${igCard()}`;
+    ${tgCard()}`;
 }
 
 // ---------- Feuille modale ----------
@@ -1315,7 +1310,7 @@ function storyFrame(ctx, W, H, accent) {
   ctx.fillText(new Date().toLocaleString('fr-FR', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }), 80, 300);
   // pied
   ctx.fillStyle = 'rgba(255,255,255,0.08)'; rrect(ctx, 80, H - 250, W - 160, 130, 30); ctx.fill();
-  ctx.fillStyle = '#ff6fae'; ctx.font = `800 40px ${MONO}`; ctx.fillText(igHandle(), 120, H - 172);
+  ctx.fillStyle = '#5ec2f2'; ctx.font = `800 36px ${MONO}`; ctx.fillText((state.data?.telegramUrl || 'https://t.me/ladoualyon1').replace(/^https?:\/\//, 'Telegram · '), 120, H - 172);
   ctx.fillStyle = '#d1d1d6'; ctx.font = `500 30px ${SF}`; ctx.fillText(`Infos en direct : ${location.host}`, 120, H - 130);
 }
 function pill(ctx, x, y, text, bg, fg) {
@@ -2470,8 +2465,8 @@ async function modTestimonies(el) {
 async function refresh() {
   state.raw = await api('/api/state');
   applyScope();
-  const ig = document.getElementById('ig-side');
-  if (ig) { ig.href = igUrl(); ig.querySelector('b').textContent = igHandle(); }
+  const tg = document.getElementById('tg-side');
+  if (tg && state.raw.telegramUrl) { tg.href = state.raw.telegramUrl; tg.hidden = false; }
   setOnline(state.raw.online);
 }
 let refreshTimer = null;
@@ -3205,7 +3200,7 @@ async function telegramCard() {
   const ok = !t.problem && t.chats.length && t.chats.every((c) => c.ok);
   const line = (good, txt) => `<div class="tg-line ${good ? 'ok' : 'ko'}">${good ? '✅' : '❌'} ${txt}</div>`;
   const st = t.status;
-  box.innerHTML = `<div class="card tg-card ${ok ? 'ok' : 'ko'}">
+  box.innerHTML = `<div class="card tg-diag ${ok ? 'ok' : 'ko'}">
     <div class="kicker">📣 Chaîne Telegram · ${ok ? 'reliée' : 'à réparer'}</div>
     ${line(t.configured.token && t.bot, t.bot ? `Bot <b>@${esc(t.bot.username)}</b> reconnu` : 'Jeton du bot (TELEGRAM_BOT_TOKEN)')}
     ${line(t.configured.chat, t.configured.chat ? `Chaîne principale : <b>${esc(t.mainChat)}</b>${t.url ? ` · <a href="${esc(t.url)}" target="_blank" rel="noopener">ouvrir</a>` : ''}` : 'Chaîne principale (TELEGRAM_CHAT_ID)')}

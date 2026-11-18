@@ -13,8 +13,8 @@ export const mailEnabled = () => brevoReady() || resendReady() || smtpReady();
 export const mailProvider = () => (brevoReady() ? 'Brevo' : resendReady() ? 'Resend' : smtpReady() ? 'SMTP' : null);
 export const SITE_NAME = 'Lyon 1 · La Doua en lutte';
 const FROM = () => process.env.MAIL_FROM || (process.env.MAIL_FROM_EMAIL ? `${SITE_NAME} <${process.env.MAIL_FROM_EMAIL}>` : process.env.SMTP_USER) || `${SITE_NAME} <alertes@example.org>`;
-export const INSTAGRAM_URL = () => process.env.INSTAGRAM_URL || 'https://www.instagram.com/lyon1_ladoua.enlutte/';
-export const INSTAGRAM_HANDLE = () => '@' + (INSTAGRAM_URL().match(/instagram\.com\/([^/?#]+)/) || [0, 'lyon1_ladoua.enlutte'])[1];
+// Chaîne Telegram de la mobilisation, rappelée en bas des emails
+const TELEGRAM_LINK = () => (process.env.TELEGRAM_URL && !/bot\/?$/i.test(process.env.TELEGRAM_URL) ? process.env.TELEGRAM_URL : 'https://t.me/ladoualyon1');
 // Sur Render, l'adresse publique (https://xxx.onrender.com) est fournie automatiquement : pas besoin de nom de domaine.
 export const SITE_URL = () => (process.env.SITE_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`).replace(/\/$/, '');
 
@@ -110,9 +110,9 @@ export function renderEmail({ tone = 'red', kicker, title, items = [], body = ''
 ${body ? `<tr><td style="padding:16px 22px 4px;font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;color:#1c1c1e">${esc(body).replace(/\n/g, '<br>')}</td></tr>` : ''}
 ${rows ? `<tr><td style="padding:8px 8px 0"><table role="presentation" width="100%" style="border-collapse:collapse">${rows}</table></td></tr>` : ''}
 <tr><td style="padding:20px 22px"><a href="${site}" style="display:inline-block;background:#1c1c1e;color:#fff;text-decoration:none;font:600 15px -apple-system,Segoe UI,Roboto,sans-serif;padding:12px 20px;border-radius:12px">${esc(cta)} →</a></td></tr>
-<tr><td style="padding:0 22px 14px;font:600 14px -apple-system,Segoe UI,Roboto,sans-serif"><a href="${INSTAGRAM_URL()}" style="color:#d62976;text-decoration:none">Instagram ${esc(INSTAGRAM_HANDLE())}</a></td></tr>
+<tr><td style="padding:0 22px 14px;font:600 14px -apple-system,Segoe UI,Roboto,sans-serif"><a href="${TELEGRAM_LINK()}" style="color:#229ED9;text-decoration:none">Rejoindre la chaîne Telegram</a></td></tr>
 <tr><td style="padding:0 22px 20px;font:12px -apple-system,Segoe UI,Roboto,sans-serif;color:#8e8e93">${SITE_NAME}<br>Tu reçois cet email car tu t'es inscrit·e aux alertes. <a href="${unsub}" style="color:#8e8e93">Se désinscrire</a></td></tr>
 </table></body></html>`;
-  const text = `${kicker}\n${title}\n\n${body ? body + '\n\n' : ''}${items.map((i) => `- ${i.label}${i.value ? ' : ' + i.value : ''}`).join('\n')}\n\n${site}\nInstagram : ${INSTAGRAM_URL()}\n\n${SITE_NAME}\nSe désinscrire : ${unsub}`;
+  const text = `${kicker}\n${title}\n\n${body ? body + '\n\n' : ''}${items.map((i) => `- ${i.label}${i.value ? ' : ' + i.value : ''}`).join('\n')}\n\n${site}\nTelegram : ${TELEGRAM_LINK()}\n\n${SITE_NAME}\nSe désinscrire : ${unsub}`;
   return { html, text };
 }
