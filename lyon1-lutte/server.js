@@ -18,7 +18,7 @@ import { EMOTES } from './public/emotes.js';
 const EMOTE_SET = new Set(EMOTES.map((e) => e.code));
 import { bannedList, findBanned, normalize as normalizeWord, BANNED_BASE } from './lib/moderation.js';
 import { telegramEnabled, telegramUrl, postTelegram, tgEsc } from './lib/telegram.js';
-import { DEFAULT_SITE, site, siteName, modSites, canSite, siteOf, migrateSites, effectiveBlocus, wantsSite, isAdmin } from './lib/sites.js';
+import { DEFAULT_SITE, site, siteName, modSites, canSite, siteOf, migrateSites, effectiveBlocus, wantsSite, isAdmin, ALL_SITES, telegramChats } from './lib/sites.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -123,6 +123,7 @@ function requireMod(req, res, next) {
 const presence = new Map();
 // Refuse si le modo n'a pas les droits sur ce site. Renvoie false si la réponse est déjà partie.
 function needSite(req, res, id) {
+  if (id === ALL_SITES) { if (isAdmin(req.mod)) return true; bad(res, 'Seul·e l’admin peut publier pour tous les sites.', 403); return false; }
   if (!site(id)) { bad(res, 'Site inconnu.'); return false; }
   if (!canSite(req.mod, id)) { bad(res, `Tu n'as pas les droits sur « ${siteName(id)} ». Demande à l'admin.`, 403); return false; }
   return true;
@@ -377,7 +378,7 @@ async function flushBuildingAlert() {
 async function notify(kind, { subject, kicker, title, body, items, tone, url = '/', site: sid = DEFAULT_SITE }) {
   if (sid !== DEFAULT_SITE) subject = `${siteName(sid)} · ${subject}`;
   sendPush(kind, { title: subject, body: String(body || '').replace(/\s+/g, ' ').slice(0, 200), url, tag: `${kind}-${sid}` }, (sub) => wantsSite(sub, sid)).catch((e) => console.error('[push]', e.message));
-  postTelegram(`📍 ${tgEsc(siteName(sid))}\n<b>${tgEsc(subject)}</b>${body ? '\n' + tgEsc(String(body).trim()).slice(0, 1500) : ''}${items?.length ? '\n' + items.map((i) => `• ${tgEsc(i.label)}`).join('\n') : ''}`, url, site(sid)?.telegramChatId);
+  for (const chat of telegramChats(sid)) postTelegram(`📍 ${tgEsc(siteName(sid))}\n<b>${tgEsc(subject)}</b>${body ? '\n' + tgEsc(String(body).trim()).slice(0, 1500) : ''}${items?.length ? '\n' + items.map((i) => `• ${tgEsc(i.label)}`).join('\n') : ''}`, url, chat);
   if (EMAIL_MODE !== 'instant') return;
   const recipients = db.subscribers.filter((s) => s.confirmed && s.alerts?.includes(kind) && wantsSite(s, sid));
   const messages = recipients.map((s) => ({ to: s.email, subject, ...renderEmail({ tone, kicker, title, body, items, token: s.token }) }));
@@ -633,6 +634,11 @@ mod.put('/events/:id', (req, res) => {
   const prevStart = db.events[i].start;
   try { db.events[i] = readEvent(req.body, db.events[i]); } catch (err) { return bad(res, err.message); }
   if (db.events[i].start !== prevStart) delete db.events[i].reminded; // nouvel horaire → nouveau rappel
+  // L'admin peut passer un rendez-vous à « tous les sites » (ou le ramener au site choisi)
+  if (typeof req.body.allSites === 'boolean' && isAdmin(req.mod)) {
+    if (req.body.allSites) db.events[i].site = ALL_SITES;
+    else if (db.events[i].site === ALL_SITES) db.events[i].site = site(req.body.site) ? req.body.site : DEFAULT_SITE;
+  }
   touch(req, db.events[i]);
   save(); audit(req.mod, 'événement modifié', db.events[i].title, siteOf(db.events[i])); broadcast('events', {});
   res.json(db.events[i]);
@@ -657,7 +663,7 @@ mod.post('/flashes', (req, res) => {
   db.flashes.unshift(f); db.flashes = db.flashes.slice(0, 100); save();
   audit(req.mod, 'flash', text, fsite);
   feed(`${siteName(fsite)} · ${text}`, f.level === 'alerte' ? 'alert' : f.level === 'ok' ? 'ok' : 'info');
-  if (f.level === 'alerte' && req.body.push !== false) postTelegram(`🚨 <b>ALERTE · ${tgEsc(siteName(fsite))}</b>\n${tgEsc(text)}`, '/', site(fsite)?.telegramChatId);
+  if (f.level === 'alerte' && req.body.push !== false) for (const chat of telegramChats(fsite)) postTelegram(`🚨 <b>ALERTE · ${tgEsc(siteName(fsite))}</b>\n${tgEsc(text)}`, '/', chat);
   if (f.level === 'alerte' && req.body.push !== false) sendPush('urgent', { title: `🚨 Alerte · ${siteName(fsite)}`, body: text, url: '/', tag: `flash-${f.id}` }, (sub) => wantsSite(sub, fsite)).catch((e) => console.error('[push]', e.message));
   broadcast('flashes', {});
   res.json(f);

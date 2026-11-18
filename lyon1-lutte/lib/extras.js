@@ -3,7 +3,7 @@
 import crypto from 'node:crypto';
 import { db, save, newId, now } from './store.js';
 import { SECRET, parseCookies } from './auth.js';
-import { DEFAULT_SITE, site, siteName, siteOf, canSite, isAdmin, wantsSite } from './sites.js';
+import { DEFAULT_SITE, site, siteName, siteOf, canSite, isAdmin, wantsSite, telegramChats } from './sites.js';
 import { renderRich } from './community.js';
 import { isSystemNick } from '../public/nicks.js';
 
@@ -251,7 +251,7 @@ export function registerExtras(app, mod, ctx) {
       const going = Object.keys(e.going || {}).length;
       const sid = siteOf(e);
       sendPush('events', { title: `⏰ Dans 1 h · ${e.type} · ${e.title}`, body: `${when}${e.place ? ' · ' + e.place : ''}${going ? ` · ${going} personnes y vont` : ''}`, url: '/#/agenda', tag: `rappel-${e.id}` }, (s) => wantsSite(s, sid)).catch(() => {});
-      postTelegram(`⏰ <b>Dans 1 h · ${tgEsc(e.type)}</b>\n${tgEsc(e.title)}\n${tgEsc(when)}${e.place ? ' · ' + tgEsc(e.place) : ''}${going ? `\n✋ ${going} personnes y vont` : ''}`, '/#/agenda', site(sid)?.telegramChatId);
+      for (const chat of telegramChats(sid)) postTelegram(`⏰ <b>Dans 1 h · ${tgEsc(e.type)}</b>\n${tgEsc(e.title)}\n${tgEsc(when)}${e.place ? ' · ' + tgEsc(e.place) : ''}${going ? `\n✋ ${going} personnes y vont` : ''}`, '/#/agenda', chat);
       feed(`${siteName(sid)} · ⏰ Dans 1 h : ${e.type} · ${e.title}${e.place ? ' · ' + e.place : ''}`, 'info');
     }
   }

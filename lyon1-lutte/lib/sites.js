@@ -3,6 +3,8 @@
 import { db, save } from './store.js';
 
 export const DEFAULT_SITE = 'doua';
+// Flash infos et rendez-vous envoyés par l'admin à tout le monde, tous sites confondus
+export const ALL_SITES = 'all';
 const DEFAULT_SITES = [
   { id: 'doua', name: 'Campus de la Doua', short: 'La Doua', campuses: ['La Doua'] },
   { id: 'iut-doua', name: 'IUT Lyon 1 · La Doua', short: 'IUT Doua', campuses: ['IUT Lyon 1'] },
@@ -13,11 +15,11 @@ const DEFAULT_SITES = [
 ];
 
 export const site = (id) => (db.sites || []).find((s) => s.id === id);
-export const siteName = (id) => site(id)?.short || id;
+export const siteName = (id) => (id === ALL_SITES ? 'Tous les sites' : site(id)?.short || id);
 export const isAdmin = (m) => m?.role === 'admin';
 // Sites sur lesquels un modo peut agir (l'admin : tous)
 export const modSites = (m) => (isAdmin(m) ? db.sites.map((s) => s.id) : (m?.sites || []).filter((id) => site(id)));
-export const canSite = (m, id) => isAdmin(m) || modSites(m).includes(id);
+export const canSite = (m, id) => isAdmin(m) || (id !== ALL_SITES && modSites(m).includes(id));
 export const siteOf = (item) => item?.site || DEFAULT_SITE;
 
 // Une seule fois : répartit les données existantes dans les sites (tout ce qui n'a pas de site va à la Doua).
@@ -66,4 +68,6 @@ export function effectiveBlocus(id) {
 }
 
 // Abonné·e concerné·e par un site (aucun site choisi = tous)
-export const wantsSite = (sub, id) => !sub.sites?.length || sub.sites.includes(id);
+export const wantsSite = (sub, id) => id === ALL_SITES || !sub.sites?.length || sub.sites.includes(id);
+// Chaînes Telegram à prévenir : celle du site, ou toutes (principale + chaque site) pour « tous les sites »
+export const telegramChats = (id) => (id === ALL_SITES ? [...new Set([null, ...(db.sites || []).map((s) => s.telegramChatId || null)])] : [site(id)?.telegramChatId || null]);

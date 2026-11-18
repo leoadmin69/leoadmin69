@@ -33,7 +33,8 @@ async function api(path, { method = 'GET', body, raw } = {}) {
 // (site choisi par l'étudiant·e, ou site de travail du modo dans l'espace modo).
 const ALL = 'all';
 const siteList = () => state.raw?.sites || [];
-const siteShort = (id) => siteList().find((x) => x.id === id)?.short || id;
+const ALL_SITES = 'all'; // flash / rendez-vous envoyé par l'admin à tous les sites
+const siteShort = (id) => (id === ALL_SITES ? 'Tous les sites' : siteList().find((x) => x.id === id)?.short || id);
 const siteFull = (id) => siteList().find((x) => x.id === id)?.name || id;
 const defaultSite = () => state.raw?.defaultSite || 'doua';
 const publicSite = () => (state.site && state.site !== ALL && siteList().some((x) => x.id === state.site) ? state.site : defaultSite());
@@ -41,7 +42,7 @@ const publicSite = () => (state.site && state.site !== ALL && siteList().some((x
 const UNIFIED = ['droits', 'frise', 'temoignages', 'revendications', 'contacts'];
 const unified = () => UNIFIED.includes(route().split('/')[0]);
 const scopeSite = () => (unified() ? ALL : route().startsWith('modo') && state.me ? state.modSite || defaultSite() : state.site && siteList().some((x) => x.id === state.site) ? state.site : state.site === ALL ? ALL : defaultSite());
-const inScope = (x, sc = scopeSite()) => sc === ALL || (x.site || defaultSite()) === sc;
+const inScope = (x, sc = scopeSite()) => sc === ALL || x.site === ALL_SITES || (x.site || defaultSite()) === sc;
 function applyScope() {
   const r = state.raw;
   if (!r) return;
@@ -59,7 +60,7 @@ function applyScope() {
   };
 }
 // Pastille du site sur une carte quand on regarde « Tous les sites »
-const siteTag = (x) => (state.data?.scope === ALL && !unified() ? `<span class="pill grey site-tag">📍 ${esc(siteShort(x.site || defaultSite()))}</span>` : '');
+const siteTag = (x) => (x.site === ALL_SITES ? '<span class="pill purple site-tag">🌍 Tous les sites</span>' : state.data?.scope === ALL && !unified() ? `<span class="pill grey site-tag">📍 ${esc(siteShort(x.site || defaultSite()))}</span>` : '');
 function renderSiteBar() {
   const bar = $('#sitebar');
   if (!bar) return;
@@ -1699,14 +1700,16 @@ async function modAgenda(el) {
       </div>
       <div class="field"><label>Infos (ordre du jour, parcours, consignes)</label><textarea id="eds" maxlength="1500"></textarea></div>
       <label class="check"><input type="checkbox" id="en"> Alerter les abonné·es par email</label>
+      ${state.me.role === 'admin' ? allSitesBox('eall') : ''}
       <div class="btn-row"><button class="btn">Publier</button><button type="button" class="btn ghost" id="ecancel" hidden>Annuler</button></div>
     </form></div>
     <h2 class="section">Tous les rendez-vous</h2>
-    <div class="list">${all.map((e) => `<div class="row"><span class="pill ${EVENT_TYPE[e.type][1]}">${EVENT_TYPE[e.type][0]}</span><div class="grow"><div class="title">${esc(e.title)}</div><div class="sub">${esc(dayLabel(e.start))} ${esc(hhmm(e.start))} · ${esc(e.place)}</div></div>
+    <div class="list">${all.map((e) => `<div class="row"><span class="pill ${EVENT_TYPE[e.type][1]}">${EVENT_TYPE[e.type][0]}</span><div class="grow"><div class="title">${esc(e.title)}</div><div class="sub">${esc(dayLabel(e.start))} ${esc(hhmm(e.start))} · ${esc(e.place)} ${e.site === ALL_SITES ? '· 🌍 tous les sites' : ''}</div></div>
       <button class="icon-btn" data-edit="${esc(e.id)}">${icon('edit', 18)}</button><button class="icon-btn" data-del="${esc(e.id)}">${icon('trash', 18)}</button></div>`).join('') || '<div class="empty">Aucun.</div>'}</div>`;
   $('#ev').onsubmit = async (e) => {
     e.preventDefault();
     const body = { version: editing ? all.find((y) => y.id === editing)?.updatedAt : undefined, type: $('#et').value, start: new Date($('#ed').value).toISOString(), title: $('#eti').value, place: $('#ep').value, address: $('#ea').value, description: $('#eds').value, notify: $('#en').checked };
+    if ($('#eall')) { if (editing) body.allSites = $('#eall').checked; else if ($('#eall').checked) body.site = ALL_SITES; }
     await act(() => (editing ? api(`/api/mod/events/${editing}`, { method: 'PUT', body }) : api('/api/mod/events', { method: 'POST', body })), editing ? 'Modifié.' : 'Publié.');
     render(true);
   };
@@ -1720,6 +1723,7 @@ async function modAgenda(el) {
       editing = ed;
       $('#evk').textContent = 'Modifier le rendez-vous';
       $('#et').value = x.type; $('#ed').value = local(x.start); $('#eti').value = x.title; $('#ep').value = x.place; $('#ea').value = x.address; $('#eds').value = x.description;
+      if ($('#eall')) $('#eall').checked = x.site === ALL_SITES;
       $('#ecancel').hidden = false;
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -1855,12 +1859,15 @@ function modFlash(el) {
       <div class="kicker">Flash info (affiché en haut de l’accueil + fil live)</div>
       <div class="segmented" id="fl"><button type="button" data-l="alerte">🚨 Alerte</button><button type="button" data-l="info" class="on">ℹ️ Info</button><button type="button" data-l="ok">✅ Bonne nouvelle</button></div>
       <textarea id="ft" maxlength="280" required placeholder="Ex : Nasse en cours place Bellecour, évitez le secteur."></textarea>
+      ${state.me.role === 'admin' ? allSitesBox('fall') : ''}
       <button class="btn">Publier</button></form></div>
     <h2 class="section">Flash publiés</h2>
-    <div class="list">${state.data.flashes.map((f) => `<div class="row"><span>${f.level === 'alerte' ? '🚨' : f.level === 'ok' ? '✅' : 'ℹ️'}</span><div class="grow"><div>${esc(f.text)}</div><div class="sub">${esc(ago(f.at))} · ${esc(f.org)}</div></div><button class="icon-btn" data-del="${esc(f.id)}">${icon('trash', 18)}</button></div>`).join('') || '<div class="empty">Aucun.</div>'}</div>`;
+    <div class="list">${state.data.flashes.map((f) => `<div class="row"><span>${f.level === 'alerte' ? '🚨' : f.level === 'ok' ? '✅' : 'ℹ️'}</span><div class="grow"><div>${esc(f.text)}</div><div class="sub">${esc(ago(f.at))} · ${esc(f.org)} ${f.site === ALL_SITES ? '· 🌍 tous les sites' : ''}</div></div><button class="icon-btn" data-del="${esc(f.id)}">${icon('trash', 18)}</button></div>`).join('') || '<div class="empty">Aucun.</div>'}</div>`;
   let level = 'info';
   $('#fl').onclick = (e) => { if (e.target.dataset.l) { level = e.target.dataset.l; $$('#fl button').forEach((b) => b.classList.toggle('on', b === e.target)); } };
-  $('#ff').onsubmit = async (e) => { e.preventDefault(); await act(() => api('/api/mod/flashes', { method: 'POST', body: { level, text: $('#ft').value } }), 'Publié.'); await refresh(); render(true); };
+  $('#ff').onsubmit = async (e) => { e.preventDefault(); const all = $('#fall')?.checked;
+    if (all && !confirm(`Publier ce flash pour TOUS les sites${level === 'alerte' ? ' (alerte : notification à tout le monde)' : ''} ?`)) return;
+    await act(() => api('/api/mod/flashes', { method: 'POST', body: { level, text: $('#ft').value, ...(all ? { site: ALL_SITES } : {}) } }), all ? 'Publié pour tous les sites.' : 'Publié.'); await refresh(); render(true); };
   el.querySelector('.list').onclick = async (e) => { const id = e.target.closest('[data-del]')?.dataset.del; if (id) { await act(() => api(`/api/mod/flashes/${id}`, { method: 'DELETE' }), 'Retiré.'); await refresh(); render(true); } };
 }
 
@@ -2874,4 +2881,9 @@ function updateReacts(id, reactions) {
   if (m) m.reactions = reactions;
   const el = $(`.msg[data-id="${CSS.escape(id)}"] .reacts`);
   if (el) el.outerHTML = reactsHtml({ id, reactions });
+}
+
+// Case « tous les sites » (admin uniquement) dans les formulaires Flash et Agenda
+function allSitesBox(id) {
+  return `<label class="check all-sites"><input type="checkbox" id="${id}"> <span>🌍 <b>Tous les sites</b> : visible par tout le monde (La Doua, IUT, Rockefeller, Lyon Sud, Gerland…), notifications et Telegram de chaque site</span></label>`;
 }
