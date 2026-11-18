@@ -1041,6 +1041,7 @@ async function applyChanges(list, label) {
   for (const c of list) { const b = state.data.buildings.find((x) => x.id === c.id); if (b) b.status = c.status; }
   window.drawTiles?.();
   showUndo(r.previous, `${label} · ${r.changed} bâtiment${r.changed > 1 ? 's' : ''}`);
+  publishedCard(r.reach, list);
 }
 
 function modSituation(el) {
@@ -1050,6 +1051,7 @@ function modSituation(el) {
   const canDictate = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
   el.innerHTML = `
     <div id="sightings"></div>
+    <div id="pubres"></div>
     <div class="card">
       <div class="kicker">Titre de l’accueil · ${esc(siteShort(state.modSite))} · un tap = publié</div>
       <div class="segmented status-seg" id="bstate" style="margin-top:10px">${['auto', 'actif', 'partiel', 'leve'].map((k) => `<button data-s="${k}" class="${(b.auto ? 'auto' : b.state) === k ? 'on ' + ({ auto: 'auto', actif: 'bloque', partiel: 'partiel', leve: 'ouvert' }[k]) : ''}">${{ auto: '🤖 Auto', actif: '🔴 Blocus', partiel: '🟠 Partiel', leve: '🟢 Levé' }[k]}</button>`).join('')}</div>
@@ -1738,7 +1740,8 @@ async function modAgenda(el) {
     e.preventDefault();
     const body = { version: editing ? all.find((y) => y.id === editing)?.updatedAt : undefined, type: $('#et').value, start: new Date($('#ed').value).toISOString(), title: $('#eti').value, place: $('#ep').value, address: $('#ea').value, description: $('#eds').value, notify: $('#en').checked };
     if ($('#eall')) { if (editing) body.allSites = $('#eall').checked; else if ($('#eall').checked) body.site = ALL_SITES; }
-    await act(() => (editing ? api(`/api/mod/events/${editing}`, { method: 'PUT', body }) : api('/api/mod/events', { method: 'POST', body })), editing ? 'Modifié.' : 'Publié.');
+    const er = await act(() => (editing ? api(`/api/mod/events/${editing}`, { method: 'PUT', body }) : api('/api/mod/events', { method: 'POST', body })));
+    toast(editing ? 'Modifié.' : `✅ Publié${reachText(er.reach)}`);
     render(true);
   };
   $('#ecancel').onclick = () => render(true);
@@ -1895,7 +1898,8 @@ function modFlash(el) {
   $('#fl').onclick = (e) => { if (e.target.dataset.l) { level = e.target.dataset.l; $$('#fl button').forEach((b) => b.classList.toggle('on', b === e.target)); } };
   $('#ff').onsubmit = async (e) => { e.preventDefault(); const all = $('#fall')?.checked;
     if (all && !confirm(`Publier ce flash pour TOUS les sites${level === 'alerte' ? ' (alerte : notification à tout le monde)' : ''} ?`)) return;
-    await act(() => api('/api/mod/flashes', { method: 'POST', body: { level, text: $('#ft').value, ...(all ? { site: ALL_SITES } : {}) } }), all ? 'Publié pour tous les sites.' : 'Publié.'); await refresh(); render(true); };
+    const fr = await act(() => api('/api/mod/flashes', { method: 'POST', body: { level, text: $('#ft').value, ...(all ? { site: ALL_SITES } : {}) } }));
+    toast(`✅ Publié${reachText(fr.reach)}`); await refresh(); render(true); };
   el.querySelector('.list').onclick = async (e) => { const id = e.target.closest('[data-del]')?.dataset.del; if (id) { await act(() => api(`/api/mod/flashes/${id}`, { method: 'DELETE' }), 'Retiré.'); await refresh(); render(true); } };
 }
 
@@ -3167,5 +3171,57 @@ async function telegramCard() {
     const r = await act(() => api('/api/mod/telegram/test', { method: 'POST', body: { chat } })).catch(() => null);
     if (r) toast(r.ok ? `✅ Message de test envoyé dans ${r.chat}` : `❌ ${r.error}`);
     telegramCard();
+  };
+}
+
+// ---------- Bilan de publication + story Insta prête en un tap ----------
+function reachText(r) {
+  if (!r) return '';
+  const parts = [];
+  if (r.phones) parts.push(`📲 ${r.phones} téléphone${r.phones > 1 ? 's' : ''}${r.delaySec ? ` dans ${r.delaySec >= 60 ? Math.round(r.delaySec / 60) + ' min' : r.delaySec + ' s'}` : ''}`);
+  if (r.emails && r.emailMode === 'instant') parts.push(`✉️ ${r.emails} email${r.emails > 1 ? 's' : ''}`);
+  if (r.telegram) parts.push('📣 Telegram');
+  if (r.online) parts.push(`👀 ${r.online} en direct`);
+  return parts.length ? ' · ' + parts.join(' · ') : '';
+}
+let pubTimer = null;
+async function publishedCard(reach, list) {
+  const box = $('#pubres');
+  if (!box) return;
+  const names = (st) => list.filter((c) => c.status === st).map((c) => state.data.buildings.find((b) => b.id === c.id)?.name).filter(Boolean);
+  const summary = [['bloque', '🔴'], ['partiel', '🟠'], ['ouvert', '🟢']].map(([k, d]) => (names(k).length ? `${d} ${names(k).join(', ')}` : '')).filter(Boolean).join(' · ');
+  const r = reach || { phones: 0, telegram: 0, online: 0 };
+  box.innerHTML = `<div class="card pub-card">
+    <div class="pub-head"><b>✅ Publié</b><button class="pub-x" aria-label="Fermer">✕</button></div>
+    <div class="pub-sum">${esc(summary)}</div>
+    <div class="pub-reach">
+      <span><b>${r.phones}</b> téléphone${r.phones > 1 ? 's' : ''} ${r.delaySec ? `<small>notifiés dans ${r.delaySec >= 60 ? Math.round(r.delaySec / 60) + ' min' : r.delaySec + ' s'}</small>` : '<small>notifiés</small>'}</span>
+      ${r.emails && r.emailMode === 'instant' ? `<span><b>${r.emails}</b> email${r.emails > 1 ? 's' : ''}<small>envoyés</small></span>` : ''}
+      <span><b>${r.telegram ? '✓' : '✕'}</b> Telegram<small>${r.telegram ? 'envoyé' : 'non relié'}</small></span>
+      <span><b>${r.online}</b> en direct<small>sur le site</small></span>
+    </div>
+    <button class="btn red pub-share" id="pubshare" disabled>📸 Préparation de la story…</button>
+    <p class="faint small" style="margin:6px 0 0">Story avec le lien du site, prête à poster : site d’abord, Insta ensuite ✊</p>
+  </div>`;
+  $('.pub-x', box).onclick = () => (box.innerHTML = '');
+  box.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  clearTimeout(pubTimer);
+  pubTimer = setTimeout(() => { if ($('#pubres')) $('#pubres').innerHTML = ''; }, 120000);
+  // la story est préparée tout de suite, pour que le partage parte au premier tap
+  let file = null;
+  try {
+    const c = document.createElement('canvas'); c.width = 1080; c.height = 1920;
+    await storyCampus(c.getContext('2d'), 1080, 1920);
+    const blob = await new Promise((res) => c.toBlob(res, 'image/png'));
+    file = new File([blob], `ladoua-en-lutte-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.png`, { type: 'image/png' });
+  } catch {}
+  const btn = $('#pubshare');
+  if (!btn) return;
+  btn.disabled = !file;
+  btn.textContent = file ? '📸 Partager la story Insta' : '📸 Story indisponible';
+  btn.onclick = async () => {
+    if (!file) return;
+    if (navigator.canShare?.({ files: [file] })) { try { await navigator.share({ files: [file] }); } catch {} }
+    else { const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name; a.click(); toast('Story téléchargée : publie-la sur Instagram avec le sticker lien.'); }
   };
 }

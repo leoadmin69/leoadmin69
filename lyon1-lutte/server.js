@@ -428,6 +428,14 @@ async function flushBuildingAlert() {
     console.log(`[alertes] bâtiments : ${messages.length} email(s), ${r.sent} envoyé(s)`);
   }
 }
+// Bilan affiché au modo juste après une publication : combien de personnes vont être prévenues, et par où.
+function reach(kind, sid, { push = true, delayMs = 0 } = {}) {
+  const sids = sid === ALL_SITES ? null : [sid];
+  const phones = push && kind ? (db.pushSubs || []).filter((s) => s.kinds?.includes(kind) && (!sids || wantsSite(s, sid))).length : 0;
+  const emails = push && kind && mailEnabled() ? db.subscribers.filter((s) => s.confirmed && s.alerts?.includes(kind) && (!sids || wantsSite(s, sid))).length : 0;
+  return { phones, emails, emailMode: EMAIL_MODE, telegram: telegramEnabled() ? telegramChats(sid).length : 0, online: clients.size, delaySec: Math.round(delayMs / 1000) };
+}
+
 // Publication sur Telegram (chaîne du site, ou toutes pour « tous les sites »)
 function tgAnnounce(sid, subject, body, items, url) {
   for (const chat of telegramChats(sid)) postTelegram(`📍 ${tgEsc(siteName(sid))}\n<b>${tgEsc(subject)}</b>${body ? '\n' + tgEsc(String(body).trim()).slice(0, 1500) : ''}${items?.length ? '\n' + items.map((i) => `• ${tgEsc(i.label)}`).join('\n') : ''}`, url, chat);
@@ -668,7 +676,10 @@ mod.put('/buildings-batch', (req, res) => {
   if (parts.length) feed(`${where} · ${undo ? 'Correction · ' : ''}${parts.join(' · ')}`, moved.bloque.length ? 'alert' : moved.partiel.length ? 'warn' : 'ok');
   audit(req.mod, undo ? 'bâtiments (annulation)' : 'bâtiments (lot)', parts.join(' · '), [...touchedSites][0]);
   broadcast('buildings', {});
-  res.json({ previous, changed: previous.length, conflicts, forbidden });
+  const ts = [...touchedSites];
+  const sumReach = ts.map((sid) => reach('buildings', sid, { push: !undo, delayMs: ALERT_DELAY_MS }));
+  const total = sumReach.reduce((a, r) => ({ ...r, phones: a.phones + r.phones, emails: a.emails + r.emails, telegram: Math.max(a.telegram, r.telegram) }), { phones: 0, emails: 0, telegram: 0 });
+  res.json({ previous, changed: previous.length, conflicts, forbidden, reach: undo ? null : total });
 });
 mod.delete('/buildings/:id', (req, res) => {
   const i = db.buildings.findIndex((x) => x.id === req.params.id);
@@ -707,7 +718,7 @@ mod.post('/events', (req, res) => {
   const evMsg = { site: e.site, tone: 'blue', subject: `📣 ${e.type} : ${e.title} (${when})`, kicker: `LYON 1 · LA DOUA EN LUTTE · ${e.type.toUpperCase()}`, title: e.title, body: `${when}\n${e.place}${e.address ? ' · ' + e.address : ''}\n\n${e.description}`.trim(), url: '/#/agenda' };
   if (req.body.notify) notify('events', evMsg);
   else tgAnnounce(evMsg.site, evMsg.subject, evMsg.body, null, evMsg.url); // Telegram : toujours
-  res.json(e);
+  res.json({ ...e, reach: reach(req.body.notify ? 'events' : null, e.site) });
 });
 mod.put('/events/:id', (req, res) => {
   const i = db.events.findIndex((x) => x.id === req.params.id);
@@ -749,7 +760,7 @@ mod.post('/flashes', (req, res) => {
   if (req.body.push !== false) for (const chat of telegramChats(fsite)) postTelegram(`${{ alerte: '🚨 <b>ALERTE', info: 'ℹ️ <b>Info', ok: '✅ <b>Bonne nouvelle' }[f.level]} · ${tgEsc(siteName(fsite))}</b>\n${tgEsc(text)}`, '/', chat);
   if (f.level === 'alerte' && req.body.push !== false) sendPush('urgent', { title: `🚨 Alerte · ${siteName(fsite)}`, body: text, url: '/', tag: `flash-${f.id}` }, (sub) => wantsSite(sub, fsite)).catch((e) => console.error('[push]', e.message));
   broadcast('flashes', {});
-  res.json(f);
+  res.json({ ...f, reach: { ...reach(f.level === 'alerte' && req.body.push !== false ? 'urgent' : null, fsite), telegram: req.body.push !== false ? telegramChats(fsite).length * (telegramEnabled() ? 1 : 0) : 0 } });
 });
 mod.delete('/flashes/:id', (req, res) => {
   const f = db.flashes.find((x) => x.id === req.params.id);

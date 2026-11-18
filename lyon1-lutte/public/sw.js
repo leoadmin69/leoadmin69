@@ -1,6 +1,6 @@
 // Service worker : installation sur l'écran d'accueil, ouverture même sans réseau (dernières infos connues),
 // et réception des notifications (bâtiment bloqué, alerte, AG…).
-const VERSION = 'v24'; // à changer à chaque mise à jour importante : force les téléphones à recharger l'app
+const VERSION = 'v25'; // à changer à chaque mise à jour importante : force les téléphones à recharger l'app
 const SHELL = `shell-${VERSION}`;
 const DATA = 'data';
 const SHELL_FILES = ['/', '/style.css', '/app.js', '/nicks.js', '/emotes.js', '/vendor/qrcode.js', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/badge-96.png'];
