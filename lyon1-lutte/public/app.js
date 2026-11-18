@@ -3078,13 +3078,14 @@ async function openSnap(pid, asMod = false) {
   addEventListener('pagehide', close);
 }
 
+const SNAP_RATIO = 3 / 4; // largeur / hauteur des photos du chat (aperçu = photo envoyée = bulle)
 async function openCamera() {
   if (!state.me && !charterOk()) return toast('Accepte d’abord la nouvelle charte du chat (photos).');
   let facing = store.get('l1-cam', 'environment');
   let stream = null;
   const ov = document.createElement('div');
   ov.className = 'cam';
-  ov.innerHTML = `<video autoplay playsinline muted></video><div class="cam-flash"></div>
+  ov.innerHTML = `<div class="cam-frame"><video autoplay playsinline muted></video><div class="cam-flash"></div></div>
     <div class="cam-top"><button class="cam-x" aria-label="Fermer">✕</button><span>Photo éphémère · vue 1 fois</span><button class="cam-flip" aria-label="Changer de caméra">🔄</button></div>
     <div class="cam-bottom"><p>⚠️ Pas de visage reconnaissable sans accord</p><button class="cam-shot" aria-label="Prendre et envoyer"></button></div>`;
   document.body.appendChild(ov);
@@ -3103,12 +3104,17 @@ async function openCamera() {
   $('.cam-flip', ov).onclick = () => { facing = facing === 'user' ? 'environment' : 'user'; store.set('l1-cam', facing); start(); };
   $('.cam-shot', ov).onclick = async () => {
     if (!video.videoWidth) return;
-    const k = Math.min(1, 1280 / Math.max(video.videoWidth, video.videoHeight));
-    const w = Math.round(video.videoWidth * k), h = Math.round(video.videoHeight * k);
+    // Même cadre que l'aperçu : portrait 3:4, recadré au centre (comme object-fit: cover)
+    const vw = video.videoWidth, vh = video.videoHeight;
+    let sx = 0, sy = 0, sw = vw, sh = vh;
+    if (vw / vh > SNAP_RATIO) { sw = Math.round(vh * SNAP_RATIO); sx = Math.round((vw - sw) / 2); }
+    else { sh = Math.round(vw / SNAP_RATIO); sy = Math.round((vh - sh) / 2); }
+    const k = Math.min(1, 1280 / sh);
+    const w = Math.round(sw * k), h = Math.round(sh * k);
     const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
     const c = cv.getContext('2d');
     if (facing === 'user') { c.translate(w, 0); c.scale(-1, 1); }
-    c.drawImage(video, 0, 0, w, h);
+    c.drawImage(video, sx, sy, sw, sh, 0, 0, w, h);
     // vignette minuscule (16 px) : sert seulement de fond flou, rien n'y est reconnaissable
     const tc = document.createElement('canvas'); tc.width = 16; tc.height = Math.max(4, Math.round(16 * h / w));
     tc.getContext('2d').drawImage(cv, 0, 0, tc.width, tc.height);
