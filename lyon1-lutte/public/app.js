@@ -976,7 +976,8 @@ async function viewModo() {
   }
   const isAdm = state.me.role === 'admin';
   const isTerrain = state.me.role === 'terrain';
-  if (isTerrain) state.modTab = 'situation';
+  // le compte piquet a sa propre page, calquée sur la page publique Bâtiments
+  if (isTerrain) { if (!state.modSite) state.modSite = (state.me.sites || [])[0] || defaultSite(); return viewTerrain(); }
   const tabs = isTerrain ? [['situation', '🚧 Bâtiments']] : MOD_TABS.filter(([id]) => (!['comptes', 'sites', 'audience', 'instagram'].includes(id) || isAdm));
   // Sites où ce modo peut agir (l'admin : tous). Le site de travail est choisi ici et s'applique à tous les onglets.
   const mySites = isAdm ? siteList().map((x) => x.id) : (state.me.sites || []).filter((id) => siteList().some((x) => x.id === id));
@@ -997,7 +998,7 @@ async function viewModo() {
   showPresence();
   modPushCard();
   api('/api/mod/stats').then((s) => { const el = $('#mstats'); if (el) el.innerHTML = `${s.pushSubs} téléphone(s) · ${s.subscribers} email(s) · IA ${esc(s.aiEnabled ? s.aiProviders.join(' → ') : 'sans IA')} · emails ${s.mailProvider ? `${esc(s.mailProvider)} ${s.mailQuota.used}/${s.mailQuota.limit} aujourd’hui` : 'OFF'} · stockage ${s.storage === 'temporaire' ? '<b style="color:var(--red)">TEMPORAIRE (configure Supabase !)</b>' : esc(s.storage)}${s.reported ? ` · ${s.reported} msg signalé(s)` : ''}`; }).catch(() => {});
-  const fn = { story: modStory, instagram: modInstagram, votes: modPolls, blog: modBlog, temoignages: modTestimonies, entraide: modEntraide, droits: modDroits, situation: isTerrain ? modTerrainSituation : modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, sites: modSites, audience: modAudience, journal: modJournal, moi: modMe }[state.modTab] || (isTerrain ? modTerrainSituation : modSituation);
+  const fn = { story: modStory, instagram: modInstagram, votes: modPolls, blog: modBlog, temoignages: modTestimonies, entraide: modEntraide, droits: modDroits, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, sites: modSites, audience: modAudience, journal: modJournal, moi: modMe }[state.modTab] || modSituation;
   try { await fn($('#mod')); } catch (err) { if (/Connexion modo/.test(err.message)) { state.me = null; render(true); } else toast(err.message); }
 }
 // Autres modos connectés sur les mêmes sites : on le voit pour ne pas se marcher dessus
@@ -1013,145 +1014,98 @@ async function showPresence() {
 setInterval(() => { if (route().startsWith('modo') && state.me && !document.hidden) showPresence(); }, 45000);
 const act = async (fn, ok) => { try { const r = await fn(); if (ok) toast(ok); return r; } catch (e) { toast(e.message); throw e; } };
 
-// Compte piquet : interface minimale, identique à la page publique des bâtiments.
-// Chaque mise à jour commence par une photo prise sur place ; sans photo, aucun statut ne part.
-async function modTerrainSituation(el) {
-  el.innerHTML = '<div class="empty mono typing">Chargement des bâtiments…</div>';
-  let terrainBuildings = [];
-  try {
-    const r = await api('/api/mod/terrain/buildings');
-    terrainBuildings = r.buildings || [];
-  } catch (e) {
-    el.innerHTML = `<div class="card empty">${esc(e.message)}</div>`;
-    return;
-  }
-  let campus = 'Tous';
-  let query = '';
-
-  const renderGrid = () => {
-    const list = terrainBuildings.filter((b) => {
-      const campusOk = campus === 'Tous' || b.campus === campus;
-      const words = normSearch(query).split(' ').filter(Boolean);
-      return campusOk && words.every((w) => normSearch(`${b.name} ${b.note || ''} ${b.campus}`).includes(w));
-    }).sort((a, b) => {
-      const order = { bloque: 0, partiel: 1, ouvert: 2, inconnu: 3 };
-      return order[a.status] - order[b.status] || a.name.localeCompare(b.name);
-    });
-    el.querySelector('#terrain-grid').innerHTML = list.map((b) => `
-      <div class="bld ${esc(b.status)}" data-building="${esc(b.id)}">
-        <div class="status">${STATUS[b.status].dot} ${STATUS[b.status].label}</div>
+// Compte piquet : même écran que la page publique « Bâtiments », rien d'autre.
+// Toucher un bâtiment ouvre directement la caméra (pas d'import possible), puis on choisit l'état sur la photo.
+async function viewTerrain() {
+  const el = view();
+  if (!el.querySelector('#terrain-grid')) el.innerHTML = '<div class="empty mono typing">Chargement des bâtiments…</div>';
+  let list;
+  try { list = (await api('/api/mod/terrain/buildings')).buildings || []; }
+  catch (e) { if (/Connexion modo/.test(e.message)) { state.me = null; return render(true); } el.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  const campuses = ['Tous', ...new Set(list.map((b) => b.campus))];
+  if (!campuses.includes(state.tcampus)) state.tcampus = 'Tous';
+  const count = (st) => list.filter((b) => b.status === st).length;
+  el.innerHTML = `
+    <h1 class="large-title">Bâtiments</h1>
+    <p class="subtitle">📍 Compte piquet · ${esc(state.me.org)}. Touche un bâtiment, prends l’entrée en photo, choisis l’état. ${count('bloque')} bloqué(s), ${count('partiel')} partiel(s), ${count('ouvert')} ouvert(s).</p>
+    <div class="bsearch"><span aria-hidden="true">🔎</span><input type="search" id="terrain-search" placeholder="Chercher un bâtiment…" autocomplete="off" enterkeyhint="search" value="${esc(state.tsearch || '')}" aria-label="Chercher un bâtiment"><button type="button" id="terrain-clear" aria-label="Effacer" ${state.tsearch ? '' : 'hidden'}>✕</button></div>
+    ${campuses.length > 2 ? `<div class="segmented" id="terrain-campus">${campuses.map((c) => `<button data-c="${esc(c)}" class="${c === state.tcampus ? 'on' : ''}">${esc(c)}</button>`).join('')}</div>` : ''}
+    <div class="grid cols-3" id="terrain-grid"></div>
+    <p class="faint small" style="margin-top:18px">📷 Photo prise sur le moment obligatoire : l’import depuis la galerie est impossible. La photo n’est vue que par les modos et effacée après 24 h.</p>
+    <div class="btn-row" style="margin-top:8px"><button type="button" class="btn ghost" id="terrain-add">＋ Bâtiment absent de la liste</button><button type="button" class="btn ghost" id="terrain-out">Se déconnecter</button></div>`;
+  const order = { bloque: 0, partiel: 1, ouvert: 2, inconnu: 3 };
+  const draw = () => {
+    const words = normSearch(state.tsearch).split(' ').filter(Boolean);
+    const shown = list.filter((b) => (state.tcampus === 'Tous' || b.campus === state.tcampus) && words.every((w) => normSearch(`${b.name} ${b.note || ''} ${b.campus}`).includes(w)))
+      .sort((a, b) => order[a.status] - order[b.status] || a.name.localeCompare(b.name));
+    $('#terrain-grid').innerHTML = shown.map((b) => `
+      <div class="bld ${esc(b.status)}" data-update="${esc(b.id)}">
+        <div class="status">${b.yesterday && b.status === 'inconnu' ? '⚪ À CONFIRMER' : `${STATUS[b.status].dot} ${STATUS[b.status].label}`}</div>
         <div class="name">${esc(b.name)}</div>
         <div class="campus">${esc(b.campus)}</div>
-        ${b.note ? `<div class="note">${esc(b.note)}</div>` : ''}
+        ${b.yesterday && b.status === 'inconnu' ? `<div class="yday">Dernière info : ${STATUS[b.yesterday].dot} ${esc(STATUS[b.yesterday].label.toLowerCase())} · à reconfirmer</div>` : ''}
         <div class="when">${b.updatedAt ? 'MAJ ' + esc(ago(b.updatedAt)) : ''}</div>
         <button class="see-btn" data-update="${esc(b.id)}">📷 Mettre à jour</button>
-      </div>`).join('') || '<div class="empty">Aucun bâtiment trouvé.</div>';
+      </div>`).join('') || `<div class="card empty">${words.length ? 'Aucun bâtiment ne correspond.' : 'Aucun bâtiment.'}</div>`;
   };
-
-  const allBuildings = terrainBuildings;
-  const campuses = ['Tous', ...new Set(allBuildings.map((b) => b.campus))];
-  el.innerHTML = `
-    <p class="subtitle">Touche un bâtiment, prends une photo de l’entrée, puis choisis son état.</p>
-    <div class="bsearch"><span aria-hidden="true">🔎</span><input type="search" id="terrain-search" placeholder="Chercher un bâtiment…" autocomplete="off"><button type="button" id="terrain-clear" hidden>✕</button></div>
-    <button type="button" class="btn" id="terrain-add" style="width:100%;margin:10px 0">＋ Ajouter un bâtiment</button>
-    ${campuses.length > 2 ? `<div class="segmented" id="terrain-campus">${campuses.map((c) => `<button data-c="${esc(c)}" class="${c === campus ? 'on' : ''}">${esc(c)}</button>`).join('')}</div>` : ''}
-    <div class="grid cols-3" id="terrain-grid"></div>`;
-
-  const input = $('#terrain-search', el);
-  input.oninput = () => { query = input.value; $('#terrain-clear', el).hidden = !query; renderGrid(); };
-  $('#terrain-clear', el).onclick = () => { query = ''; input.value = ''; $('#terrain-clear', el).hidden = true; input.focus(); renderGrid(); };
-  $('#terrain-add', el).onclick = () => {
-    sheet(`<h2 style="margin:0 0 10px">＋ Nouveau bâtiment</h2>
-      <form class="form" id="terrain-add-form">
-        <div class="field"><label>Nom du bâtiment</label><input type="text" id="terrain-add-name" maxlength="80" required placeholder="Ex : Hall des sciences"></div>
-        <button class="btn" type="submit" style="width:100%">Ajouter</button>
-      </form>`, (root, close) => {
-      $('#terrain-add-name', root).focus();
-      $('#terrain-add-form', root).onsubmit = async (e) => {
-        e.preventDefault();
-        const name = $('#terrain-add-name', root).value.trim();
-        if (!name) return;
-        try {
-          const b = await api('/api/mod/terrain/buildings', { method: 'POST', body: { name, site: state.modSite } });
-          terrainBuildings.push(b);
-          close();
-          toast(`✅ Bâtiment ajouté : ${b.name}`);
-          renderGrid();
-        } catch (err) { toast(err.message); }
-      };
-    });
-  };
-  $('#terrain-campus', el)?.addEventListener('click', (e) => {
-    const c = e.target.dataset.c;
-    if (!c) return;
-    campus = c;
-    $$('#terrain-campus button').forEach((b) => b.classList.toggle('on', b.dataset.c === c));
-    renderGrid();
+  draw();
+  const input = $('#terrain-search');
+  input.oninput = () => { state.tsearch = input.value; $('#terrain-clear').hidden = !input.value; draw(); };
+  input.onkeydown = (e) => { if (e.key === 'Enter') input.blur(); };
+  $('#terrain-clear').onclick = () => { input.value = ''; state.tsearch = ''; $('#terrain-clear').hidden = true; draw(); input.focus(); };
+  $('#terrain-campus')?.addEventListener('click', (e) => { const c = e.target.dataset.c; if (c) { state.tcampus = c; $$('#terrain-campus button').forEach((x) => x.classList.toggle('on', x.dataset.c === c)); draw(); } });
+  $('#terrain-out').onclick = async () => { if (!confirm('Se déconnecter du compte piquet ?')) return; await api('/api/auth/logout', { method: 'POST' }).catch(() => {}); state.me = null; location.hash = '#/batiments'; render(true); };
+  $('#terrain-add').onclick = () => sheet(`<h2 style="margin:0 0 10px">＋ Bâtiment absent</h2>
+      <form class="form" id="terrain-add-form"><div class="field"><label>Nom du bâtiment</label><input type="text" id="terrain-add-name" maxlength="80" required placeholder="Ex : Hall des sciences"></div>
+      <button class="btn" type="submit" style="width:100%">Ajouter</button></form>`, (root, close) => {
+    $('#terrain-add-form', root).onsubmit = async (e) => {
+      e.preventDefault();
+      const name = $('#terrain-add-name', root).value.trim();
+      if (!name) return;
+      try { const nb = await api('/api/mod/terrain/buildings', { method: 'POST', body: { name, site: state.modSite } }); list.push(nb); close(); toast(`✅ Ajouté : ${nb.name}`); draw(); } catch (err) { toast(err.message); }
+    };
   });
-  renderGrid();
-
   el.onclick = (e) => {
     const id = e.target.closest('[data-update]')?.dataset.update;
-    if (id) openTerrainBuilding(id);
+    const b = id && list.find((x) => x.id === id);
+    if (!b || state.terrainBusy || $('.cam')) return;
+    // 1. la caméra s'ouvre tout de suite
+    openTerrainCamera((blob) => { if (blob) terrainChoose(b, blob, draw); });
   };
-
-  function openTerrainBuilding(id) {
-    const b = terrainBuildings.find((x) => x.id === id);
-    if (!b) return;
-    sheet(`<h2 style="margin:0 0 4px">📍 ${esc(b.name)}</h2>
-      <p class="muted small" style="margin:0 0 14px">1. Prends une photo de l’entrée : obligatoire.</p>
-      <button type="button" class="see-photo need" id="tp-camera" style="width:100%;color:var(--text)"><span id="tp-txt">📷 Prendre une photo avec la caméra</span><small>Import désactivé : seule une photo prise sur place est acceptée.</small></button>
-      <p class="faint small" style="margin:12px 0 8px">2. Choisis ce que tu vois :</p>
-      <div class="see-grid locked" id="tp-grid">
-        <button class="ab red" data-st="bloque">🔴 Bloqué</button>
-        <button class="ab orange" data-st="partiel">🟠 Partiel</button>
-        <button class="ab green" data-st="ouvert">🟢 Ouvert</button>
-      </div>`, (root, close) => {
-      let photo = null;
-      $('#tp-camera', root).onclick = () => openTerrainCamera(async (blob) => {
-        if (!blob) return;
-        try {
-          photo = await shrinkPhoto(blob);
-          $('#tp-txt', root).textContent = '✅ Photo prise (touche pour reprendre)';
-          $('#tp-camera', root).classList.add('on');
-          $('#tp-camera', root).classList.remove('need');
-          $('#tp-grid', root).classList.remove('locked');
-        } catch {
-          photo = null;
-          $('#tp-txt', root).textContent = '📷 Photo illisible, réessaie';
-        }
-      });
-      root.onclick = async (e) => {
-        const status = e.target.closest('[data-st]')?.dataset.st;
-        if (!status) return;
-        if (!photo) {
-          $('#tp-camera', root).classList.remove('shake');
-          void $('#tp-camera', root).offsetWidth;
-          $('#tp-camera', root).classList.add('shake');
-          return toast('📷 Prends d’abord une photo : elle est obligatoire.');
-        }
-        if (root.dataset.busy) return;
-        root.dataset.busy = '1';
-        $('#tp-grid', root).classList.add('locked');
-        try {
-          const q = new URLSearchParams({ status });
-          const r = await fetch(`/api/mod/terrain/building/${encodeURIComponent(id)}/photo?${q}`, {
-            method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'image/jpeg' }, body: photo,
-          });
-          const j = await r.json().catch(() => ({}));
-          if (!r.ok) throw new Error(j.error || 'Mise à jour impossible.');
-          Object.assign(b, { status, updatedAt: j.updatedAt, by: j.by });
-          toast(`✅ ${b.name} : ${STATUS[status].label}`);
-          close();
-          renderGrid();
-        } catch (err) {
-          toast(err.message);
-          delete root.dataset.busy;
-          $('#tp-grid', root)?.classList.remove('locked');
-        }
-      };
-    });
-  }
+}
+// 2. la photo est affichée, on choisit l'état ; rien ne part sans photo
+async function terrainChoose(b, blob, draw) {
+  let photo;
+  try { photo = await shrinkPhoto(blob); } catch { return toast('📷 Photo illisible, réessaie.'); }
+  const url = URL.createObjectURL(photo);
+  sheet(`<h2 style="margin:0 0 4px">📍 ${esc(b.name)}</h2>
+    <img class="tp-prev" src="${url}" alt="Ta photo" style="display:block;width:100%;max-height:38dvh;object-fit:cover;border-radius:16px;margin:8px 0 6px">
+    <button type="button" class="btn ghost" id="tp-retake" style="width:100%;margin-bottom:12px">🔄 Reprendre la photo</button>
+    <p class="faint small" style="margin:0 0 8px">Qu’est-ce que tu vois ?</p>
+    <div class="see-grid" id="tp-grid">
+      <button class="ab red" data-st="bloque">🔴 Bloqué</button>
+      <button class="ab orange" data-st="partiel">🟠 Partiel</button>
+      <button class="ab green" data-st="ouvert">🟢 Ouvert</button>
+    </div>`, (root, close) => {
+    $('#tp-retake', root).onclick = () => { close(); openTerrainCamera((nb) => { if (nb) terrainChoose(b, nb, draw); }); };
+    $('#tp-grid', root).onclick = async (e) => {
+      const status = e.target.closest('[data-st]')?.dataset.st;
+      if (!status || state.terrainBusy) return;
+      state.terrainBusy = true;
+      $('#tp-grid', root).classList.add('locked');
+      try {
+        const r = await fetch(`/api/mod/terrain/building/${encodeURIComponent(b.id)}/photo?${new URLSearchParams({ status })}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'image/jpeg' }, body: photo });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || 'Mise à jour impossible.');
+        Object.assign(b, { status, updatedAt: j.updatedAt, by: j.by }); delete b.yesterday;
+        navigator.vibrate?.(15);
+        toast(`✅ ${b.name} : ${STATUS[status].label}`);
+        close(); draw();
+      } catch (err) { toast(err.message); $('#tp-grid', root)?.classList.remove('locked'); }
+      finally { state.terrainBusy = false; }
+    };
+  });
+  setTimeout(() => URL.revokeObjectURL(url), 10 * 60e3);
 }
 
 // ----- Situation : mise à jour éclair des bâtiments -----
