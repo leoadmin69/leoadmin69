@@ -31,6 +31,7 @@ const EMOTE_SET = new Set(EMOTES.map((e) => e.code));
 import { bannedList, findBanned, normalize as normalizeWord, BANNED_BASE } from './lib/moderation.js';
 import { telegramEnabled, telegramUrl, postTelegram, tgEsc, telegramCheck, telegramTest, telegramStatus, normalizeChat } from './lib/telegram.js';
 import { DEFAULT_SITE, site, siteName, modSites, canSite, siteOf, migrateSites, effectiveBlocus, wantsSite, isAdmin, ALL_SITES, telegramChats } from './lib/sites.js';
+import { syncInstagram, startInstagramSync } from './lib/instagram.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -1177,6 +1178,31 @@ mod.delete('/reports/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// Canal Instagram officiel : lecture périodique, extraction IA, publication automatique.
+mod.get('/instagram', requireAdmin, (req, res) => res.json({
+ enabled: typeof db.settings.instagram?.enabled === 'boolean'
+   ? db.settings.instagram.enabled
+   : /^true|1|yes$/i.test(process.env.INSTAGRAM_CHANNEL_ENABLED || ''),
+ url: db.settings.instagram?.url || process.env.INSTAGRAM_CHANNEL_URL || 'https://www.instagram.com/channel/UFc6KiIvKuUCSwgk/',
+ interval: Math.max(5, Number(db.settings.instagram?.interval || process.env.INSTAGRAM_CHANNEL_INTERVAL_MINUTES || 15)),
+ site: db.settings.instagram?.site || DEFAULT_SITE,
+ status: db.settings.instagram || {},
+}));
+mod.put('/instagram', requireAdmin, (req, res) => {
+ db.settings.instagram ||= {};
+ if (req.body.url !== undefined) db.settings.instagram.url = String(req.body.url).trim().slice(0, 500);
+ if (req.body.site !== undefined && site(req.body.site)) db.settings.instagram.site = req.body.site;
+ db.settings.instagram.enabled = !!req.body.enabled;
+ db.settings.instagram.interval = Math.max(5, Number(req.body.interval || 15));
+ save();
+ res.json({ ok: true, enabled: db.settings.instagram.enabled, site: db.settings.instagram.site });
+});
+mod.post('/instagram/sync', requireAdmin, async (req, res) => {
+ const out = await syncInstagram({ broadcast, feed, queueBuildingAlert });
+ audit(req.mod, 'canal Instagram synchronisé', out.source, db.settings.instagram?.site || DEFAULT_SITE);
+ res.json(out);
+});
+
 mod.get('/stats', (req, res) => res.json({
   subscribers: db.subscribers.filter((s) => s.confirmed).length,
   pending: db.subscribers.filter((s) => !s.confirmed).length,
@@ -1319,6 +1345,8 @@ app.use((err, req, res, next) => {
   if (!res.headersSent) res.status(err?.status && err.status < 500 ? err.status : 500).json({ error: err?.status && err.status < 500 ? 'Requête refusée.' : 'Erreur du serveur, réessaie.' });
 });
 app.get('*', (req, res) => res.sendFile(path.join(ROOT, 'public', 'index.html')));
+
+startInstagramSync({ broadcast, feed, queueBuildingAlert });
 
 app.listen(PORT, () => {
   console.log(`${SITE_NAME} → ${SITE_URL()} (port ${PORT})`);

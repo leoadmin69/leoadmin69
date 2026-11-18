@@ -227,6 +227,129 @@ async function analyzeWithGroq(pdf, onEvent) {
   return parseJson(out);
 }
 
+const INSTAGRAM_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['buildings', 'events', 'flashes'],
+  properties: {
+    buildings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name', 'status', 'note'],
+        properties: {
+          name: str,
+          status: { type: 'string', enum: ['bloque', 'partiel', 'ouvert', 'inconnu'] },
+          note: str,
+        },
+      },
+    },
+    events: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['type', 'title', 'date', 'place', 'description'],
+        properties: {
+          type: { type: 'string', enum: ['AG', 'manif', 'rassemblement', 'action', 'autre'] },
+          title: str,
+          date: str,
+          place: str,
+          description: str,
+        },
+      },
+    },
+    flashes: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['title', 'text', 'tone'],
+        properties: {
+          title: str,
+          text: str,
+          tone: { type: 'string', enum: ['info', 'warn', 'alert', 'ok'] },
+        },
+      },
+    },
+  },
+};
+
+const INSTAGRAM_SYSTEM = `Tu lis uniquement des messages publics d'un canal officiel de mobilisation étudiante.
+Extrais uniquement les informations factuelles et vérifiables destinées aux étudiant·es de Lyon 1.
+Autorisé : état d'un bâtiment, AG, manifestation, rassemblement, action, horaire, lieu, flash urgent.
+Interdit : rumeur, date ou lieu absent, nom complet de personne, humiliation, appel à la violence, donnée personnelle.
+Si une information est incertaine, utilise une chaîne vide, un tableau vide ou "inconnu".
+Dates au format ISO AAAA-MM-JJTHH:mm:ss.000Z si l'heure est connue. Sinon garde AAAA-MM-JJ.
+Tout en français. Ne publie rien d'autre que le JSON demandé.`;
+
+async function instagramWithGemini(text) {
+  const model = await geminiModel();
+  const res = await fetch(`${GEMINI_BASE()}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    method: 'POST',
+    signal: AbortSignal.timeout(120000),
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: INSTAGRAM_SYSTEM }] },
+      contents: [{ role: 'user', parts: [{ text: `Messages récents du canal officiel :\n"""\n${text.slice(0, 30000)}\n"""` }] }],
+      generationConfig: { responseMimeType: 'application/json', responseSchema: geminiSchema(INSTAGRAM_SCHEMA), temperature: 0.1, maxOutputTokens: 12000 },
+    }),
+  });
+  if (!res.ok) throw await httpError(res, 'Gemini Instagram');
+  const j = await res.json();
+  return parseJson((j.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join(''));
+}
+
+async function instagramWithGroq(text) {
+  const model = await groqModel();
+  const res = await fetch(`${GROQ_BASE()}/chat/completions`, {
+    method: 'POST',
+    signal: AbortSignal.timeout(120000),
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+    body: JSON.stringify({
+      model,
+      temperature: 0.1,
+      max_tokens: 6000,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: `${INSTAGRAM_SYSTEM}\n\nSchéma JSON exact :\n${JSON.stringify(INSTAGRAM_SCHEMA)}` },
+        { role: 'user', content: text.slice(0, 30000) },
+      ],
+    }),
+  });
+  if (!res.ok) throw await httpError(res, 'Groq Instagram');
+  const j = await res.json();
+  return parseJson(j.choices?.[0]?.message?.content || '');
+}
+
+async function instagramLocally(text) {
+  const data = { buildings: [], events: [], flashes: [] };
+  const reBuildings = /([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9 .'-]{1,60})\s+(bloqué|bloquée|bloqués|bloquées|partiel|partielle|rouvert|réouvert|ouverts|ouvertes)/gi;
+  for (const m of text.matchAll(reBuildings)) {
+    const name = m[1].trim().replace(/^(le |la |les |bâtiment |batiment )/i, '').slice(0, 80);
+    const word = m[2].toLowerCase();
+    const status = /bloqu/.test(word) ? 'bloque' : /partiel/.test(word) ? 'partiel' : 'ouvert';
+    if (!data.buildings.some((b) => b.name.toLowerCase() === name.toLowerCase())) data.buildings.push({ name, status, note: '' });
+  }
+  if (/AG|assemblée générale|rassemblement|manif/.test(text)) {
+    data.flashes.push({ title: 'Mobilisation à venir', text: text.slice(0, 220).trim(), tone: 'info' });
+  }
+  return data;
+}
+
+export async function analyzeInstagramText(text) {
+  for (const p of order()) {
+    try {
+      const data = p === 'gemini' ? await instagramWithGemini(text) : p === 'groq' ? await instagramWithGroq(text) : null;
+      if (data) return { data, source: p };
+    } catch (e) {
+      console.error(`[ia] Instagram ${p}:`, e.message);
+    }
+  }
+  return { data: await instagramLocally(text), source: 'local' };
+}
+
 // Essaie chaque IA disponible dans l'ordre ; renvoie { data, source }.
 export async function analyzePdf(pdf, onEvent) {
   const run = { gemini: analyzeWithGemini, groq: analyzeWithGroq, anthropic: analyzeWithClaude };

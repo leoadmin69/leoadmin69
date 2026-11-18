@@ -36,6 +36,15 @@ services:
         sync: false
       - key: GROQ_API_KEY
         sync: false
+      # Canal Instagram officiel : lecture automatique des informations de mobilisation
+      - key: INSTAGRAM_CHANNEL_ENABLED
+        value: "true"
+      - key: INSTAGRAM_CHANNEL_URL
+        value: "https://www.instagram.com/channel/UFc6KiIvKuUCSwgk/"
+      - key: INSTAGRAM_CHANNEL_INTERVAL_MINUTES
+        value: "15"
+      - key: INSTAGRAM_CHANNEL_COOKIES
+        sync: false
       # Emails gratuits sans nom de domaine (facultatif : les notifications téléphone suffisent)
       - key: BREVO_API_KEY
         sync: false

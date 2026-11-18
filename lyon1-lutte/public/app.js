@@ -952,7 +952,7 @@ function sheet(html, setup) {
 // Espace modos
 // =====================================================================
 const MOD_TABS = [
-  ['situation', '🚧 Bâtiments'], ['story', '📸 Story Insta'], ['agenda', '📅 Agenda'], ['cr', '🤖 CR + IA'], ['flash', '⚡ Flash'],
+  ['situation', '🚧 Bâtiments'], ['instagram', '📷 Instagram'], ['story', '📸 Story Insta'], ['agenda', '📅 Agenda'], ['cr', '🤖 CR + IA'], ['flash', '⚡ Flash'],
   ['votes', '🗳️ Votes'], ['blog', '✍️ Blog'], ['temoignages', '🛡️ Témoignages'], ['entraide', '🤝 Entraide'], ['droits', '⚖️ Page droits'], ['revendications', '✊ Revendications'], ['contacts', '📇 Contacts'], ['chat', '🛡️ Chat'], ['comptes', '👥 Comptes'], ['sites', '📍 Sites'], ['audience', '📊 Audience'], ['journal', '📜 Journal'], ['moi', '🔑 Mon compte'],
 ];
 async function viewModo() {
@@ -977,7 +977,7 @@ async function viewModo() {
   const isAdm = state.me.role === 'admin';
   const isTerrain = state.me.role === 'terrain';
   if (isTerrain) state.modTab = 'situation';
-  const tabs = isTerrain ? [['situation', '🚧 Bâtiments']] : MOD_TABS.filter(([id]) => !['comptes', 'sites', 'audience'].includes(id) || isAdm);
+  const tabs = isTerrain ? [['situation', '🚧 Bâtiments']] : MOD_TABS.filter(([id]) => (!['comptes', 'sites', 'audience', 'instagram'].includes(id) || isAdm));
   // Sites où ce modo peut agir (l'admin : tous). Le site de travail est choisi ici et s'applique à tous les onglets.
   const mySites = isAdm ? siteList().map((x) => x.id) : (state.me.sites || []).filter((id) => siteList().some((x) => x.id === id));
   if (!mySites.includes(state.modSite)) { state.modSite = mySites.includes(store.get('l1-modsite', '')) ? store.get('l1-modsite', '') : mySites[0] || defaultSite(); applyScope(); }
@@ -995,7 +995,7 @@ async function viewModo() {
   showPresence();
   modPushCard();
   api('/api/mod/stats').then((s) => { const el = $('#mstats'); if (el) el.innerHTML = `${s.pushSubs} téléphone(s) · ${s.subscribers} email(s) · IA ${esc(s.aiEnabled ? s.aiProviders.join(' → ') : 'sans IA')} · emails ${s.mailProvider ? `${esc(s.mailProvider)} ${s.mailQuota.used}/${s.mailQuota.limit} aujourd’hui` : 'OFF'} · stockage ${s.storage === 'temporaire' ? '<b style="color:var(--red)">TEMPORAIRE (configure Supabase !)</b>' : esc(s.storage)}${s.reported ? ` · ${s.reported} msg signalé(s)` : ''}`; }).catch(() => {});
-  const fn = { story: modStory, votes: modPolls, blog: modBlog, temoignages: modTestimonies, entraide: modEntraide, droits: modDroits, situation: isTerrain ? modTerrainSituation : modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, sites: modSites, audience: modAudience, journal: modJournal, moi: modMe }[state.modTab] || (isTerrain ? modTerrainSituation : modSituation);
+  const fn = { story: modStory, instagram: modInstagram, votes: modPolls, blog: modBlog, temoignages: modTestimonies, entraide: modEntraide, droits: modDroits, situation: isTerrain ? modTerrainSituation : modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, sites: modSites, audience: modAudience, journal: modJournal, moi: modMe }[state.modTab] || (isTerrain ? modTerrainSituation : modSituation);
   try { await fn($('#mod')); } catch (err) { if (/Connexion modo/.test(err.message)) { state.me = null; render(true); } else toast(err.message); }
 }
 // Autres modos connectés sur les mêmes sites : on le voit pour ne pas se marcher dessus
@@ -2211,6 +2211,36 @@ async function modChat(el) {
     const h = e.target.dataset.hide; const r = e.target.dataset.restore;
     if (h) { await act(() => api(`/api/mod/chat/${h}`, { method: 'DELETE' }), 'Masqué.'); render(true); }
     if (r) { await act(() => api(`/api/mod/chat/${r}/restore`, { method: 'POST' }), 'Rétabli.'); render(true); }
+  };
+}
+
+async function modInstagram(el) {
+  const cfg = await api('/api/mod/instagram');
+  el.innerHTML = `
+    <div class="card">
+      <div class="kicker">📷 Canal Instagram officiel</div>
+      <p class="muted small">Le canal fourni est lu périodiquement. Les messages sont analysés par l’IA, puis les bâtiments, AG/manifs et flashs sont publiés automatiquement sans doublon.</p>
+      <form class="form" id="instagram-config">
+        <div class="field"><label>URL du canal</label><input type="url" id="instagram-url" value="${esc(cfg.url)}" required></div>
+        <div class="grid cols-2">
+          <div class="field"><label>Site ciblé</label><select id="instagram-site">${siteList().map((x) => `<option value="${esc(x.id)}" ${x.id === cfg.site ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
+          <div class="field"><label>Lecture toutes les (minutes)</label><input type="number" id="instagram-interval" min="5" max="1440" value="${esc(cfg.interval)}"></div>
+        </div>
+        <label class="check"><input type="checkbox" id="instagram-enabled" ${cfg.enabled ? 'checked' : ''}> Activation automatique</label>
+        <div class="btn-row"><button class="btn" type="submit">Enregistrer</button><button type="button" class="btn ghost" id="instagram-sync">Synchroniser maintenant</button></div>
+      </form>
+      <div id="instagram-status" class="terminal" style="margin-top:12px"><div class="body">${cfg.status.lastError ? `<span style="color:var(--red)">⚠ ${esc(cfg.status.lastError)}</span>` : cfg.status.lastCheck ? `Dernière lecture ${esc(ago(cfg.status.lastCheck))}<br>Messages vus : ${cfg.status.sourceCount || 0}<br>Analyse : ${esc(cfg.status.sourceModel || 'inconnue')}<br><pre>${esc(JSON.stringify(cfg.status.applied || {}, null, 2))}</pre>` : 'Pas encore lu.'}</div></div>
+    </div>`;
+  $('#instagram-config', el).onsubmit = async (e) => {
+    e.preventDefault();
+    await act(() => api('/api/mod/instagram', { method: 'PUT', body: { url: $('#instagram-url', el).value, site: $('#instagram-site', el).value, interval: Number($('#instagram-interval', el).value), enabled: $('#instagram-enabled', el).checked } }), 'Canal Instagram enregistré.');
+  };
+  $('#instagram-sync', el).onclick = async () => {
+    $('#instagram-status', el).innerHTML = '<div class="body">Lecture du canal…</div>';
+    try {
+      const r = await act(() => api('/api/mod/instagram/sync', { method: 'POST' }));
+      $('#instagram-status', el).innerHTML = `<div class="body">Lu avec ${esc(r.aiSource)} : ${r.applied.buildings.length} bâtiment(s), ${r.applied.events.length} événement(s), ${r.applied.flashes.length} flash(s).<pre>${esc(JSON.stringify(r.applied, null, 2))}</pre></div>`;
+    } catch (e) { $('#instagram-status', el).innerHTML = `<div class="body" style="color:var(--red)">⚠ ${esc(e.message)}</div>`; }
   };
 }
 
