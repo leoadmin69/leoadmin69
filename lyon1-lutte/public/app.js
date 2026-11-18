@@ -9,6 +9,17 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
 
+// Arrivée depuis l'ancienne adresse du site : « oldpush=1 » = ce téléphone reçoit déjà les notifications
+// par son ancien abonnement (on ne lui redemande pas, sinon il les recevrait en double)
+try {
+  const q = new URLSearchParams(location.search);
+  if (q.has('oldpush') || q.has('moved')) {
+    if (q.has('oldpush')) store.set('l1-oldpush', 1);
+    q.delete('oldpush'); q.delete('moved');
+    history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash);
+  }
+} catch {}
+
 const state = { raw: null, data: null, site: store.get('l1-site', null), modSite: null, me: null, chatChannel: store.get('l1-channel', 'general'), chatMsgs: [], dirty: false, modTab: 'situation', campus: 'Tous', demandCat: 'Toutes', ctxOpen: false };
 
 // Le serveur demande parfois de réessayer (428) le temps de poser le cookie anonyme de l'appareil : on réessaie une fois, sans que la personne le voie.
@@ -2856,6 +2867,7 @@ async function welcomePopup() {
   const standalone = isStandalone();
   let pushOn = false;
   try { pushOn = !!(await currentPushSub()) && Notification.permission === 'granted'; } catch {}
+  if (store.get('l1-oldpush')) pushOn = true;
   if (standalone && (pushOn || !pushSupported())) return;
   if (!standalone && pushOn && !isIOS && !installPrompt) return; // déjà abonné·e et rien à installer
   sess.set('l1-welcome');
