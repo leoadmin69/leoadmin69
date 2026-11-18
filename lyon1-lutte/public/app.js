@@ -410,7 +410,7 @@ function viewBuildings() {
       </div>`).join('') || '<div class="empty">Aucun bâtiment.</div>'}
     </div>
     <div class="card empty" id="bnone" hidden>Aucun bâtiment ne correspond. Vérifie l’orthographe, ou change de site en haut.</div>
-    <p class="faint small" style="margin-top:18px">Tu es devant un bâtiment et l’info est fausse ? Touche « 👀 Signaler ». Quand plusieurs personnes signalent la même chose, les modos sont prévenu·es et confirment en un tap. Rien n’est publié sans elles et eux.</p>`;
+    <p class="faint small" style="margin-top:18px">Tu es devant un bâtiment et l’info est fausse ? Touche « 👀 Signaler ». Avec plusieurs photos, les modos sont prévenu·es. Sans validation en 5 min, l’état peut s’afficher « selon les étudiant·es sur place », sans notification publique.</p>`;
   const input = $('#bsearch');
   const filter = () => {
     state.bsearch = input.value;

@@ -254,7 +254,7 @@ export function registerExtras(app, mod, ctx) {
   app.post('/api/sightings/photo', express.raw({ type: 'image/jpeg', limit: '2mb' }), async (req, res) => {
     if (!Buffer.isBuffer(req.body) || !isJpeg(req.body)) return bad(res, 'Photo invalide.');
     const dev = deviceKey(req, res);
-    if (limited(`sightph:${dev}`, 6, 3600e3)) return bad(res, 'Trop de photos envoyées, réessaie plus tard (ou signale sans photo).', 429);
+    if (limited(`sightph:${dev}`, 6, 3600e3)) return bad(res, 'Trop de photos envoyées, réessaie plus tard.', 429);
     const clean = stripJpeg(req.body);
     if (!clean) return bad(res, 'Photo illisible.');
     const b = db.buildings.find((x) => x.id === String(req.query.building || ''));
