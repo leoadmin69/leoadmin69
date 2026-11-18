@@ -142,7 +142,7 @@ function audit(mod, action, detail = '', siteId = '') {
 
 // ---------- Session modo ----------
 function currentMod(req) { return readToken(parseCookies(req.headers.cookie)[COOKIE]); }
-const TERRAIN_OK = [/^GET \/terrain\/buildings$/, /^PUT \/buildings-batch$/, /^PUT \/buildings\/[\w-]+$/, /^POST \/terrain\/building\/[\w-]+\/photo$/, /^GET \/sightings$/, /^POST \/sightings\/(ignore|remind)$/, /^GET \/sightings\/photo\/[\w-]+$/, /^POST \/push\/(subscribe|unsubscribe|status)$/, /^GET \/presence$/, /^GET \/guide\.pdf$/];
+const TERRAIN_OK = [/^GET \/terrain\/buildings$/, /^POST \/terrain\/buildings$/, /^PUT \/buildings-batch$/, /^PUT \/buildings\/[\w-]+$/, /^POST \/terrain\/building\/[\w-]+\/photo$/, /^GET \/sightings$/, /^POST \/sightings\/(ignore|remind)$/, /^GET \/sightings\/photo\/[\w-]+$/, /^POST \/push\/(subscribe|unsubscribe|status)$/, /^GET \/presence$/, /^GET \/guide\.pdf$/];
 function requireMod(req, res, next) {
   const mod = currentMod(req);
   if (!mod) return bad(res, 'Connexion modo requise.', 401);
@@ -766,6 +766,24 @@ mod.get('/terrain/buildings', (req, res) => {
     .sort((a, b) => a.campus.localeCompare(b.campus) || a.name.localeCompare(b.name))
     .map(({ terrainProof, ...b }) => b);
   res.json({ buildings, sites: modSites(req.mod).map((id) => ({ id, name: siteName(id) })) });
+});
+
+mod.post('/terrain/buildings', (req, res) => {
+  if (req.mod.role !== 'terrain') return bad(res, 'Réservé aux comptes piquet.', 403);
+  const name = clip(req.body.name, 80);
+  if (!name) return bad(res, 'Nom du bâtiment requis.');
+  const sid = targetSite(req);
+  if (!needSite(req, res, sid)) return;
+  const normalizeName = (s) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  if (db.buildings.some((b) => siteOf(b) === sid && normalizeName(b.name) === normalizeName(name))) {
+    return bad(res, 'Ce bâtiment existe déjà sur ce site.');
+  }
+  const b = { id: newId(), name, site: sid, campus: siteName(sid), status: 'inconnu', note: '', updatedAt: null, by: '' };
+  db.buildings.push(b);
+  save();
+  audit(req.mod, 'bâtiment piquet ajouté', name, sid);
+  broadcast('buildings', {});
+  res.json(b);
 });
 
 mod.post('/buildings', (req, res) => {

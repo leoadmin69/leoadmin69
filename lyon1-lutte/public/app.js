@@ -1023,10 +1023,6 @@ async function modTerrainSituation(el) {
     el.innerHTML = `<div class="card empty">${esc(e.message)}</div>`;
     return;
   }
-  if (!terrainBuildings.length) {
-    el.innerHTML = '<div class="card empty"><div class="big">📍</div>Aucun bâtiment n’est assigné à ce compte piquet.<br><small class="muted">Demande à l’admin de rattacher les bâtiments au site de ce compte.</small></div>';
-    return;
-  }
   let campus = 'Tous';
   let query = '';
 
@@ -1055,12 +1051,34 @@ async function modTerrainSituation(el) {
   el.innerHTML = `
     <p class="subtitle">Touche un bâtiment, prends une photo de l’entrée, puis choisis son état.</p>
     <div class="bsearch"><span aria-hidden="true">🔎</span><input type="search" id="terrain-search" placeholder="Chercher un bâtiment…" autocomplete="off"><button type="button" id="terrain-clear" hidden>✕</button></div>
+    <button type="button" class="btn" id="terrain-add" style="width:100%;margin:10px 0">＋ Ajouter un bâtiment</button>
     ${campuses.length > 2 ? `<div class="segmented" id="terrain-campus">${campuses.map((c) => `<button data-c="${esc(c)}" class="${c === campus ? 'on' : ''}">${esc(c)}</button>`).join('')}</div>` : ''}
     <div class="grid cols-3" id="terrain-grid"></div>`;
 
   const input = $('#terrain-search', el);
   input.oninput = () => { query = input.value; $('#terrain-clear', el).hidden = !query; renderGrid(); };
   $('#terrain-clear', el).onclick = () => { query = ''; input.value = ''; $('#terrain-clear', el).hidden = true; input.focus(); renderGrid(); };
+  $('#terrain-add', el).onclick = () => {
+    sheet(`<h2 style="margin:0 0 10px">＋ Nouveau bâtiment</h2>
+      <form class="form" id="terrain-add-form">
+        <div class="field"><label>Nom du bâtiment</label><input type="text" id="terrain-add-name" maxlength="80" required placeholder="Ex : Hall des sciences"></div>
+        <button class="btn" type="submit" style="width:100%">Ajouter</button>
+      </form>`, (root, close) => {
+      $('#terrain-add-name', root).focus();
+      $('#terrain-add-form', root).onsubmit = async (e) => {
+        e.preventDefault();
+        const name = $('#terrain-add-name', root).value.trim();
+        if (!name) return;
+        try {
+          const b = await api('/api/mod/terrain/buildings', { method: 'POST', body: { name, site: state.modSite } });
+          terrainBuildings.push(b);
+          close();
+          toast(`✅ Bâtiment ajouté : ${b.name}`);
+          renderGrid();
+        } catch (err) { toast(err.message); }
+      };
+    });
+  };
   $('#terrain-campus', el)?.addEventListener('click', (e) => {
     const c = e.target.dataset.c;
     if (!c) return;
