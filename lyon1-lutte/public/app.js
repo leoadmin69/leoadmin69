@@ -885,7 +885,7 @@ function sheet(html, setup) {
 // =====================================================================
 const MOD_TABS = [
   ['situation', '🚧 Bâtiments'], ['story', '📸 Story Insta'], ['agenda', '📅 Agenda'], ['cr', '🤖 CR + IA'], ['flash', '⚡ Flash'],
-  ['votes', '🗳️ Votes'], ['blog', '✍️ Blog'], ['temoignages', '🛡️ Témoignages'], ['entraide', '🤝 Entraide'], ['droits', '⚖️ Page droits'], ['revendications', '✊ Revendications'], ['contacts', '📇 Contacts'], ['chat', '🛡️ Chat'], ['comptes', '👥 Comptes'], ['sites', '📍 Sites'], ['journal', '📜 Journal'], ['moi', '🔑 Mon compte'],
+  ['votes', '🗳️ Votes'], ['blog', '✍️ Blog'], ['temoignages', '🛡️ Témoignages'], ['entraide', '🤝 Entraide'], ['droits', '⚖️ Page droits'], ['revendications', '✊ Revendications'], ['contacts', '📇 Contacts'], ['chat', '🛡️ Chat'], ['comptes', '👥 Comptes'], ['sites', '📍 Sites'], ['audience', '📊 Audience'], ['journal', '📜 Journal'], ['moi', '🔑 Mon compte'],
 ];
 async function viewModo() {
   if (!state.me) {
@@ -907,7 +907,7 @@ async function viewModo() {
     return;
   }
   const isAdm = state.me.role === 'admin';
-  const tabs = MOD_TABS.filter(([id]) => !['comptes', 'sites'].includes(id) || isAdm);
+  const tabs = MOD_TABS.filter(([id]) => !['comptes', 'sites', 'audience'].includes(id) || isAdm);
   // Sites où ce modo peut agir (l'admin : tous). Le site de travail est choisi ici et s'applique à tous les onglets.
   const mySites = isAdm ? siteList().map((x) => x.id) : (state.me.sites || []).filter((id) => siteList().some((x) => x.id === id));
   if (!mySites.includes(state.modSite)) { state.modSite = mySites.includes(store.get('l1-modsite', '')) ? store.get('l1-modsite', '') : mySites[0] || defaultSite(); applyScope(); }
@@ -925,7 +925,7 @@ async function viewModo() {
   showPresence();
   modPushCard();
   api('/api/mod/stats').then((s) => { const el = $('#mstats'); if (el) el.innerHTML = `${s.pushSubs} téléphone(s) · ${s.subscribers} email(s) · IA ${esc(s.aiEnabled ? s.aiProviders.join(' → ') : 'sans IA')} · emails ${s.mailProvider ? `${esc(s.mailProvider)} ${s.mailQuota.used}/${s.mailQuota.limit} aujourd’hui` : 'OFF'} · stockage ${s.storage === 'temporaire' ? '<b style="color:var(--red)">TEMPORAIRE (configure Supabase !)</b>' : esc(s.storage)}${s.reported ? ` · ${s.reported} msg signalé(s)` : ''}`; }).catch(() => {});
-  const fn = { story: modStory, votes: modPolls, blog: modBlog, temoignages: modTestimonies, entraide: modEntraide, droits: modDroits, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, sites: modSites, journal: modJournal, moi: modMe }[state.modTab] || modSituation;
+  const fn = { story: modStory, votes: modPolls, blog: modBlog, temoignages: modTestimonies, entraide: modEntraide, droits: modDroits, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, sites: modSites, audience: modAudience, journal: modJournal, moi: modMe }[state.modTab] || modSituation;
   try { await fn($('#mod')); } catch (err) { if (/Connexion modo/.test(err.message)) { state.me = null; render(true); } else toast(err.message); }
 }
 // Autres modos connectés sur les mêmes sites : on le voit pour ne pas se marcher dessus
@@ -2513,7 +2513,7 @@ const isStandalone = () => matchMedia('(display-mode: standalone)').matches || n
 const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 let installPrompt = null;
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; refreshAppCards(); });
-window.addEventListener('appinstalled', () => { installPrompt = null; toast('App installée ✊'); refreshAppCards(); });
+window.addEventListener('appinstalled', () => { installPrompt = null; toast('App installée ✊'); refreshAppCards(); api('/api/hit', { method: 'POST', body: { event: 'install' } }).catch(() => {}); });
 
 async function registerSW() {
   if (!('serviceWorker' in navigator)) return null;
@@ -2618,6 +2618,8 @@ async function welcomePopup() {
   connectLive();
   registerSW();
   setTimeout(welcomePopup, 1800);
+  // audience anonyme : une visite par ouverture (navigateur ou app installée)
+  if (!sess.get('l1-hit')) { sess.set('l1-hit'); api('/api/hit', { method: 'POST', body: { mode: isStandalone() ? 'app' : 'browser' } }).catch(() => {}); }
   setInterval(() => { if (route() === '' && !document.hidden) { const m = $('.hero .meta'); if (m && state.data) m.textContent = `MAJ ${ago(state.data.blocus.updatedAt)}${state.data.blocus.by ? ' · ' + state.data.blocus.by : ''}`; } }, 30000);
 })();
 
@@ -3224,4 +3226,66 @@ async function publishedCard(reach, list) {
     if (navigator.canShare?.({ files: [file] })) { try { await navigator.share({ files: [file] }); } catch {} }
     else { const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name; a.click(); toast('Story téléchargée : publie-la sur Instagram avec le sticker lien.'); }
   };
+}
+
+// =====================================================================
+// Admin : audience anonyme (visites, appareils, app installée, notifications)
+// =====================================================================
+const AUD = { browser: '#0a84ff', app: '#25a848' }; // validé (contraste, daltonisme) sur le fond sombre
+async function modAudience(el) {
+  const a = await api('/api/mod/audience');
+  const n = (x) => Number(x || 0).toLocaleString('fr-FR');
+  const tile = (big, label, sub = '') => `<div class="aud-tile"><b>${big}</b><span>${label}</span>${sub ? `<small>${sub}</small>` : ''}</div>`;
+  const per = (r, t) => `<div class="aud-row"><span class="aud-k">${t}</span><span><b>${n(r.devices)}</b> appareils</span><span><i class="sw" style="background:${AUD.browser}"></i>${n(r.devicesBrowser)} navigateur</span><span><i class="sw" style="background:${AUD.app}"></i>${n(r.devicesApp)} app</span><span class="faint">${n(r.visits)} visites</span></div>`;
+  const max = Math.max(1, ...a.series.map((d) => d.browser + d.app));
+  const dayLbl = (d) => new Date(d + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+  const kindLbl = { buildings: 'Bâtiments bloqués', urgent: 'Alertes urgentes', events: 'AG & manifs', reports: 'Comptes rendus' };
+  el.innerHTML = `
+    <p class="muted small">Chiffres anonymes : chaque téléphone ou ordinateur est compté par une empreinte aléatoire, sans nom ni adresse IP. Le site ne peut pas savoir si c’est un·e étudiant·e ou un personnel (il n’y a pas de compte).${a.since ? ` Comptage depuis le ${esc(dayLbl(a.since))}.` : ' Le comptage commence avec cette mise à jour.'}</p>
+    <div class="aud-tiles">
+      ${tile(n(a.push.total), '🔔 notifications activées', `téléphones / ordinateurs abonnés · ${n(a.push.allSites)} suivent tous les sites`)}
+      ${tile(n(a.everApp), '📲 ont ouvert l’app installée', `${n(a.month.installs)} installation${a.month.installs > 1 ? 's' : ''} vue${a.month.installs > 1 ? 's' : ''} sur 30 j`)}
+      ${tile(n(a.month.devices), '👀 appareils sur 30 jours', `${n(a.week.devices)} sur 7 j · ${n(a.today.devices)} aujourd’hui`)}
+      ${tile(n(a.emails.confirmed), '✉️ emails confirmés', 'récap ou alertes par email')}
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <div class="kicker">Appareils par jour · 30 derniers jours</div>
+      <div class="aud-legend"><span><i class="sw" style="background:${AUD.browser}"></i>Navigateur</span><span><i class="sw" style="background:${AUD.app}"></i>App installée</span></div>
+      <div class="aud-chart" role="img" aria-label="Appareils par jour sur 30 jours, navigateur et app installée">
+        ${a.series.map((d) => `<div class="aud-col" data-tip="${esc(dayLbl(d.day))} · ${d.browser + d.app} appareil(s) · ${d.browser} navigateur · ${d.app} app · ${d.visits} visite(s)">
+          <div class="aud-bar">${d.app ? `<i style="height:${(d.app / max) * 100}%;background:${AUD.app}"></i>` : ''}${d.browser ? `<i style="height:${(d.browser / max) * 100}%;background:${AUD.browser}"></i>` : ''}</div></div>`).join('')}
+      </div>
+      <div class="aud-axis"><span>${esc(dayLbl(a.series[0].day))}</span><span>max ${n(max)} / jour</span><span>aujourd’hui</span></div>
+      <div class="aud-tip" id="audtip" hidden></div>
+      <details style="margin-top:8px"><summary class="small" style="cursor:pointer">Voir le tableau</summary>
+        <table class="aud-table"><tr><th>Jour</th><th>Navigateur</th><th>App</th><th>Visites</th></tr>${a.series.slice().reverse().map((d) => `<tr><td>${esc(dayLbl(d.day))}</td><td>${d.browser}</td><td>${d.app}</td><td>${d.visits}</td></tr>`).join('')}</table></details>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <div class="kicker">Appareils uniques</div>
+      ${per(a.today, 'Aujourd’hui')}${per(a.week, '7 jours')}${per(a.month, '30 jours')}
+    </div>
+
+    <div class="grid cols-2" style="margin-top:12px">
+      <div class="card"><div class="kicker">🔔 Notifications par site</div>
+        ${a.push.bySite.map((x) => `<div class="aud-line"><span>${esc(x.short)}</span><b>${n(x.push)}</b></div>`).join('')}
+        <p class="faint small" style="margin:6px 0 0">Un abonné « tous les sites » compte dans chaque site.</p></div>
+      <div class="card"><div class="kicker">🔔 Notifications par type</div>
+        ${Object.entries(kindLbl).map(([k, l]) => `<div class="aud-line"><span>${l}</span><b>${n(a.push.kinds[k])}</b></div>`).join('')}</div>
+    </div>
+    <p class="faint small" style="margin-top:10px">« App installée » = appareils qui ont ouvert le site depuis l’icône de l’écran d’accueil. Une installation n’est vue directement que sur Android/ordinateur ; sur iPhone elle est comptée dès la première ouverture de l’app.</p>`;
+  const tip = $('#audtip');
+  const chart = $('.aud-chart', el);
+  const show = (e) => {
+    const col = e.target.closest('.aud-col');
+    if (!col) { tip.hidden = true; return; }
+    tip.textContent = col.dataset.tip; tip.hidden = false;
+    const r = chart.getBoundingClientRect(), c = col.getBoundingClientRect();
+    tip.style.left = `${Math.max(0, Math.min(r.width - 220, c.left - r.left - 100))}px`;
+    $$('.aud-col.on', chart).forEach((x) => x.classList.remove('on')); col.classList.add('on');
+  };
+  chart.addEventListener('pointermove', show);
+  chart.addEventListener('pointerdown', show);
+  chart.addEventListener('pointerleave', () => { tip.hidden = true; $$('.aud-col.on', chart).forEach((x) => x.classList.remove('on')); });
 }

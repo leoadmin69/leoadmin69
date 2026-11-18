@@ -40,6 +40,7 @@ Accès `#/modo`. L'admin crée un compte par personne (mot de passe généré, �
 - **Story Insta** : images 1080 × 1920 prêtes à publier (statut du campus, prochain RDV, dernier compte rendu, résultat de vote), avec les infos à jour. « Partager » ouvre directement Instagram sur téléphone, sinon téléchargement.
 - **CR + IA** : glisser le PDF du compte rendu → l'IA le lit **en direct à l'écran**, retire les noms des personnes, produit les flash infos ; le modo relit, corrige, publie, et peut importer les RDV dans l'agenda et les revendications.
 - **Votes, Blog, Témoignages, Flash, Agenda, Revendications, Contacts, Modération du chat, Comptes, Journal.**
+- **📊 Audience** (admin) : notifications activées (par site et par type), appareils ayant ouvert l'app installée, installations, appareils et visites aujourd'hui / 7 j / 30 j (navigateur vs app), graphique jour par jour + tableau. Anonyme : une empreinte aléatoire par appareil, pas d'IP, données effacées après 120 jours ; impossible de distinguer étudiant·es et personnels (pas de compte).
 
 ## Plusieurs sites, chaque modo chez soi
 

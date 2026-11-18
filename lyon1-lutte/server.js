@@ -13,6 +13,7 @@ import { mailEnabled, mailProvider, mailQuota, sendMany, renderEmail, SITE_URL, 
 import { aiEnabled, aiProviders, analyzePdf } from './lib/ai.js';
 import { registerCommunity, MAX_VIDEO_MB } from './lib/community.js';
 import { registerExtras } from './lib/extras.js';
+import { recordVisit, recordInstall, audienceSummary } from './lib/audience.js';
 import { saveSnap, readSnap, deleteSnap, purgeSnaps, stripJpeg, isJpeg, SNAP_TTL } from './lib/snaps.js';
 import { isSystemNick } from './public/nicks.js';
 import { EMOTES } from './public/emotes.js';
@@ -156,6 +157,16 @@ function upcomingEvents() {
   const cutoff = Date.now() - 6 * 3600e3;
   return db.events.filter((e) => new Date(e.start).getTime() >= cutoff).sort((a, b) => a.start.localeCompare(b.start)).map(({ going, reminded, ...e }) => ({ ...e, goingCount: Object.keys(going || {}).length }));
 }
+
+// Audience anonyme : une visite par ouverture (navigateur ou app installée), et les installations
+app.post('/api/hit', (req, res) => {
+  if (limited(`hit:${visitor(req)}`, 600, 3600e3)) return res.json({ ok: false });
+  const dev = deviceKey(req, res, true).slice(0, 12);
+  if (limited(`hitd:${dev}`, 30, 3600e3)) return res.json({ ok: false });
+  if (req.body?.event === 'install') recordInstall();
+  else recordVisit(dev, req.body?.mode === 'app' ? 'app' : 'browser');
+  res.json({ ok: true });
+});
 
 // Contrôle de santé pour l'hébergeur (ne révèle rien).
 app.get('/api/health', (req, res) => res.json({ ok: true }));
@@ -535,6 +546,9 @@ mod.post('/push/subscribe', (req, res) => {
 });
 mod.post('/push/unsubscribe', (req, res) => { modUnsubscribe(req.mod.id, String(req.body.endpoint || '')); res.json({ ok: true }); });
 mod.post('/push/status', (req, res) => res.json({ on: modPushOn(req.mod.id, String(req.body.endpoint || '')) }));
+
+// Audience anonyme (admin)
+mod.get('/audience', requireAdmin, (req, res) => res.json(audienceSummary({ pushSubs: db.pushSubs || [], subscribers: db.subscribers || [], sites: db.sites })));
 
 // Telegram : diagnostic (jeton, chaîne, droits du bot) et message de test, pour l'admin
 mod.get('/telegram', requireAdmin, async (req, res) => {

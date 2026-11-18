@@ -650,3 +650,27 @@ body.has-alert .topbar { padding-top: 0; }
 .pub-reach b { display: block; font-size: 22px; font-family: var(--mono); }
 .pub-reach small { display: block; color: var(--muted); font-size: 11px; }
 .pub-share { width: 100%; }
+
+/* Audience (admin) */
+.aud-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.aud-tile { background: var(--card); border: 0.5px solid rgba(255,255,255,0.07); border-radius: var(--radius); padding: 14px; display: grid; gap: 2px; }
+.aud-tile b { font: 800 30px var(--mono); color: var(--text); }
+.aud-tile span { font-size: 14px; color: var(--text); }
+.aud-tile small { font-size: 12px; color: var(--muted); }
+.aud-legend { display: flex; gap: 14px; font-size: 13px; color: var(--muted); margin: 8px 0; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.aud-chart { position: relative; display: flex; align-items: flex-end; gap: 2px; height: 140px; border-bottom: 1px solid rgba(255,255,255,0.12); padding-top: 6px; }
+.aud-col { flex: 1; height: 100%; display: flex; align-items: flex-end; cursor: default; }
+.aud-bar { width: 100%; height: 100%; display: flex; flex-direction: column-reverse; justify-content: flex-start; gap: 2px; }
+.aud-bar i { display: block; width: 100%; min-height: 2px; }
+.aud-bar i:last-child { border-radius: 4px 4px 0 0; }
+.aud-col.on .aud-bar i { filter: brightness(1.25); }
+.aud-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 4px; }
+.aud-tip { position: relative; width: 220px; margin-top: 6px; background: var(--card-solid); border: 0.5px solid var(--sep); border-radius: 10px; padding: 6px 10px; font-size: 12px; color: var(--text); }
+.aud-row { display: grid; grid-template-columns: 110px repeat(4, auto); gap: 10px; padding: 6px 0; font-size: 14px; border-top: 0.5px solid var(--sep); align-items: center; }
+.aud-row:first-of-type { border-top: 0; }
+.aud-k { color: var(--muted); }
+.aud-line { display: flex; justify-content: space-between; padding: 5px 0; font-size: 14px; border-top: 0.5px solid var(--sep); }
+.aud-table { width: 100%; font-size: 13px; border-collapse: collapse; margin-top: 6px; }
+.aud-table th, .aud-table td { text-align: left; padding: 4px 6px; border-top: 0.5px solid var(--sep); }
+@media (max-width: 560px) { .aud-row { grid-template-columns: 1fr 1fr; } }
