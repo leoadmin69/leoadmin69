@@ -2890,8 +2890,8 @@ function openSighting(id) {
   const b = state.raw.buildings.find((x) => x.id === id);
   if (!b) return;
   sheet(`<h2 style="margin:0 0 4px">👀 ${esc(b.name)}</h2>
-    <p class="muted small" style="margin:0 0 14px">Tu es sur place ? Dis ce que tu vois. C’est anonyme. Les modos vérifient avant de publier.</p>
-    <label class="see-photo need" id="sp-lbl"><input type="file" accept="image/*" capture="environment" id="sp-file" hidden><span id="sp-txt">📷 1. Prends une photo de l’entrée (obligatoire)</span><small>C’est la preuve : vue seulement par les modos, effacée ensuite. Pas de visage.</small></label>
+    <p class="muted small" style="margin:0 0 14px">Tu es sur place ? Dis ce que tu vois. C’est anonyme. Les modos vérifient puis confirment. Sans réponse en 5 min, l’état peut s’afficher selon les étudiant·es sur place.</p>
+    <button type="button" class="see-photo need" id="sp-lbl"><span id="sp-txt">📷 1. Prends une photo de l’entrée (obligatoire)</span><small>C’est la preuve : vue seulement par les modos, effacée ensuite. Pas de visage. Aucun import.</small></button>
     <p class="faint small" style="margin:0 0 8px">2. Choisis ce que tu vois :</p>
     <div class="see-grid locked" id="sp-grid">
       <button class="ab red" data-st="bloque">🔴 Bloqué</button>
@@ -2899,12 +2899,21 @@ function openSighting(id) {
       <button class="ab green" data-st="ouvert">🟢 Ouvert</button>
     </div>`, (el, close) => {
     let photo = null;
-    $('#sp-file', el).onchange = async (e) => {
-      const f = e.target.files?.[0];
-      if (!f) return;
+    $('#sp-lbl', el).onclick = () => {
       $('#sp-txt', el).textContent = '⏳ Préparation…';
-      try { photo = await shrinkPhoto(f); $('#sp-txt', el).textContent = '✅ Photo prise (touche pour la refaire)'; $('#sp-lbl', el).classList.add('on'); $('#sp-lbl', el).classList.remove('need'); $('#sp-grid', el).classList.remove('locked'); }
-      catch { photo = null; $('#sp-txt', el).textContent = '📷 Photo illisible, réessaie'; }
+      openTerrainCamera(async (blob) => {
+        if (!blob) { $('#sp-txt', el).textContent = '📷 Prends une photo de l’entrée (obligatoire)'; return; }
+        try {
+          photo = await shrinkPhoto(blob);
+          $('#sp-txt', el).textContent = '✅ Photo prise (touche pour la refaire)';
+          $('#sp-lbl', el).classList.add('on');
+          $('#sp-lbl', el).classList.remove('need');
+          $('#sp-grid', el).classList.remove('locked');
+        } catch {
+          photo = null;
+          $('#sp-txt', el).textContent = '📷 Photo illisible, réessaie';
+        }
+      });
     };
     el.onclick = async (e) => {
       const st = e.target.closest('[data-st]')?.dataset.st;

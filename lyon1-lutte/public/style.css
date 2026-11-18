@@ -732,7 +732,7 @@ html.no-select * { -webkit-tap-highlight-color: transparent; }
 .qr-box { display: grid; place-items: center; background: #fff; border-radius: 16px; padding: 10px; margin: 10px auto; width: max-content; max-width: 100%; }
 .qr-box img { display: block; max-width: 100%; height: auto; }
 /* Photo de signalement */
-.see-photo { display: grid; gap: 2px; margin: 0 0 12px; padding: 12px; border: 1px dashed rgba(255,255,255,0.25); border-radius: 14px; text-align: center; cursor: pointer; font-weight: 600; }
+.see-photo { width: 100%; display: grid; gap: 2px; margin: 0 0 12px; padding: 12px; border: 1px dashed rgba(255,255,255,0.25); border-radius: 14px; background: transparent; color: var(--text); text-align: center; cursor: pointer; font-weight: 600; }
 .see-photo small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .see-photo.on { border-color: var(--green); background: rgba(48,209,88,0.1); }
 .sight-photos { display: grid; gap: 10px; }
