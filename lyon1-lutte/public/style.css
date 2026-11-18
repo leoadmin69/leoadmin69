@@ -618,3 +618,11 @@ body.has-alert .topbar { padding-top: 0; }
 .cam-bottom p { margin: 0; color: #fff; font-size: 12px; background: rgba(0,0,0,.45); padding: 5px 10px; border-radius: 999px; }
 .cam-shot { width: 76px; height: 76px; border-radius: 50%; border: 5px solid #fff; background: rgba(255,255,255,.25); cursor: pointer; transition: transform .1s; }
 .cam-shot:active { transform: scale(.9); background: #fff; }
+
+/* Charte à accepter : zone défilable, messages cachés en attendant, case + bouton toujours visibles */
+@supports (height: 100dvh) { .chat { height: calc(100dvh - 230px - var(--safe-b) - var(--safe-t)); } @media (min-width: 900px) { .chat { height: calc(100dvh - 210px); } } }
+.chat.gated .msgs { display: none; }
+.chat.gated { height: auto; min-height: 0; }
+.chat.gated .charter { overflow: visible; padding-bottom: 0; margin-bottom: 0; }
+.charter-accept { margin: 12px 0 0; padding: 12px 0 16px; border-top: 0.5px solid var(--sep); }
+.chat.gated { padding-bottom: calc(90px + var(--safe-b)); }

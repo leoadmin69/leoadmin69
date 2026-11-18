@@ -554,7 +554,7 @@ async function viewChat() {
   if (!chans.some((c) => c.id === state.chatChannel)) state.chatChannel = chans[0]?.id;
   const ch = chans.find((c) => c.id === state.chatChannel);
   view().innerHTML = `
-    <div class="chat">
+    <div class="chat ${charterOk() ? '' : 'gated'}">
       <div class="chat-head"><h1 class="large-title" style="margin:8px 0 2px">Chat anonyme</h1></div>
       <div class="tabs-inline" id="chans">${chans.map((c) => `<button data-c="${esc(c.id)}" class="${c.id === state.chatChannel ? 'on' : ''}"># ${esc(c.name)}</button>`).join('')}</div>
       <div class="notice">🕶️ Pas de compte, pas d’email. Tu es <b>${esc(nick())}</b> · <a href="#" id="renick">changer</a> · <a href="#" id="charte">📜 charte</a>. Ne donne jamais ton nom, ton numéro étudiant ni d’info qui t’identifie. ${ch ? esc(ch.description) : ''}</div>
@@ -581,7 +581,7 @@ async function viewChat() {
   $('#charte').onclick = (e) => { e.preventDefault(); sheet(charterHtml(false)); };
   if ($('#charter-ok')) {
     $('#charter-chk').onchange = () => { $('#charter-ok').disabled = !$('#charter-chk').checked; };
-    $('#charter-ok').onclick = () => { store.set('l1-charte', CHARTER_V); $('#charter-gate').remove(); $('#composer').hidden = false; $('#text').focus(); toast('Bienvenue dans le chat ✊'); };
+    $('#charter-ok').onclick = () => { store.set('l1-charte', CHARTER_V); $('#charter-gate').remove(); $('.chat')?.classList.remove('gated'); $('#msgs').scrollTop = 1e9; $('#composer').hidden = false; $('#text').focus(); toast('Bienvenue dans le chat ✊'); };
   }
   loadChatRules();
   const ta = $('#text');
@@ -2896,8 +2896,8 @@ function charterHtml(gate) {
       <li><b>📸 Photos.</b> Prises avec la caméra, vues <b>une seule fois</b> par personne pendant 10 s, effacées après 24 h. Jamais de visage reconnaissable sans accord (manifestant·es, passant·es, agents), jamais de plaque, de carte étudiante ou de document. Rien d’intime, rien de violent. Ne fais pas de capture d’écran : ton pseudo s’affiche sur la photo que tu regardes, et les modos peuvent voir et supprimer toutes les photos.</li>
     </ol>
     <p class="faint small">🚫 Les messages avec un mot interdit sont supprimés avant d’être envoyés. 3 signalements = message masqué. Les modos peuvent masquer tout message ou photo qui ne respecte pas la charte.</p>
-    ${gate ? `<label class="check"><input type="checkbox" id="charter-chk"> J’ai lu la charte et je m’engage à la respecter</label>
-    <button class="btn green" id="charter-ok" disabled style="margin-top:8px;width:100%">J’accepte et j’entre dans le chat</button>` : ''}
+    ${gate ? `<div class="charter-accept"><label class="check"><input type="checkbox" id="charter-chk"> J’ai lu la charte et je m’engage à la respecter</label>
+    <button class="btn green" id="charter-ok" disabled style="margin-top:8px;width:100%">J’accepte et j’entre dans le chat</button></div>` : ''}
   </div>`;
 }
 async function loadChatRules() {
