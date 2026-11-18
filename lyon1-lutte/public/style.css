@@ -631,3 +631,11 @@ body.has-alert .topbar { padding-top: 0; }
 .mp-site span { font-size: 13px; }
 .mp-site small { color: var(--muted); font-size: 12px; line-height: 1.35; }
 .mp-site.warn { border-color: rgba(255,159,10,0.6); background: rgba(255,159,10,0.08); }
+.tg-card.ko { border-color: rgba(255,69,58,0.5); }
+.tg-card.ok { border-color: rgba(48,209,88,0.45); }
+.tg-line { padding: 6px 0; font-size: 14px; border-top: 0.5px solid var(--sep); }
+.tg-line:first-of-type { border-top: 0; }
+.tg-line .btn { margin-left: 6px; }
+.tg-fix { margin-top: 4px; font-size: 13px; color: var(--orange); }
+.tg-card { display: block !important; }
+.tg-card > * { width: auto; }

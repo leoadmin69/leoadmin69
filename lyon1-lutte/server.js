@@ -18,7 +18,7 @@ import { isSystemNick } from './public/nicks.js';
 import { EMOTES } from './public/emotes.js';
 const EMOTE_SET = new Set(EMOTES.map((e) => e.code));
 import { bannedList, findBanned, normalize as normalizeWord, BANNED_BASE } from './lib/moderation.js';
-import { telegramEnabled, telegramUrl, postTelegram, tgEsc } from './lib/telegram.js';
+import { telegramEnabled, telegramUrl, postTelegram, tgEsc, telegramCheck, telegramTest, telegramStatus, normalizeChat } from './lib/telegram.js';
 import { DEFAULT_SITE, site, siteName, modSites, canSite, siteOf, migrateSites, effectiveBlocus, wantsSite, isAdmin, ALL_SITES, telegramChats } from './lib/sites.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -428,10 +428,14 @@ async function flushBuildingAlert() {
     console.log(`[alertes] bâtiments : ${messages.length} email(s), ${r.sent} envoyé(s)`);
   }
 }
+// Publication sur Telegram (chaîne du site, ou toutes pour « tous les sites »)
+function tgAnnounce(sid, subject, body, items, url) {
+  for (const chat of telegramChats(sid)) postTelegram(`📍 ${tgEsc(siteName(sid))}\n<b>${tgEsc(subject)}</b>${body ? '\n' + tgEsc(String(body).trim()).slice(0, 1500) : ''}${items?.length ? '\n' + items.map((i) => `• ${tgEsc(i.label)}`).join('\n') : ''}`, url, chat);
+}
 async function notify(kind, { subject, kicker, title, body, items, tone, url = '/', site: sid = DEFAULT_SITE }) {
   if (sid !== DEFAULT_SITE) subject = `${siteName(sid)} · ${subject}`;
   sendPush(kind, { title: subject, body: String(body || '').replace(/\s+/g, ' ').slice(0, 200), url, tag: `${kind}-${sid}` }, (sub) => wantsSite(sub, sid)).catch((e) => console.error('[push]', e.message));
-  for (const chat of telegramChats(sid)) postTelegram(`📍 ${tgEsc(siteName(sid))}\n<b>${tgEsc(subject)}</b>${body ? '\n' + tgEsc(String(body).trim()).slice(0, 1500) : ''}${items?.length ? '\n' + items.map((i) => `• ${tgEsc(i.label)}`).join('\n') : ''}`, url, chat);
+  tgAnnounce(sid, subject, body, items, url);
   if (EMAIL_MODE !== 'instant') return;
   const recipients = db.subscribers.filter((s) => s.confirmed && s.alerts?.includes(kind) && wantsSite(s, sid));
   const messages = recipients.map((s) => ({ to: s.email, subject, ...renderEmail({ tone, kicker, title, body, items, token: s.token }) }));
@@ -523,6 +527,19 @@ mod.post('/push/subscribe', (req, res) => {
 });
 mod.post('/push/unsubscribe', (req, res) => { modUnsubscribe(req.mod.id, String(req.body.endpoint || '')); res.json({ ok: true }); });
 mod.post('/push/status', (req, res) => res.json({ on: modPushOn(req.mod.id, String(req.body.endpoint || '')) }));
+
+// Telegram : diagnostic (jeton, chaîne, droits du bot) et message de test, pour l'admin
+mod.get('/telegram', requireAdmin, async (req, res) => {
+  const r = await telegramCheck(db.sites.map((x) => x.telegramChatId).filter(Boolean));
+  r.sites = db.sites.map((x) => ({ id: x.id, short: x.short, chat: normalizeChat(x.telegramChatId) || '' }));
+  res.json(r);
+});
+mod.post('/telegram/test', requireAdmin, async (req, res) => {
+  if (limited(`tgtest:${req.mod.id}`, 10, 600e3)) return bad(res, 'Trop de tests, attends quelques minutes.', 429);
+  const r = await telegramTest(req.body.chat ? String(req.body.chat) : null);
+  audit(req.mod, 'test Telegram', `${r.chat || ''} ${r.ok ? 'OK' : r.error}`);
+  res.json(r);
+});
 
 // Mots interdits ajoutés par les modos (en plus de la liste de base)
 mod.get('/chat-banned', (req, res) => res.json({ base: BANNED_BASE.length, extra: db.settings.chatBanned || [] }));
@@ -687,7 +704,9 @@ mod.post('/events', (req, res) => {
   const when = new Date(e.start).toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' });
   feed(`${siteName(e.site)} · Nouveau rendez-vous · ${e.type} · ${e.title} · ${when}${e.place ? ' · ' + e.place : ''}`, 'info');
   broadcast('events', {});
-  if (req.body.notify) notify('events', { site: e.site, tone: 'blue', subject: `📣 ${e.type} : ${e.title} (${when})`, kicker: `LYON 1 · LA DOUA EN LUTTE · ${e.type.toUpperCase()}`, title: e.title, body: `${when}\n${e.place}${e.address ? ' · ' + e.address : ''}\n\n${e.description}`.trim(), url: '/#/agenda' });
+  const evMsg = { site: e.site, tone: 'blue', subject: `📣 ${e.type} : ${e.title} (${when})`, kicker: `LYON 1 · LA DOUA EN LUTTE · ${e.type.toUpperCase()}`, title: e.title, body: `${when}\n${e.place}${e.address ? ' · ' + e.address : ''}\n\n${e.description}`.trim(), url: '/#/agenda' };
+  if (req.body.notify) notify('events', evMsg);
+  else tgAnnounce(evMsg.site, evMsg.subject, evMsg.body, null, evMsg.url); // Telegram : toujours
   res.json(e);
 });
 mod.put('/events/:id', (req, res) => {
@@ -727,7 +746,7 @@ mod.post('/flashes', (req, res) => {
   db.flashes.unshift(f); db.flashes = db.flashes.slice(0, 100); save();
   audit(req.mod, 'flash', text, fsite);
   feed(`${siteName(fsite)} · ${text}`, f.level === 'alerte' ? 'alert' : f.level === 'ok' ? 'ok' : 'info');
-  if (f.level === 'alerte' && req.body.push !== false) for (const chat of telegramChats(fsite)) postTelegram(`🚨 <b>ALERTE · ${tgEsc(siteName(fsite))}</b>\n${tgEsc(text)}`, '/', chat);
+  if (req.body.push !== false) for (const chat of telegramChats(fsite)) postTelegram(`${{ alerte: '🚨 <b>ALERTE', info: 'ℹ️ <b>Info', ok: '✅ <b>Bonne nouvelle' }[f.level]} · ${tgEsc(siteName(fsite))}</b>\n${tgEsc(text)}`, '/', chat);
   if (f.level === 'alerte' && req.body.push !== false) sendPush('urgent', { title: `🚨 Alerte · ${siteName(fsite)}`, body: text, url: '/', tag: `flash-${f.id}` }, (sub) => wantsSite(sub, fsite)).catch((e) => console.error('[push]', e.message));
   broadcast('flashes', {});
   res.json(f);
@@ -891,7 +910,9 @@ mod.put('/reports/:id', (req, res) => {
       broadcast('demands', {});
     }
     save();
-    if (req.body.notify) notify('reports', { site: siteOf(r), tone: 'blue', subject: `📝 Compte rendu : ${r.titre}`, kicker: 'LYON 1 · LA DOUA EN LUTTE · COMPTE RENDU', title: r.titre, body: r.resume, items: r.flashs.slice(0, 6).map((f) => ({ label: f.titre, value: '', tone: f.type === 'alerte' ? 'red' : undefined })), url: `/#/cr/${r.id}` });
+    const crMsg = { site: siteOf(r), tone: 'blue', subject: `📝 Compte rendu : ${r.titre}`, kicker: 'LYON 1 · LA DOUA EN LUTTE · COMPTE RENDU', title: r.titre, body: r.resume, items: r.flashs.slice(0, 6).map((f) => ({ label: f.titre, value: '', tone: f.type === 'alerte' ? 'red' : undefined })), url: `/#/cr/${r.id}` };
+    if (req.body.notify) notify('reports', crMsg);
+    else tgAnnounce(crMsg.site, crMsg.subject, crMsg.body, crMsg.items, crMsg.url); // Telegram : toujours
   }
   broadcast('reports', {});
   res.json(r);
@@ -1002,7 +1023,7 @@ mod.put('/sites/:id', requireAdmin, (req, res) => {
   if (!x) return bad(res, 'Introuvable', 404);
   if (req.body.name !== undefined) x.name = clip(req.body.name, 80) || x.name;
   if (req.body.short !== undefined) x.short = clip(req.body.short, 30) || x.short;
-  if (req.body.telegramChatId !== undefined) x.telegramChatId = clip(req.body.telegramChatId, 60);
+  if (req.body.telegramChatId !== undefined) x.telegramChatId = normalizeChat(clip(req.body.telegramChatId, 80));
   for (const b of db.buildings) if (siteOf(b) === x.id) b.campus = x.short;
   save(); audit(req.mod, 'site modifié', x.name, x.id); broadcast('buildings', {});
   res.json(x);

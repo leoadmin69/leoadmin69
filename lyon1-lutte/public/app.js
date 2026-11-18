@@ -2000,6 +2000,7 @@ async function modAccounts(el) {
 
 async function modSites(el) {
   el.innerHTML = `
+    <div id="tgbox"><div class="card muted small">📣 Vérification de la chaîne Telegram…</div></div>
     <p class="muted small">Chaque site a ses bâtiments, son titre d’accueil, ses votes d’AG, ses revendications, son blog et ses notifications. Les modos ne voient et ne modifient que les sites que tu leur donnes (onglet Comptes). Le site principal s’affiche par défaut aux étudiant·es.</p>
     <div class="list">${siteList().map((x) => `<div class="row" data-id="${esc(x.id)}"><div class="grow"><div class="title">${esc(x.name)} ${x.id === defaultSite() ? '<span class="pill red">principal</span>' : ''}</div><div class="sub">Nom court : ${esc(x.short)} · ${state.raw.buildings.filter((b) => b.site === x.id).length} bâtiment(s)</div></div>
       <button class="btn small ghost" data-edit>Modifier</button>${x.id === defaultSite() ? '' : '<button class="icon-btn" data-del>' + icon('trash', 18) + '</button>'}</div>`).join('')}</div>
@@ -2008,6 +2009,7 @@ async function modSites(el) {
       <div class="grid cols-2"><div class="field"><label>Nom complet</label><input type="text" id="sn" required maxlength="80" placeholder="IUT Lyon 1 · Bourg-en-Bresse"></div>
       <div class="field"><label>Nom court (onglets)</label><input type="text" id="ss" maxlength="30" placeholder="IUT Bourg"></div></div>
       <button class="btn">Ajouter</button></form></div>`;
+  telegramCard();
   $('#sf').onsubmit = async (e) => { e.preventDefault(); await act(() => api('/api/mod/sites', { method: 'POST', body: { name: $('#sn').value, short: $('#ss').value } }), 'Site ajouté.'); await refresh(); render(true); };
   el.querySelector('.list').onclick = async (e) => {
     const row = e.target.closest('[data-id]');
@@ -2017,9 +2019,9 @@ async function modSites(el) {
     if (e.target.closest('[data-edit]')) sheet(`<h3>${esc(x.name)}</h3><form class="form" id="esf">
       <div class="field"><label>Nom complet</label><input type="text" id="esn" maxlength="80" value="${esc(x.name)}"></div>
       <div class="field"><label>Nom court</label><input type="text" id="ess" maxlength="30" value="${esc(x.short)}"></div>
-      <div class="field"><label>Chaîne Telegram propre à ce site (facultatif : @nom ou -100…)</label><input type="text" id="est" maxlength="60" placeholder="vide = chaîne principale"></div>
+      <div class="field"><label>Chaîne Telegram propre à ce site (facultatif : @nom, lien t.me ou -100…)</label><input type="text" id="est" maxlength="80" placeholder="vide = chaîne principale" value="${esc(state.tgSites?.[x.id] || '')}"></div>
       <button class="btn">Enregistrer</button></form>`, (root, close) => {
-      $('#esf', root).onsubmit = async (ev) => { ev.preventDefault(); await act(() => api(`/api/mod/sites/${x.id}`, { method: 'PUT', body: { name: $('#esn', root).value, short: $('#ess', root).value, ...($('#est', root).value ? { telegramChatId: $('#est', root).value } : {}) } }), 'Site mis à jour.'); close(); await refresh(); render(true); };
+      $('#esf', root).onsubmit = async (ev) => { ev.preventDefault(); await act(() => api(`/api/mod/sites/${x.id}`, { method: 'PUT', body: { name: $('#esn', root).value, short: $('#ess', root).value, telegramChatId: $('#est', root).value.trim() } }), 'Site mis à jour.'); close(); await refresh(); render(true); };
     });
   };
 }
@@ -3133,4 +3135,37 @@ function modPushSummary(mods) {
   return `<div class="card" style="margin-top:14px"><div class="kicker">🔔 Alertes modo sur téléphone · ${on.length}/${active.length} compte${active.length > 1 ? 's' : ''} actif${active.length > 1 ? 's' : ''}</div>
     <p class="muted small" style="margin:6px 0 10px">Un modo reçoit une notification quand 3 étudiant·es signalent un bâtiment de ses sites, seulement s’il a touché « Activer » dans l’espace modo sur son téléphone.${missing.length ? ` <b style="color:var(--orange)">Personne n’est prévenu pour : ${missing.map((x) => esc(x.short)).join(', ')}.</b> Relance ces modos.` : ''}</p>
     <div class="mp-grid">${rows}</div></div>`;
+}
+
+// Admin : état de la chaîne Telegram (jeton, chaîne, droits du bot), dernière erreur et message de test
+async function telegramCard() {
+  const box = $('#tgbox');
+  if (!box) return;
+  let t;
+  try { t = await api('/api/mod/telegram'); } catch (e) { box.innerHTML = `<div class="card">${esc(e.message)}</div>`; return; }
+  state.tgSites = Object.fromEntries(t.sites.map((x) => [x.id, x.chat]));
+  const ok = !t.problem && t.chats.length && t.chats.every((c) => c.ok);
+  const line = (good, txt) => `<div class="tg-line ${good ? 'ok' : 'ko'}">${good ? '✅' : '❌'} ${txt}</div>`;
+  const st = t.status;
+  box.innerHTML = `<div class="card tg-card ${ok ? 'ok' : 'ko'}">
+    <div class="kicker">📣 Chaîne Telegram · ${ok ? 'reliée' : 'à réparer'}</div>
+    ${line(t.configured.token && t.bot, t.bot ? `Bot <b>@${esc(t.bot.username)}</b> reconnu` : 'Jeton du bot (TELEGRAM_BOT_TOKEN)')}
+    ${line(t.configured.chat, t.configured.chat ? `Chaîne principale : <b>${esc(t.mainChat)}</b>${t.url ? ` · <a href="${esc(t.url)}" target="_blank" rel="noopener">ouvrir</a>` : ''}` : 'Chaîne principale (TELEGRAM_CHAT_ID)')}
+    ${t.chats.map((c) => line(c.ok, `${esc(c.title || c.chat)} <span class="faint">(${esc(c.chat)}${c.botStatus ? ' · bot ' + esc(c.botStatus) : ''})</span>${c.problem ? `<div class="tg-fix">${esc(c.problem)}</div>` : ''} <button class="btn small ghost" data-tgtest="${esc(c.chat)}">Envoyer un test</button>`)).join('')}
+    ${t.problem ? `<div class="tg-fix">⚠️ ${esc(t.problem)}</div>` : ''}
+    <p class="faint small" style="margin:8px 0 0">${st.sent} message(s) envoyé(s) depuis le dernier démarrage${st.lastOkAt ? ` · dernier ${esc(ago(st.lastOkAt))}` : ''}${st.lastError ? `<br><span style="color:var(--red)">Dernière erreur ${esc(ago(st.lastErrorAt))} (${esc(st.lastErrorChat || '')}) : ${esc(st.lastError)}</span>` : ''}</p>
+    ${!t.configured.token || !t.configured.chat ? `<details style="margin-top:8px"><summary class="small" style="cursor:pointer">Comment relier la chaîne (5 min)</summary><ol class="steps small">
+      <li>Sur Telegram, ouvre <b>@BotFather</b> → <code>/newbot</code> → copie le <b>jeton</b>.</li>
+      <li>Crée une <b>chaîne</b> (publique, ex. @ladoua_enlutte), puis <b>Administrateurs → Ajouter</b> ton bot avec « Publier des messages ».</li>
+      <li>Sur Render → ton service → <b>Environment</b> : <code>TELEGRAM_BOT_TOKEN</code> = le jeton, <code>TELEGRAM_CHAT_ID</code> = @nom_de_la_chaine. Enregistre (le site redémarre).</li>
+      <li>Reviens ici et touche « Envoyer un test ».</li></ol></details>` : ''}
+  </div>`;
+  box.onclick = async (e) => {
+    const chat = e.target.closest('[data-tgtest]')?.dataset.tgtest;
+    if (!chat) return;
+    e.target.disabled = true;
+    const r = await act(() => api('/api/mod/telegram/test', { method: 'POST', body: { chat } })).catch(() => null);
+    if (r) toast(r.ok ? `✅ Message de test envoyé dans ${r.chat}` : `❌ ${r.error}`);
+    telegramCard();
+  };
 }
