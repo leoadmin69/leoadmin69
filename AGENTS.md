@@ -26,10 +26,12 @@ dans le même commit que le code.
 - **En ligne** : le site de production est **https://leoadmin69.onrender.com** (service Render « Lyon1-ladoua-en-lutte »,
   `srv-dbu3je68bjmc73a7vt1g`, runtime Node, dossier `lyon1-lutte`, Supabase + Telegram + IA branchés, déploiement auto
   à chaque push). `node tools/ops.mjs status` / `health` le visent par défaut.
-- **Doublon à trancher** : un 2ᵉ service « ladoua-en-lutte » (`srv-dbv25vlg1s2s73dv1vhg`, https://ladoua-en-lutte.onrender.com,
-  Docker) a été créé le 18/11 à 22 h 13 par Blueprint. Il n'a NI Supabase (données perdues à chaque redémarrage) NI mot de
-  passe admin NI bot Telegram. Ne pas le brancher sur le même Supabase tant que l'autre tourne (ils s'écraseraient).
-  Attente de la décision de l'admin : le supprimer, ou y migrer la production.
+- **Adresse définitive (décision admin du 18/11)** : on garde https://leoadmin69.onrender.com, pas de changement d'adresse.
+  Le doublon « ladoua-en-lutte » a été supprimé. `lyon1-lutte/redirect.js` (redirection + pont des notifications) est prêt
+  mais NON utilisé : ne servirait que si un jour on change d'adresse (l'ancien service devrait alors rester en redirection).
+- **Attention Blueprint** : un Blueprint Render « Lyon1 » (auto-sync sur `render.yaml`) a créé le doublon. Ne pas modifier
+  `render.yaml` sans raison : une synchro pourrait recréer un service vide « ladoua-en-lutte ». L'admin peut le déconnecter
+  dans Render → Blueprints → Lyon1.
 - **À faire** : bouton « Pause Telegram » dans l'admin proposé, pas encore demandé.
 - **Décidé** : affichage « selon les personnes sur place » à partir de 3 signalements non validés en 5 min (confirmé par l'admin).
 
