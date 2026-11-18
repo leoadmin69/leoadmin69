@@ -358,19 +358,27 @@ function typeFeedLine(f) {
 }
 
 // ===== Bâtiments =====
+// Recherche tolérante : sans accents ni majuscules, tous les mots doivent apparaître (nom, note, campus)
+const normSearch = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+const sightCount = (id) => (state.raw?.sightings || []).filter((s) => s.building === id).reduce((n, s) => n + s.count, 0);
 function viewBuildings() {
   const d = state.data;
   const campuses = ['Tous', ...new Set(d.buildings.map((b) => b.campus))];
   if (!campuses.includes(state.campus)) state.campus = 'Tous';
   const order = { bloque: 0, partiel: 1, ouvert: 2, inconnu: 3 };
-  const list = d.buildings.filter((b) => state.campus === 'Tous' || b.campus === state.campus).sort((a, b) => order[a.status] - order[b.status] || a.name.localeCompare(b.name));
+  // Les bâtiments signalés par des étudiant·es remontent en haut (les plus signalés d'abord), puis bloqués, partiels…
+  const list = d.buildings.filter((b) => state.campus === 'Tous' || b.campus === state.campus)
+    .sort((a, b) => sightCount(b.id) - sightCount(a.id) || order[a.status] - order[b.status] || a.name.localeCompare(b.name));
   const count = (s) => d.buildings.filter((b) => b.status === s).length;
+  const signaled = list.filter((b) => sightCount(b.id)).length;
   view().innerHTML = `
     <h1 class="large-title">Bâtiments</h1>
     <p class="subtitle">Rouge = bloqué. Mis à jour par les modos sur place. ${count('bloque')} bloqué(s), ${count('partiel')} partiel(s), ${count('ouvert')} ouvert(s).</p>
-    <div class="segmented" id="campus">${campuses.map((c) => `<button data-c="${esc(c)}" class="${c === state.campus ? 'on' : ''}">${esc(c)}</button>`).join('')}</div>
-    <div class="grid cols-3">${list.map((b) => `
-      <div class="bld ${esc(b.status)}">
+    <div class="bsearch"><span aria-hidden="true">🔎</span><input type="search" id="bsearch" placeholder="Chercher un bâtiment…" autocomplete="off" enterkeyhint="search" value="${esc(state.bsearch || '')}" aria-label="Chercher un bâtiment"><button type="button" id="bclear" aria-label="Effacer" ${state.bsearch ? '' : 'hidden'}>✕</button></div>
+    ${campuses.length > 2 ? `<div class="segmented" id="campus">${campuses.map((c) => `<button data-c="${esc(c)}" class="${c === state.campus ? 'on' : ''}">${esc(c)}</button>`).join('')}</div>` : '<div id="campus" hidden></div>'}
+    ${signaled ? `<p class="sight-hint">👀 ${signaled} bâtiment${signaled > 1 ? 's' : ''} signalé${signaled > 1 ? 's' : ''} par des étudiant·es, en haut de la liste (pas encore confirmé${signaled > 1 ? 's' : ''} par les modos).</p>` : ''}
+    <div class="grid cols-3" id="bgrid">${list.map((b) => `
+      <div class="bld ${esc(b.status)} ${sightCount(b.id) ? 'signaled' : ''}" data-q="${esc(normSearch(`${b.name} ${b.note || ''} ${b.campus}`))}">
         <div class="status">${STATUS[b.status].dot} ${STATUS[b.status].label}</div>
         <div class="name">${esc(b.name)}</div>
         <div class="campus">${esc(b.campus)}</div>
@@ -380,7 +388,21 @@ function viewBuildings() {
         <button class="see-btn" data-see="${esc(b.id)}">👀 Signaler</button>
       </div>`).join('') || '<div class="empty">Aucun bâtiment.</div>'}
     </div>
+    <div class="card empty" id="bnone" hidden>Aucun bâtiment ne correspond. Vérifie l’orthographe, ou change de site en haut.</div>
     <p class="faint small" style="margin-top:18px">Tu es devant un bâtiment et l’info est fausse ? Touche « 👀 Signaler ». Quand plusieurs personnes signalent la même chose, les modos sont prévenu·es et confirment en un tap. Rien n’est publié sans elles et eux.</p>`;
+  const input = $('#bsearch');
+  const filter = () => {
+    state.bsearch = input.value;
+    const words = normSearch(input.value).split(' ').filter(Boolean);
+    let shown = 0;
+    $$('#bgrid .bld').forEach((card) => { const ok = words.every((w) => card.dataset.q.includes(w)); card.hidden = !ok; if (ok) shown++; });
+    $('#bnone').hidden = shown > 0 || !words.length;
+    $('#bclear').hidden = !input.value;
+  };
+  input.addEventListener('input', filter);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
+  $('#bclear').onclick = () => { input.value = ''; filter(); input.focus(); };
+  if (state.bsearch) filter();
   $('#campus').onclick = (e) => { const c = e.target.dataset?.c; if (c) { state.campus = c; render(true); } };
   view().onclick = (e) => { const id = e.target.closest('[data-see]')?.dataset.see; if (id) openSighting(id); };
 }
