@@ -3167,7 +3167,7 @@ function markSnapSeen(pid) {
   const s = seenSnaps(); s[pid] = 1;
   const k = Object.keys(s); if (k.length > 500) for (const x of k.slice(0, k.length - 500)) delete s[x];
   store.set('l1-snaps-seen', s);
-  $$(`[data-snap="${CSS.escape(pid)}"]`).forEach((b) => { b.classList.remove('new'); b.classList.add('seen'); $('.snap-label', b).innerHTML = '👁 Vue'; });
+  $$(`[data-snap="${CSS.escape(pid)}"]`).forEach((b) => { b.classList.remove('new'); b.classList.add('seen'); $('.snap-label', b).innerHTML = b.closest('.msg.me') ? '📸 Envoyée' : '👁 Vue'; });
 }
 function snapHtml(m, me) {
   const p = m.photo;
