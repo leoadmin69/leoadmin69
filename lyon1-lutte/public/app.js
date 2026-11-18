@@ -208,12 +208,14 @@ function renderAlertBar() {
   if (!d) return;
   const blocked = d.buildings.filter((b) => b.status === 'bloque');
   const partial = d.buildings.filter((b) => b.status === 'partiel');
+  const crowdB = d.buildings.filter((b) => crowdOf(b)?.status === 'bloque');
   const eff = blocusNow(d.blocus);
-  if (!blocked.length && !partial.length && eff !== 'actif') { bar.hidden = true; setTopOffset(); return; }
+  if (!blocked.length && !partial.length && !crowdB.length && eff !== 'actif') { bar.hidden = true; setTopOffset(); return; }
   const parts = [];
   if (eff === 'actif') parts.push(`${BLOCUS.actif}${d.blocus.message ? ' : ' + d.blocus.message : ''}`);
   if (blocked.length) parts.push(`BLOQUÉ : ${blocked.map((b) => b.name).join(' · ')}`);
   if (partial.length) parts.push(`PARTIEL : ${partial.map((b) => b.name).join(' · ')}`);
+  if (crowdB.length) parts.push(`BLOQUÉ SELON LES ÉTUDIANT·ES SUR PLACE : ${crowdB.map((b) => b.name).join(' · ')}`);
   const txt = esc(parts.join('   ///   '));
   bar.innerHTML = `<span class="tag">ALERTE</span><span class="mask"><span class="ticker"><span>${txt}</span><span aria-hidden="true">${txt}</span></span></span>`;
   bar.onclick = () => (location.hash = '#/batiments');
@@ -378,11 +380,12 @@ function viewBuildings() {
     ${campuses.length > 2 ? `<div class="segmented" id="campus">${campuses.map((c) => `<button data-c="${esc(c)}" class="${c === state.campus ? 'on' : ''}">${esc(c)}</button>`).join('')}</div>` : '<div id="campus" hidden></div>'}
     ${signaled ? `<p class="sight-hint">👀 ${signaled} bâtiment${signaled > 1 ? 's' : ''} signalé${signaled > 1 ? 's' : ''} par des étudiant·es, en haut de la liste (pas encore confirmé${signaled > 1 ? 's' : ''} par les modos).</p>` : ''}
     <div class="grid cols-3" id="bgrid">${list.map((b) => `
-      <div class="bld ${esc(b.status)} ${sightCount(b.id) ? 'signaled' : ''}" data-q="${esc(normSearch(`${b.name} ${b.note || ''} ${b.campus}`))}">
-        <div class="status">${b.yesterday && b.status === 'inconnu' ? '⚪ À CONFIRMER' : `${STATUS[b.status].dot} ${STATUS[b.status].label}`}</div>
+      <div class="bld ${esc(crowdOf(b)?.status || b.status)} ${crowdOf(b) ? 'crowd' : ''} ${sightCount(b.id) ? 'signaled' : ''}" data-q="${esc(normSearch(`${b.name} ${b.note || ''} ${b.campus}`))}">
+        <div class="status">${crowdOf(b) ? `${STATUS[crowdOf(b).status].dot} ${STATUS[crowdOf(b).status].label}` : b.yesterday && b.status === 'inconnu' ? '⚪ À CONFIRMER' : `${STATUS[b.status].dot} ${STATUS[b.status].label}`}</div>
         <div class="name">${esc(b.name)}</div>
         <div class="campus">${esc(b.campus)}</div>
-        ${b.yesterday && b.status === 'inconnu' ? `<div class="yday">Hier : ${STATUS[b.yesterday].dot} ${esc(STATUS[b.yesterday].label.toLowerCase())} · pas encore confirmé aujourd’hui</div>` : ''}
+        ${crowdOf(b) ? `<div class="crowd-tag">👀 Selon ${crowdOf(b).count} personnes sur place, photos à l’appui · pas encore confirmé par les modos</div>` : ''}
+        ${!crowdOf(b) && b.yesterday && b.status === 'inconnu' ? `<div class="yday">Hier : ${STATUS[b.yesterday].dot} ${esc(STATUS[b.yesterday].label.toLowerCase())} · pas encore confirmé aujourd’hui</div>` : ''}
         ${b.note ? `<div class="note">${esc(b.note)}</div>` : ''}
         <div class="when">${b.updatedAt ? 'MAJ ' + esc(ago(b.updatedAt)) : ''}</div>
         ${sightLine(b)}
@@ -2716,8 +2719,10 @@ async function welcomePopup() {
 // Signalements des étudiant·es, « J'y vais », frise, page droits, entraide
 // =====================================================================
 const SIGHT_LABEL = { bloque: 'bloqué', partiel: 'partiellement bloqué', ouvert: 'ouvert' };
+// Signalement affiché publiquement (assez de personnes + photos, pas de réponse des modos en 5 min)
+function crowdOf(b) { return (state.raw?.sightings || []).find((s) => s.building === b.id && s.crowd) || null; }
 function sightLine(b) {
-  const list = (state.raw?.sightings || []).filter((s) => s.building === b.id);
+  const list = (state.raw?.sightings || []).filter((s) => s.building === b.id && !s.crowd);
   if (!list.length) return '';
   return `<div class="sight-line">${list.map((s) => `👀 ${s.count} signalement${s.count > 1 ? 's' : ''} : ${esc(SIGHT_LABEL[s.status])}`).join(' · ')} <span class="faint">(non confirmé)</span></div>`;
 }
@@ -2726,8 +2731,9 @@ function openSighting(id) {
   if (!b) return;
   sheet(`<h2 style="margin:0 0 4px">👀 ${esc(b.name)}</h2>
     <p class="muted small" style="margin:0 0 14px">Tu es sur place ? Dis ce que tu vois. C’est anonyme. Les modos vérifient avant de publier.</p>
-    <label class="see-photo" id="sp-lbl"><input type="file" accept="image/*" capture="environment" id="sp-file" hidden><span id="sp-txt">📷 Ajouter une photo (facultatif)</span><small>Vue seulement par les modos, pour vérifier. Pas de visage.</small></label>
-    <div class="see-grid">
+    <label class="see-photo need" id="sp-lbl"><input type="file" accept="image/*" capture="environment" id="sp-file" hidden><span id="sp-txt">📷 1. Prends une photo de l’entrée (obligatoire)</span><small>C’est la preuve : vue seulement par les modos, effacée ensuite. Pas de visage.</small></label>
+    <p class="faint small" style="margin:0 0 8px">2. Choisis ce que tu vois :</p>
+    <div class="see-grid locked" id="sp-grid">
       <button class="ab red" data-st="bloque">🔴 Bloqué</button>
       <button class="ab orange" data-st="partiel">🟠 Partiel</button>
       <button class="ab green" data-st="ouvert">🟢 Ouvert</button>
@@ -2737,12 +2743,13 @@ function openSighting(id) {
       const f = e.target.files?.[0];
       if (!f) return;
       $('#sp-txt', el).textContent = '⏳ Préparation…';
-      try { photo = await shrinkPhoto(f); $('#sp-txt', el).textContent = '✅ Photo jointe (touche pour changer)'; $('#sp-lbl', el).classList.add('on'); }
+      try { photo = await shrinkPhoto(f); $('#sp-txt', el).textContent = '✅ Photo prise (touche pour la refaire)'; $('#sp-lbl', el).classList.add('on'); $('#sp-lbl', el).classList.remove('need'); $('#sp-grid', el).classList.remove('locked'); }
       catch { photo = null; $('#sp-txt', el).textContent = '📷 Photo illisible, réessaie'; }
     };
     el.onclick = async (e) => {
       const st = e.target.closest('[data-st]')?.dataset.st;
       if (!st) return;
+      if (!photo) { const l = $('#sp-lbl', el); l.classList.remove('shake'); void l.offsetWidth; l.classList.add('shake'); return toast('📷 Prends d’abord une photo de l’entrée : c’est obligatoire.'); }
       try {
         let r;
         if (photo) {
@@ -2772,7 +2779,8 @@ async function drawSightings() {
     <div class="kicker">📣 Signalements des étudiant·es · ${r.threshold} concordants = à vérifier</div>
     ${list.map((x) => `<div class="sight-row" data-b="${esc(x.building)}" data-st="${esc(x.status)}" data-from="${esc(x.current)}">
       <div class="grow"><b>${esc(x.name)}</b> → ${STATUS[x.status].dot} ${esc(STATUS[x.status].label)}
-        <div class="faint small">${x.count} personne${x.count > 1 ? 's' : ''} · dernier ${esc(ago(x.last))} · affiché : ${esc(STATUS[x.current].label)}</div></div>
+        <div class="faint small">${x.count} personne${x.count > 1 ? 's' : ''} · dernier ${esc(ago(x.last))} · affiché : ${esc(STATUS[x.current].label)}</div>
+        ${x.crowd ? '<div class="crowd-mod">📢 Affiché publiquement « selon les étudiant·es » : confirme ou ignore</div>' : x.publicAt ? `<div class="crowd-mod soon">⏱ Affiché publiquement dans ${Math.max(1, Math.ceil((new Date(x.publicAt) - Date.now()) / 60e3))} min si personne ne valide</div>` : ''}</div>
       <button class="btn small ${x.status === 'bloque' ? 'red' : x.status === 'partiel' ? 'orange' : 'green'}" data-ok>✓ Confirmer</button>
       ${x.photos?.length ? `<button class="btn small ghost" data-photos="${esc(x.photos.join(','))}">📷 ${x.photos.length} photo${x.photos.length > 1 ? 's' : ''}</button>` : ''}
       <button class="btn small ghost" data-no>Ignorer</button>

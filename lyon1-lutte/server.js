@@ -206,7 +206,7 @@ app.get('/api/state', (req, res) => {
     digestHour: DIGEST_HOUR,
     emailSpots: mailEnabled() ? emailSpots() : 0,
     maxVideoMb: MAX_VIDEO_MB,
-    sightings: extras ? extras.sightingSummary().map(({ building, status, count }) => ({ building, status, count })) : [],
+    sightings: extras ? extras.sightingSummary().map(({ building, status, count, crowd, publicAt }) => ({ building, status, count, crowd, publicAt })) : [],
     droitsPublished: !!db.pages?.droits?.published,
     mailEnabled: mailEnabled(),
     aiEnabled: aiEnabled(),

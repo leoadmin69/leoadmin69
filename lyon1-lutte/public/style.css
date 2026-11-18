@@ -739,3 +739,12 @@ html.no-select * { -webkit-tap-highlight-color: transparent; }
 .sight-photos img { width: 100%; border-radius: 14px; }
 .official-box { border: 1px solid rgba(255,69,58,0.55); background: rgba(255,69,58,0.1); border-radius: 12px; padding: 10px 12px; }
 .official-pill { background: rgba(255,69,58,0.18); color: #ff6b61; font-size: 11px; margin-right: 4px; }
+
+/* Signalement affiché « selon les personnes sur place » */
+.bld.crowd { border-style: dashed !important; border-width: 2px !important; }
+.crowd-tag { margin-top: 4px; font-size: 12px; font-weight: 600; color: var(--orange); }
+.crowd-mod { margin-top: 4px; font-size: 12px; font-weight: 700; color: var(--red); }
+.crowd-mod.soon { color: var(--orange); }
+.see-photo.need { border-color: rgba(255,69,58,0.7); background: rgba(255,69,58,0.08); }
+.see-photo.shake { animation: shake 0.4s; }
+.see-grid.locked .ab { opacity: 0.35; }

@@ -10,6 +10,8 @@ import { saveSnap, readSnap, deleteSnap, stripJpeg, isJpeg } from './snaps.js';
 import { isSystemNick } from '../public/nicks.js';
 
 const SIGHT_WINDOW = 45 * 60e3;                                   // un signalement compte 45 min
+// Signalements confirmés par assez d'étudiant·es mais sans réponse des modos : affichés publiquement au bout de N minutes
+const CROWD_DELAY = () => Number(process.env.SIGHT_PUBLIC_MIN || 5) * 60e3;
 const SIGHT_THRESHOLD = () => Number(process.env.SIGHTING_THRESHOLD || 3); // signalements concordants pour alerter les modos
 const ENTRAIDE_DAYS = 14;
 const DEVICE = 'l1_dev';
@@ -202,14 +204,41 @@ export function registerExtras(app, mod, ctx) {
       if (!b || s.status === b.status) continue;
       if (db.sightIgnored[s.b] && db.sightIgnored[s.b] > s.at) continue;
       const k = `${s.b}|${s.status}`;
-      const o = (out[k] ||= { building: s.b, name: b.name, site: siteOf(b), status: s.status, current: b.status, count: 0, last: s.at, photos: [] });
+      const o = (out[k] ||= { building: s.b, name: b.name, site: siteOf(b), status: s.status, current: b.status, count: 0, last: s.at, photos: [], times: [], updatedAt: b.updatedAt });
       o.count++;
+      o.times.push(s.at);
       if (s.photo) o.photos.push(s.photo);
       if (s.at > o.last) o.last = s.at;
     }
+    for (const o of Object.values(out)) {
+      o.times.sort();
+      o.strongAt = o.count >= SIGHT_THRESHOLD() ? o.times[SIGHT_THRESHOLD() - 1] : null;
+      // affiché « selon les étudiant·es » : seuil atteint depuis 5 min, et aucun·e modo n'a touché ce bâtiment depuis
+      o.publicAt = o.strongAt ? new Date(new Date(o.strongAt).getTime() + CROWD_DELAY()).toISOString() : null;
+      o.crowd = !!o.strongAt && Date.now() >= new Date(o.publicAt).getTime() && !(o.updatedAt && o.updatedAt > o.strongAt);
+      delete o.times; delete o.updatedAt;
+    }
     return Object.values(out).sort((a, b) => b.count - a.count);
   }
-  app.post('/api/sightings', (req, res) => addSighting(req, res, req.body.building, req.body.status, null));
+  // Toutes les 30 s : quand un signalement devient public, les écrans se mettent à jour et les modos sont relancés
+  let crowdKeys = '';
+  setInterval(() => {
+    const list = summary().filter((x) => x.crowd);
+    const keys = list.map((x) => `${x.building}|${x.status}`).sort().join(',');
+    if (keys === crowdKeys) return;
+    const before = new Set(crowdKeys.split(',').filter(Boolean));
+    crowdKeys = keys;
+    broadcast('sighting', {});
+    for (const x of list) {
+      if (before.has(`${x.building}|${x.status}`)) continue;
+      const word = x.status === 'bloque' ? 'bloqué' : x.status === 'partiel' ? 'partiel' : 'ouvert';
+      feed(`${siteName(x.site)} · 👀 ${x.name} affiché ${word} selon ${x.count} étudiant·es sur place (photos à l’appui, pas encore confirmé par les modos)`, x.status === 'bloque' ? 'alert' : 'warn');
+      const ids = db.mods.filter((m) => !m.disabled && canSite(m, x.site)).map((m) => m.id);
+      sendModPush?.(ids, { title: `⏱ ${x.name} affiché ${word} sans confirmation`, body: `Personne n’a validé en 5 min : le site l’affiche « selon les étudiant·es ». Confirme ou ignore dans l’espace modo.`, url: '/#/modo', tag: `sight-${x.building}` }).catch(() => {});
+    }
+  }, 30e3).unref();
+  // Sans photo : refusé (la photo de l'entrée est la preuve)
+  app.post('/api/sightings', (req, res) => bad(res, 'Prends une photo de l’entrée du bâtiment : elle est obligatoire pour signaler.'));
   // Signalement avec photo de preuve (vue seulement par les modos du site, effacée avec le signalement)
   app.post('/api/sightings/photo', express.raw({ type: 'image/jpeg', limit: '2mb' }), async (req, res) => {
     if (!Buffer.isBuffer(req.body) || !isJpeg(req.body)) return bad(res, 'Photo invalide.');
