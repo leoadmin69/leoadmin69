@@ -235,11 +235,29 @@ function setOnline(n) {
 
 // ---------- Rendu ----------
 const view = () => $('#view');
+// Chat : aucune sélection de texte possible (appui long = menu de réactions), sauf dans la zone de saisie
+function chatNoSelect() {
+  const on = route().split('/')[0] === 'chat';
+  document.documentElement.classList.toggle('no-select', on);
+}
+document.addEventListener('selectstart', (e) => {
+  if (!document.documentElement.classList.contains('no-select')) return;
+  if (e.target.closest?.('textarea, input') || e.target.parentElement?.closest?.('textarea, input')) return;
+  e.preventDefault();
+});
+document.addEventListener('selectionchange', () => {
+  if (!document.documentElement.classList.contains('no-select')) return;
+  const a = document.activeElement;
+  if (a && /TEXTAREA|INPUT/.test(a.tagName)) return;
+  const sel = window.getSelection();
+  if (sel && !sel.isCollapsed) sel.removeAllRanges();
+});
 function render(force = false) {
   const active = document.activeElement;
   if (!force && active && view().contains(active) && /INPUT|TEXTAREA|SELECT/.test(active.tagName)) { state.dirty = true; return; }
   state.dirty = false;
   applyScope();
+  chatNoSelect();
   renderNav();
   renderAlertBar();
   renderSiteBar();

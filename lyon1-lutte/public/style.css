@@ -689,3 +689,8 @@ body:has(.sheet-backdrop) #toast.show { transform: translateX(-50%) translateY(0
 .row.expired { opacity: 0.55; }
 .ttl-left { font-weight: 600; }
 .ttl-acts { margin-top: 6px; }
+
+/* Chat : sélection impossible sur toute la page (iPhone surlignait toute la page en bleu à l'appui long) */
+html.no-select, html.no-select body, html.no-select body * { -webkit-user-select: none !important; user-select: none !important; -webkit-touch-callout: none !important; }
+html.no-select textarea, html.no-select input { -webkit-user-select: text !important; user-select: text !important; -webkit-touch-callout: default !important; }
+html.no-select * { -webkit-tap-highlight-color: transparent; }
