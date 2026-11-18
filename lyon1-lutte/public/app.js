@@ -3193,6 +3193,7 @@ async function telegramCard() {
     ${line(t.configured.chat, t.configured.chat ? `Chaîne principale : <b>${esc(t.mainChat)}</b>${t.url ? ` · <a href="${esc(t.url)}" target="_blank" rel="noopener">ouvrir</a>` : ''}` : 'Chaîne principale (TELEGRAM_CHAT_ID)')}
     ${t.chats.map((c) => line(c.ok, `${esc(c.title || c.chat)} <span class="faint">(${esc(c.chat)}${c.botStatus ? ' · bot ' + esc(c.botStatus) : ''})</span>${c.problem ? `<div class="tg-fix">${esc(c.problem)}</div>` : ''} <button class="btn small ghost" data-tgtest="${esc(c.chat)}">Envoyer un test</button>`)).join('')}
     ${t.problem ? `<div class="tg-fix">⚠️ ${esc(t.problem)}</div>` : ''}
+    ${(t.warnings || []).map((w) => `<div class="tg-fix">⚠️ ${esc(w)}</div>`).join('')}
     <p class="faint small" style="margin:8px 0 0">${st.sent} message(s) envoyé(s) depuis le dernier démarrage${st.lastOkAt ? ` · dernier ${esc(ago(st.lastOkAt))}` : ''}${st.lastError ? `<br><span style="color:var(--red)">Dernière erreur ${esc(ago(st.lastErrorAt))} (${esc(st.lastErrorChat || '')}) : ${esc(st.lastError)}</span>` : ''}</p>
     ${!t.configured.token || !t.configured.chat ? `<details style="margin-top:8px"><summary class="small" style="cursor:pointer">Comment relier la chaîne (5 min)</summary><ol class="steps small">
       <li>Sur Telegram, ouvre <b>@BotFather</b> → <code>/newbot</code> → copie le <b>jeton</b>.</li>

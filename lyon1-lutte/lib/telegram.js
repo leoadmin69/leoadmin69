@@ -20,13 +20,19 @@ export function normalizeChat(v) {
   if (!id.startsWith('@') && /^[A-Za-z][A-Za-z0-9_]{3,}$/.test(id)) return `@${id}`;
   return id;
 }
-const MAIN_CHAT = () => normalizeChat(process.env.TELEGRAM_CHAT_ID);
+// Un nom qui finit par « bot » est celui du bot, pas de la chaîne : erreur de réglage fréquente.
+const isBotName = (v) => /bot$/i.test(String(v || '').replace(/^@/, '').replace(/^(?:https?:\/\/)?(?:www\.)?t(?:elegram)?\.me\//i, '').replace(/[/?#].*$/, ''));
+const DEFAULT_CHAT = '@ladoualyon1';
+const MAIN_CHAT = () => { const c = normalizeChat(process.env.TELEGRAM_CHAT_ID); return c && !isBotName(c) ? c : c ? DEFAULT_CHAT : ''; };
+export const chatIsBot = () => isBotName(normalizeChat(process.env.TELEGRAM_CHAT_ID));
+export const urlIsBot = () => isBotName(process.env.TELEGRAM_URL);
 
 export const telegramEnabled = () => !!(TOKEN() && MAIN_CHAT());
 // Chaîne officielle de la mobilisation (lien affiché sur le site si rien d'autre n'est configuré)
 export const DEFAULT_TELEGRAM_URL = 'https://t.me/ladoualyon1';
 export const telegramUrl = () => {
-  if (process.env.TELEGRAM_URL) return process.env.TELEGRAM_URL;
+  // le bouton du site mène toujours à la chaîne, jamais au bot
+  if (process.env.TELEGRAM_URL && !urlIsBot()) return process.env.TELEGRAM_URL;
   const id = MAIN_CHAT();
   return id.startsWith('@') ? `https://t.me/${id.slice(1)}` : DEFAULT_TELEGRAM_URL;
 };
@@ -111,6 +117,10 @@ export async function telegramCheck(chats = []) {
   if (!me.ok) { out.problem = explain(me.description, me.status); return out; }
   out.bot = { username: me.result.username, name: me.result.first_name };
   if (!MAIN_CHAT()) out.problem = 'TELEGRAM_CHAT_ID n’est pas renseigné (Render → Environment) : mets @ladoualyon1.';
+  const warn = [];
+  if (chatIsBot()) warn.push('TELEGRAM_CHAT_ID contient le nom du bot au lieu de la chaîne : le site publie quand même dans @ladoualyon1, mais corrige la variable sur Render (TELEGRAM_CHAT_ID = @ladoualyon1).');
+  if (urlIsBot()) warn.push('TELEGRAM_URL mène au bot : le bouton du site utilise quand même le lien de la chaîne, mais corrige la variable sur Render (TELEGRAM_URL = https://t.me/ladoualyon1).');
+  if (warn.length) out.warnings = warn;
   const list = [...new Set([MAIN_CHAT(), ...chats.map(normalizeChat)].filter(Boolean))];
   for (const chat of list) {
     const c = { chat, ok: false };
