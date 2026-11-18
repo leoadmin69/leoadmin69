@@ -547,7 +547,7 @@ function msgHtml(m) {
   return `<div class="msg ${me ? 'me' : ''} ${m.mod ? 'modo' : ''} ${forMe ? 'for-me' : ''}" data-id="${esc(m.id)}">
     <div class="who">${m.mod ? '🛡️ ' : ''}<b>${esc(m.nick)}</b>${m.mod ? ` <span class="pill green" style="padding:1px 6px;font-size:10px">${esc(m.mod)}</span>` : ''} <span class="faint">${esc(hhmm(m.at))}</span>
       <button class="act" data-reply="${esc(m.id)}" aria-label="Répondre">↩ répondre</button><button class="act" data-menu="${esc(m.id)}" aria-label="Réagir">＋ réagir</button>${me ? '' : ` <button class="act rep" data-rep="${esc(m.id)}">signaler</button>`}</div>
-    <div class="bubble ${onlyEmotes(m.text) && !m.reply ? 'jumbo' : ''}">${m.reply ? `<div class="quote" data-goto="${esc(m.reply.id)}"><b>↩ ${esc(m.reply.nick)}</b><span>${withEmotes(esc(m.reply.text))}</span></div>` : ''}${withEmotes(esc(m.text))}</div>${reactsHtml(m)}<span class="swipe-ico" aria-hidden="true">↩</span></div>`;
+    ${m.photo ? snapHtml(m, me) : ''}<div class="bubble ${onlyEmotes(m.text) && !m.reply ? 'jumbo' : ''}" ${m.photo && !m.text && !m.reply ? 'hidden' : ''}>${m.reply ? `<div class="quote" data-goto="${esc(m.reply.id)}"><b>↩ ${esc(m.reply.nick)}</b><span>${withEmotes(esc(m.reply.text))}</span></div>` : ''}${withEmotes(esc(m.text))}</div>${reactsHtml(m)}<span class="swipe-ico" aria-hidden="true">↩</span></div>`;
 }
 async function viewChat() {
   const chans = state.data.channels;
@@ -564,6 +564,7 @@ async function viewChat() {
       <div class="emote-picker" id="picker" hidden>${EMOTES.map((e) => `<button type="button" data-emote="${esc(e.code)}" title="${esc(e.label)} · :${esc(e.code)}:"><img src="/emotes/${esc(e.code)}.svg" alt="${esc(e.label)}"></button>`).join('')}</div>
       <form class="composer" id="composer" ${charterOk() ? '' : 'hidden'}>
         <button type="button" class="emote-btn" id="emobtn" aria-label="Stickers"><img src="/emotes/mdr.svg" alt=""></button>
+        ${navigator.mediaDevices?.getUserMedia ? '<button type="button" class="cam-btn" id="cambtn" aria-label="Prendre une photo">📸</button>' : ''}
         <textarea id="text" rows="1" maxlength="600" placeholder="Message dans #${esc(ch?.name || '')}" aria-label="Message"></textarea>
         <button type="submit" aria-label="Envoyer">${icon('send', 20)}</button>
       </form>
@@ -613,6 +614,7 @@ async function viewChat() {
   };
   // Stickers
   $('#emobtn').onclick = () => { $('#picker').hidden = !$('#picker').hidden; };
+  if ($('#cambtn')) $('#cambtn').onclick = () => openCamera();
   $('#picker').onclick = (e) => {
     const c = e.target.closest('[data-emote]')?.dataset.emote;
     if (!c) return;
@@ -723,6 +725,8 @@ async function viewChat() {
   box.addEventListener('contextmenu', (e) => { const el = e.target.closest('.msg'); if (el) { e.preventDefault(); if (!$('.react-pop')) openMenu(el.dataset.id); } });
 
   $('#msgs').onclick = async (e) => {
+    const sp = e.target.closest('[data-snap]');
+    if (sp) return openSnap(sp.dataset.snap);
     const rc = e.target.closest('[data-react]');
     if (rc) return react(rc.closest('.msg').dataset.id, rc.dataset.react);
     const mid = e.target.closest('[data-menu]')?.dataset.menu;
@@ -1948,10 +1952,12 @@ async function modChat(el) {
     </form>`
     + `
     <p class="muted small">Messages signalés ou masqués. Un message est masqué automatiquement après 3 signalements. Sur le chat public, tes messages s’affichent avec le badge de ton organisation.</p>
-    <div class="list">${list.map((m) => `<div class="row"><div class="grow"><div class="title">${esc(m.nick)} <span class="faint small">#${esc(m.channel)} · ${esc(ago(m.at))}</span></div><div>${esc(m.text)}</div><div class="sub">${m.reports} signalement(s) ${m.hidden ? '· <b style="color:var(--red)">masqué</b>' : ''}</div></div>
+    <div class="list">${list.map((m) => `<div class="row"><div class="grow"><div class="title">${esc(m.nick)} <span class="faint small">#${esc(m.channel)} · ${esc(ago(m.at))}</span></div><div>${m.photo ? (m.photo.gone ? '📸 <i>photo expirée ou supprimée</i>' : `📸 Photo <button class="btn small ghost" data-modsnap="${esc(m.photo.id)}">Voir</button> <button class="btn small red" data-delsnap="${esc(m.id)}">Supprimer la photo</button>`) : ''}${esc(m.text)}</div><div class="sub">${m.reports} signalement(s) ${m.hidden ? '· <b style="color:var(--red)">masqué</b>' : ''}</div></div>
       ${m.hidden ? `<button class="btn small ghost" data-restore="${esc(m.id)}">Rétablir</button>` : `<button class="btn small red" data-hide="${esc(m.id)}">Masquer</button>`}</div>`).join('') || '<div class="empty">Rien à modérer 👌</div>'}</div>`;
   $('#blf').onsubmit = async (e) => { e.preventDefault(); const r = await act(() => api('/api/mod/chat-banned', { method: 'PUT', body: { words: e.target.words.value } }), 'Liste noire enregistrée.'); state.chatRules = null; e.target.words.value = r.extra.join('\n'); };
   el.onclick = async (e) => {
+    if (e.target.dataset.modsnap) return openSnap(e.target.dataset.modsnap, true);
+    if (e.target.dataset.delsnap) { if (confirm('Supprimer définitivement cette photo ?')) { await act(() => api(`/api/mod/chat/${e.target.dataset.delsnap}?photo=delete`, { method: 'DELETE' }), 'Photo supprimée.'); render(true); } return; }
     const h = e.target.dataset.hide; const r = e.target.dataset.restore;
     if (h) { await act(() => api(`/api/mod/chat/${h}`, { method: 'DELETE' }), 'Masqué.'); render(true); }
     if (r) { await act(() => api(`/api/mod/chat/${r}/restore`, { method: 'POST' }), 'Rétabli.'); render(true); }
@@ -2876,19 +2882,20 @@ async function modDroits(el) {
 // =====================================================================
 // Charte du chat + liste noire (vérifiée avant l'envoi)
 // =====================================================================
-const CHARTER_V = 1;
+const CHARTER_V = 2; // v2 : photos éphémères
 const charterOk = () => store.get('l1-charte', 0) >= CHARTER_V;
 function charterHtml(gate) {
   return `<div class="${gate ? 'card charter' : ''}" id="${gate ? 'charter-gate' : 'charter-read'}">
-    <div class="kicker">📜 Charte du chat · 30 secondes</div>
+    <div class="kicker">📜 Charte du chat · 30 secondes${store.get('l1-charte', 0) >= 1 && store.get('l1-charte', 0) < CHARTER_V ? ' · <span style="color:var(--orange)">mise à jour : photos</span>' : ''}</div>
     <ol class="charter-list">
       <li><b>Respect.</b> Pas d’insultes ni de gros mots. Zéro propos raciste, sexiste, LGBTphobe ou validiste.</li>
       <li><b>Personne n’est visé.</b> Pas de menace, pas de harcèlement, pas d’appel à la violence contre quelqu’un.</li>
       <li><b>Anonymat.</b> Ne donne aucun nom, numéro étudiant, adresse ou photo : ni les tiens, ni ceux des autres.</li>
       <li><b>Infos vérifiées.</b> Pas de fausses infos (lieu, horaire, annulation). Les infos sûres sont dans Bâtiments et Agenda.</li>
       <li><b>Débattre, oui.</b> Le désaccord est bienvenu, l’attaque perso non. Pas de pub, pas de spam.</li>
+      <li><b>📸 Photos.</b> Prises avec la caméra, vues <b>une seule fois</b> par personne pendant 10 s, effacées après 24 h. Jamais de visage reconnaissable sans accord (manifestant·es, passant·es, agents), jamais de plaque, de carte étudiante ou de document. Rien d’intime, rien de violent. Ne fais pas de capture d’écran : ton pseudo s’affiche sur la photo que tu regardes, et les modos peuvent voir et supprimer toutes les photos.</li>
     </ol>
-    <p class="faint small">🚫 Les messages avec un mot interdit sont supprimés avant d’être envoyés. 3 signalements = message masqué. Les modos peuvent masquer tout message qui ne respecte pas la charte.</p>
+    <p class="faint small">🚫 Les messages avec un mot interdit sont supprimés avant d’être envoyés. 3 signalements = message masqué. Les modos peuvent masquer tout message ou photo qui ne respecte pas la charte.</p>
     ${gate ? `<label class="check"><input type="checkbox" id="charter-chk"> J’ai lu la charte et je m’engage à la respecter</label>
     <button class="btn green" id="charter-ok" disabled style="margin-top:8px;width:100%">J’accepte et j’entre dans le chat</button>` : ''}
   </div>`;
@@ -2972,4 +2979,126 @@ async function subscribeModPush(ask = false) {
   await api('/api/mod/push/subscribe', { method: 'POST', body: { subscription: s.toJSON() } });
   store.set('l1-modpush-off', false);
   return true;
+}
+
+// =====================================================================
+// Photos éphémères du chat : caméra seulement, 1 vue, 10 s, floue ensuite
+// =====================================================================
+const seenSnaps = () => store.get('l1-snaps-seen', {});
+function markSnapSeen(pid) {
+  const s = seenSnaps(); s[pid] = 1;
+  const k = Object.keys(s); if (k.length > 500) for (const x of k.slice(0, k.length - 500)) delete s[x];
+  store.set('l1-snaps-seen', s);
+  $$(`[data-snap="${CSS.escape(pid)}"]`).forEach((b) => { b.classList.remove('new'); b.classList.add('seen'); $('.snap-label', b).innerHTML = '👁 Vue'; });
+}
+function snapHtml(m, me) {
+  const p = m.photo;
+  const st = p.gone ? 'gone' : me || seenSnaps()[p.id] ? 'seen' : 'new';
+  const label = st === 'gone' ? '⌛ Expirée' : st === 'seen' ? (me ? '📸 Envoyée' : '👁 Vue') : '📸 Touche pour voir<small>1 seule fois · 10 s</small>';
+  const ratio = p.w && p.h ? `${p.w} / ${p.h}` : '3 / 4';
+  return `<button class="snap ${st}" data-snap="${esc(p.id)}" style="aspect-ratio:${ratio}" aria-label="Photo éphémère">
+    ${p.thumb ? `<span class="snap-bg" style="background-image:url('${p.thumb}')"></span>` : '<span class="snap-bg empty"></span>'}
+    <span class="snap-label">${label}</span></button>`;
+}
+
+async function openSnap(pid, asMod = false) {
+  if (!asMod && seenSnaps()[pid] && !state.me) return toast('Déjà vue : une seule vue par personne.');
+  let blob;
+  try {
+    const r = await fetch(`/api/chat/photo/${encodeURIComponent(pid)}`, { credentials: 'same-origin', cache: 'no-store' });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); if (r.status === 410 && !state.me) markSnapSeen(pid); return toast(j.error || 'Photo indisponible.'); }
+    blob = await r.blob();
+  } catch { return toast('Connexion impossible.'); }
+  const bmp = await createImageBitmap(blob);
+  blob = null;
+  const ov = document.createElement('div');
+  ov.className = 'snap-view';
+  ov.innerHTML = `<canvas></canvas><div class="snap-bar"><i></i></div><div class="snap-hint">Touche pour fermer · la photo disparaît dans <b>10</b> s</div>`;
+  document.body.appendChild(ov);
+  const cv = $('canvas', ov);
+  const draw = () => {
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    cv.width = innerWidth * dpr; cv.height = innerHeight * dpr;
+    const c = cv.getContext('2d');
+    c.fillStyle = '#000'; c.fillRect(0, 0, cv.width, cv.height);
+    const k = Math.min(cv.width / bmp.width, cv.height / bmp.height);
+    const w = bmp.width * k, h = bmp.height * k;
+    c.drawImage(bmp, (cv.width - w) / 2, (cv.height - h) / 2, w, h);
+    // filigrane : qui regarde, et quand (une capture d'écran montre qui l'a prise)
+    const who = `${state.me ? 'MODO ' + state.me.org : nick()} · ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+    c.save(); c.translate(cv.width / 2, cv.height / 2); c.rotate(-Math.PI / 7);
+    c.font = `700 ${Math.round(16 * dpr)}px ui-monospace, Menlo, monospace`; c.fillStyle = 'rgba(255,255,255,0.16)'; c.textAlign = 'center';
+    for (let y = -cv.height; y < cv.height; y += 90 * dpr) for (let x = -cv.width; x < cv.width; x += 300 * dpr) c.fillText(who, x + ((y / (90 * dpr)) % 2) * 150 * dpr, y);
+    c.restore();
+  };
+  draw();
+  addEventListener('resize', draw);
+  let left = 10;
+  const tick = setInterval(() => { left--; const b = $('.snap-hint b', ov); if (b) b.textContent = left; if (left <= 0) close(); }, 1000);
+  let closed = false;
+  function close() {
+    if (closed) return; closed = true;
+    clearInterval(tick); removeEventListener('resize', draw);
+    document.removeEventListener('visibilitychange', onHide); removeEventListener('blur', close); removeEventListener('pagehide', close);
+    const c = cv.getContext('2d'); c.clearRect(0, 0, cv.width, cv.height); cv.width = cv.height = 1;
+    bmp.close?.(); ov.remove();
+    if (!state.me) markSnapSeen(pid);
+  }
+  const onHide = () => { if (document.hidden) close(); };
+  ov.addEventListener('click', close);
+  ov.addEventListener('contextmenu', (e) => e.preventDefault());
+  document.addEventListener('visibilitychange', onHide);
+  addEventListener('blur', close); // on quitte l'app (centre de contrôle, autre app…) : la photo se ferme
+  addEventListener('pagehide', close);
+}
+
+async function openCamera() {
+  if (!state.me && !charterOk()) return toast('Accepte d’abord la nouvelle charte du chat (photos).');
+  let facing = store.get('l1-cam', 'environment');
+  let stream = null;
+  const ov = document.createElement('div');
+  ov.className = 'cam';
+  ov.innerHTML = `<video autoplay playsinline muted></video><div class="cam-flash"></div>
+    <div class="cam-top"><button class="cam-x" aria-label="Fermer">✕</button><span>Photo éphémère · vue 1 fois</span><button class="cam-flip" aria-label="Changer de caméra">🔄</button></div>
+    <div class="cam-bottom"><p>⚠️ Pas de visage reconnaissable sans accord</p><button class="cam-shot" aria-label="Prendre et envoyer"></button></div>`;
+  document.body.appendChild(ov);
+  const video = $('video', ov);
+  const stop = () => { stream?.getTracks().forEach((t) => t.stop()); stream = null; };
+  const close = () => { stop(); ov.remove(); };
+  async function start() {
+    stop();
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 1440 }, height: { ideal: 1440 } }, audio: false });
+      video.srcObject = stream;
+      video.classList.toggle('mirror', facing === 'user');
+    } catch (e) { close(); toast(e.name === 'NotAllowedError' ? 'Autorise la caméra pour envoyer une photo.' : 'Caméra indisponible.'); }
+  }
+  $('.cam-x', ov).onclick = close;
+  $('.cam-flip', ov).onclick = () => { facing = facing === 'user' ? 'environment' : 'user'; store.set('l1-cam', facing); start(); };
+  $('.cam-shot', ov).onclick = async () => {
+    if (!video.videoWidth) return;
+    const k = Math.min(1, 1280 / Math.max(video.videoWidth, video.videoHeight));
+    const w = Math.round(video.videoWidth * k), h = Math.round(video.videoHeight * k);
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    const c = cv.getContext('2d');
+    if (facing === 'user') { c.translate(w, 0); c.scale(-1, 1); }
+    c.drawImage(video, 0, 0, w, h);
+    // vignette minuscule (16 px) : sert seulement de fond flou, rien n'y est reconnaissable
+    const tc = document.createElement('canvas'); tc.width = 16; tc.height = Math.max(4, Math.round(16 * h / w));
+    tc.getContext('2d').drawImage(cv, 0, 0, tc.width, tc.height);
+    const thumb = tc.toDataURL('image/jpeg', 0.5);
+    $('.cam-flash', ov).classList.add('on');
+    navigator.vibrate?.(20);
+    const blob = await new Promise((r) => cv.toBlob(r, 'image/jpeg', 0.82));
+    close();
+    try {
+      const q = new URLSearchParams({ channel: state.chatChannel, nick: nick(), charter: String(store.get('l1-charte', 0)), w, h });
+      const r = await fetch(`/api/chat/photo?${q}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'image/jpeg', 'X-Thumb': thumb }, body: blob });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) return toast(j.error || 'Envoi impossible.');
+      markSnapSeen(j.photo.id);
+      toast('📸 Photo envoyée');
+    } catch { toast('Envoi impossible, vérifie ta connexion.'); }
+  };
+  start();
 }

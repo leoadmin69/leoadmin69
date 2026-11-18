@@ -13,6 +13,7 @@ import { mailEnabled, mailProvider, mailQuota, sendMany, renderEmail, SITE_URL, 
 import { aiEnabled, aiProviders, analyzePdf } from './lib/ai.js';
 import { registerCommunity, MAX_VIDEO_MB } from './lib/community.js';
 import { registerExtras } from './lib/extras.js';
+import { saveSnap, readSnap, deleteSnap, purgeSnaps, stripJpeg, isJpeg, SNAP_TTL } from './lib/snaps.js';
 import { isSystemNick } from './public/nicks.js';
 import { EMOTES } from './public/emotes.js';
 const EMOTE_SET = new Set(EMOTES.map((e) => e.code));
@@ -200,7 +201,8 @@ app.get('/api/reports/:id', (req, res) => {
 // ---------- Chat anonyme ----------
 const NICK = /^[\p{L}\p{N} _-]{2,24}$/u;
 const reactCounts = (m) => Object.fromEntries(Object.entries(m.reactions || {}).filter(([, l]) => l.length).map(([c, l]) => [c, l.length]));
-const publicMsg = (m) => ({ id: m.id, channel: m.channel, nick: m.nick, text: m.text, at: m.at, mod: m.mod || null, reply: m.reply || null, reactions: reactCounts(m) });
+const publicPhoto = (p) => (p ? { id: p.id, thumb: p.gone ? '' : p.thumb, gone: !!p.gone, w: p.w, h: p.h } : null);
+const publicMsg = (m) => ({ id: m.id, channel: m.channel, nick: m.nick, text: m.text, at: m.at, mod: m.mod || null, reply: m.reply || null, reactions: reactCounts(m), photo: publicPhoto(m.photo) });
 
 // Liste noire (déjà normalisée) envoyée à l'app : le message est bloqué sur le téléphone avant même d'être envoyé.
 app.get('/api/chat-rules', (req, res) => res.json({ words: bannedList() }));
@@ -229,15 +231,66 @@ app.post('/api/chat', (req, res) => {
   let reply = null;
   if (req.body.replyTo) {
     const o = db.messages.find((x) => x.id === String(req.body.replyTo) && x.channel === channel && !x.hidden);
-    if (o) reply = { id: o.id, nick: o.mod ? `${o.nick} (${o.mod})` : o.nick, text: o.text.slice(0, 100) };
+    if (o) reply = { id: o.id, nick: o.mod ? `${o.nick} (${o.mod})` : o.nick, text: (o.text || (o.photo ? '📸 Photo' : '')).slice(0, 100) };
   }
   const m = { id: newId(), channel, nick, text, at: now(), v, reports: [], mod: mod ? mod.org : null, reply };
-  db.messages.push(m);
-  if (db.messages.length > 6000) db.messages = db.messages.slice(-5000);
-  save();
+  pushMessage(m);
   broadcast('chat', publicMsg(m));
   res.json(publicMsg(m));
 });
+function pushMessage(m) {
+  db.messages.push(m);
+  if (db.messages.length > 6000) {
+    for (const old of db.messages.slice(0, db.messages.length - 5000)) if (old.photo && !old.photo.gone) deleteSnap(old.photo.id);
+    db.messages = db.messages.slice(-5000);
+  }
+  save();
+}
+
+// ---------- Photos éphémères du chat (caméra seulement, 1 vue par appareil, 24 h) ----------
+app.post('/api/chat/photo', express.raw({ type: 'image/jpeg', limit: '2mb' }), async (req, res) => {
+  const channel = clip(req.query.channel, 40);
+  const nick = clip(req.query.nick, 24);
+  const modNow = currentMod(req);
+  if (!db.channels.some((c) => c.id === channel)) return bad(res, 'Salon inconnu.');
+  if (!modNow && !isSystemNick(nick)) return bad(res, 'Pseudo non reconnu. Recharge la page.');
+  if (!modNow && req.query.charter !== '2') return bad(res, 'Lis et accepte la nouvelle charte du chat (photos) avant d’envoyer.', 403);
+  if (!Buffer.isBuffer(req.body) || !isJpeg(req.body)) return bad(res, 'Photo invalide.');
+  const v = deviceKey(req, res);
+  if (limited(`photo:${v}`, 1, 20000) || limited(`photoh:${v}`, 15, 3600e3)) return bad(res, 'Une photo toutes les 20 secondes maximum (15 par heure).', 429);
+  if (limited(`photoip:${visitor(req)}`, 120, 3600e3)) return bad(res, 'Trop de photos depuis ce réseau, réessaie plus tard.', 429);
+  const clean = stripJpeg(req.body);
+  if (!clean) return bad(res, 'Photo illisible.');
+  const thumb = String(req.get('x-thumb') || '');
+  const id = newId() + newId();
+  await saveSnap(id, clean);
+  const m = {
+    id: newId(), channel, nick, text: '', at: now(), v, reports: [], mod: modNow ? modNow.org : null, reply: null,
+    photo: { id, thumb: /^data:image\/jpeg;base64,[A-Za-z0-9+/=]{20,4000}$/.test(thumb) ? thumb : '', w: Math.min(4000, Number(req.query.w) || 0), h: Math.min(4000, Number(req.query.h) || 0), views: [deviceKey(req, res, true)] },
+  };
+  pushMessage(m);
+  broadcast('chat', publicMsg(m));
+  res.json(publicMsg(m));
+});
+// Voir une photo : une seule fois par appareil (les modos : toujours)
+app.get('/api/chat/photo/:id', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, private');
+  const m = db.messages.find((x) => x.photo?.id === req.params.id);
+  if (!m || m.photo.gone) return bad(res, 'Photo expirée ou supprimée.', 410);
+  const modNow = currentMod(req);
+  if (!modNow) {
+    if (m.hidden) return bad(res, 'Photo retirée par les modos.', 410);
+    const v = deviceKey(req, res, true);
+    if (m.photo.views.includes(v)) return bad(res, 'Déjà vue : une seule vue par personne.', 410);
+    m.photo.views.push(v);
+    save();
+  }
+  const buf = await readSnap(m.photo.id);
+  if (!buf) return bad(res, 'Photo introuvable.', 410);
+  res.type('image/jpeg').send(buf);
+});
+setInterval(purgeSnaps, 10 * 60e3).unref();
+setTimeout(purgeSnaps, 20e3).unref();
 app.post('/api/chat/:id/report', (req, res) => {
   const m = db.messages.find((x) => x.id === req.params.id);
   if (!m) return bad(res, 'Introuvable', 404);
@@ -752,7 +805,9 @@ mod.get('/chat/reported', (req, res) => res.json(db.messages.filter((m) => m.rep
 mod.delete('/chat/:id', (req, res) => {
   const m = db.messages.find((x) => x.id === req.params.id);
   if (!m) return bad(res, 'Introuvable', 404);
-  m.hidden = true; save(); audit(req.mod, 'message masqué', m.text.slice(0, 80));
+  m.hidden = true;
+  if (m.photo && !m.photo.gone && req.query.photo === 'delete') { deleteSnap(m.photo.id); m.photo.gone = true; m.photo.thumb = ''; }
+  save(); audit(req.mod, m.photo ? 'photo du chat retirée' : 'message masqué', m.text.slice(0, 80) || '📸 photo');
   broadcast('chat-del', { id: m.id });
   res.json({ ok: true });
 });
