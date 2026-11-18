@@ -229,6 +229,31 @@ export function registerExtras(app, mod, ctx) {
     res.json({ ok: true, count: s?.count || 1, message: s && s.count >= SIGHT_THRESHOLD() ? 'Merci ! Plusieurs personnes l’ont signalé : un·e modo va confirmer.' : 'Merci ! Ton signalement est transmis aux modos.' });
   });
   mod.get('/sightings', (req, res) => res.json({ threshold: SIGHT_THRESHOLD(), list: summary().filter((x) => canSite(req.mod, x.site)) }));
+  // Envoie maintenant, aux modos concernés, une notification pour chaque signalement en attente (≥ seuil).
+  // mods : comptes à prévenir (par défaut tous) ; building : un seul bâtiment.
+  async function remindSightings({ mods = null, building = null } = {}) {
+    const pending = summary().filter((x) => x.count >= SIGHT_THRESHOLD() && (!building || x.building === building));
+    let sent = 0;
+    for (const x of pending) {
+      const ids = db.mods.filter((m) => !m.disabled && canSite(m, x.site) && (!mods || mods.includes(m.id))).map((m) => m.id);
+      if (!ids.length) continue;
+      const word = x.status === 'bloque' ? 'BLOQUÉ' : x.status === 'partiel' ? 'PARTIEL' : 'OUVERT';
+      const r = await sendModPush?.(ids, { title: `👀 À vérifier · ${x.name} ${word} ?`, body: `${x.count} étudiant·es le signalent (${siteName(x.site)}). Vérifie puis confirme en un tap dans l’espace modo.`, url: '/#/modo', tag: `sight-${x.building}` }).catch(() => null);
+      sent += r?.sent || 0;
+    }
+    return { pending: pending.length, sent };
+  }
+  // Bouton « Prévenir les modos » : relance la notification d'un signalement (ou de tous)
+  mod.post('/sightings/remind', async (req, res) => {
+    const b = req.body.building ? db.buildings.find((x) => x.id === req.body.building) : null;
+    if (req.body.building && !b) return bad(res, 'Introuvable', 404);
+    if (b && !needSite(req, res, siteOf(b))) return;
+    if (limited(`remind:${req.mod.id}`, 10, 600e3)) return bad(res, 'Déjà relancé plusieurs fois, attends quelques minutes.', 429);
+    const r = await remindSightings({ building: b?.id });
+    audit(req.mod, 'signalements : modos relancés', b ? b.name : 'tous', b ? siteOf(b) : '');
+    res.json(r);
+  });
+
   mod.post('/sightings/ignore', (req, res) => {
     const b = db.buildings.find((x) => x.id === req.body.building);
     if (!b) return bad(res, 'Introuvable', 404);
@@ -353,5 +378,5 @@ export function registerExtras(app, mod, ctx) {
     res.json({ ok: true });
   });
 
-  return { onBuilding, sightingSummary: summary };
+  return { onBuilding, sightingSummary: summary, remindSightings };
 }

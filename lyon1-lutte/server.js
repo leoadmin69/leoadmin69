@@ -464,7 +464,9 @@ app.use('/api/mod', mod);
 mod.post('/push/subscribe', (req, res) => {
   try { modSubscribe(req.mod.id, req.body.subscription); } catch (e) { return bad(res, e.message); }
   audit(req.mod, 'alertes modo activées', '');
-  res.json({ ok: true });
+  // les signalements déjà en attente arrivent tout de suite sur ce téléphone
+  setTimeout(() => extras?.remindSightings({ mods: [req.mod.id] }).catch(() => {}), 1500);
+  res.json({ ok: true, pending: extras ? extras.sightingSummary().filter((x) => canSite(req.mod, x.site) && x.count >= Number(process.env.SIGHTING_THRESHOLD || 3)).length : 0 });
 });
 mod.post('/push/unsubscribe', (req, res) => { modUnsubscribe(req.mod.id, String(req.body.endpoint || '')); res.json({ ok: true }); });
 mod.post('/push/status', (req, res) => res.json({ on: modPushOn(req.mod.id, String(req.body.endpoint || '')) }));

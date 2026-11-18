@@ -2653,6 +2653,7 @@ async function drawSightings() {
         <div class="faint small">${x.count} personne${x.count > 1 ? 's' : ''} · dernier ${esc(ago(x.last))} · affiché : ${esc(STATUS[x.current].label)}</div></div>
       <button class="btn small ${x.status === 'bloque' ? 'red' : x.status === 'partiel' ? 'orange' : 'green'}" data-ok>✓ Confirmer</button>
       <button class="btn small ghost" data-no>Ignorer</button>
+      ${x.count >= r.threshold ? '<button class="btn small ghost" data-remind title="Renvoyer la notification aux modos du site">🔔 Prévenir les modos</button>' : ''}
     </div>`).join('')}
     <p class="faint small" style="margin:8px 0 0">Vérifie (sur place, dans un groupe, ou par un·e camarade) avant de confirmer : un signalement peut être une blague ou une manip.</p>
   </div>`;
@@ -2662,6 +2663,9 @@ async function drawSightings() {
     if (e.target.closest('[data-ok]')) {
       await applyChanges([{ id: row.dataset.b, status: row.dataset.st, from: row.dataset.from }], 'Signalement confirmé');
       drawSightings();
+    } else if (e.target.closest('[data-remind]')) {
+      const res = await act(() => api('/api/mod/sightings/remind', { method: 'POST', body: { building: row.dataset.b } }));
+      toast(res.sent ? `🔔 Notification envoyée sur ${res.sent} téléphone${res.sent > 1 ? 's' : ''} de modo.` : 'Aucun modo de ce site n’a encore activé les alertes sur son téléphone.');
     } else if (e.target.closest('[data-no]')) {
       await act(() => api('/api/mod/sightings/ignore', { method: 'POST', body: { building: row.dataset.b } }), 'Signalements ignorés.');
       drawSightings();
@@ -2927,6 +2931,19 @@ async function modPushCard() {
   const sub = await currentPushSub().catch(() => null);
   let on = false;
   if (sub && Notification.permission === 'granted') { try { on = (await api('/api/mod/push/status', { method: 'POST', body: { endpoint: sub.endpoint } })).on; } catch {} }
+  // Notifications déjà autorisées sur ce téléphone : on active les alertes modo sans rien demander
+  if (!on && Notification.permission === 'granted' && !store.get('l1-modpush-off', false)) {
+    try { await subscribeModPush(); on = true; toast('🔔 Alertes modo activées sur ce téléphone'); } catch {}
+  }
+  // Pas encore autorisées : on le propose à chaque ouverture de l'espace modo (une fois par visite)
+  if (!on && Notification.permission === 'default' && !sess.get('l1-modpush-ask') && !$('.sheet')) {
+    sess.set('l1-modpush-ask');
+    sheet(`<h3>🔔 Active tes alertes modo</h3><p class="muted">Des étudiant·es signalent des bâtiments sur tes sites. Active les notifications pour être prévenu·e et les vérifier tout de suite.</p>
+      <button class="btn green" id="mp-yes" style="width:100%">Activer les alertes modo</button><button class="btn ghost" id="mp-no" style="width:100%;margin-top:8px">Plus tard</button>`, (el, close) => {
+      $('#mp-no', el).onclick = close;
+      $('#mp-yes', el).onclick = async () => { close(); try { const ok = await subscribeModPush(true); if (ok) toast('🔔 Alertes modo activées ✊ Les signalements en attente arrivent.'); } catch (e) { toast(e.message); } modPushCard(); };
+    });
+  }
   box.innerHTML = `<div class="card modpush ${on ? 'on' : ''}"><div class="grow">🔔 <b>Alertes modo sur ce téléphone</b><div class="muted small">${on ? 'Activées : tu es prévenu·e quand 3 étudiant·es signalent un bâtiment de tes sites.' : 'Sois prévenu·e dès que 3 étudiant·es signalent un bâtiment de tes sites, pour vérifier et valider.'}</div></div>
     <button class="btn small ${on ? 'ghost' : 'green'}" id="modpush-btn">${on ? 'Désactiver' : 'Activer'}</button></div>`;
   $('#modpush-btn').onclick = async () => {
@@ -2934,19 +2951,25 @@ async function modPushCard() {
       if (on) {
         const s = await currentPushSub();
         if (s) await api('/api/mod/push/unsubscribe', { method: 'POST', body: { endpoint: s.endpoint } });
+        store.set('l1-modpush-off', true);
         toast('Alertes modo désactivées sur ce téléphone.');
-      } else {
-        const perm = await Notification.requestPermission();
-        if (perm !== 'granted') return toast('Notifications refusées. Autorise-les dans les réglages du téléphone.');
-        const reg = (await navigator.serviceWorker.getRegistration()) || (await registerSW());
-        await navigator.serviceWorker.ready;
-        const { key } = await api('/api/push/key');
-        let s = await reg.pushManager.getSubscription();
-        if (!s) s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) });
-        await api('/api/mod/push/subscribe', { method: 'POST', body: { subscription: s.toJSON() } });
-        toast('Alertes modo activées ✊');
-      }
+      } else if (await subscribeModPush(true)) toast('Alertes modo activées ✊');
     } catch (e) { toast(e.message); }
     modPushCard();
   };
+}
+
+async function subscribeModPush(ask = false) {
+  if (ask) {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') { toast('Notifications refusées. Autorise-les dans les réglages du téléphone.'); return false; }
+  }
+  const reg = (await navigator.serviceWorker.getRegistration()) || (await registerSW());
+  await navigator.serviceWorker.ready;
+  const { key } = await api('/api/push/key');
+  let s = await reg.pushManager.getSubscription();
+  if (!s) s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) });
+  await api('/api/mod/push/subscribe', { method: 'POST', body: { subscription: s.toJSON() } });
+  store.set('l1-modpush-off', false);
+  return true;
 }
