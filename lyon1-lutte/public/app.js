@@ -224,7 +224,7 @@ function renderAlertBar() {
   if (eff === 'actif') parts.push(`${BLOCUS.actif}${d.blocus.message ? ' : ' + d.blocus.message : ''}`);
   if (blocked.length) parts.push(`BLOQUÉ : ${blocked.map((b) => b.name).join(' · ')}`);
   if (partial.length) parts.push(`PARTIEL : ${partial.map((b) => b.name).join(' · ')}`);
-  if (crowdB.length) parts.push(`BLOQUÉ SELON LES ÉTUDIANT·ES SUR PLACE : ${crowdB.map((b) => b.name).join(' · ')}`);
+  if (crowdB.length) parts.push(`BLOQUÉ SELON LES PERSONNES SUR PLACE : ${crowdB.map((b) => b.name).join(' · ')}`);
   const txt = esc(parts.join('   ///   '));
   bar.innerHTML = `<span class="tag">ALERTE</span><span class="mask"><span class="ticker"><span>${txt}</span><span aria-hidden="true">${txt}</span></span></span>`;
   bar.onclick = () => (location.hash = '#/batiments');
@@ -410,7 +410,7 @@ function viewBuildings() {
       </div>`).join('') || '<div class="empty">Aucun bâtiment.</div>'}
     </div>
     <div class="card empty" id="bnone" hidden>Aucun bâtiment ne correspond. Vérifie l’orthographe, ou change de site en haut.</div>
-    <p class="faint small" style="margin-top:18px">Tu es devant un bâtiment et l’info est fausse ? Touche « 👀 Signaler ». Quand plusieurs personnes signalent la même chose, les modos sont prévenu·es et confirment en un tap. Rien n’est publié sans elles et eux.</p>`;
+    <p class="faint small" style="margin-top:18px">Tu es devant un bâtiment et l’info est fausse ? Touche « 👀 Signaler ». Avec plusieurs photos, les modos sont prévenu·es. Sans validation en 5 min, l’état peut s’afficher « selon les personnes sur place », sans notification publique.</p>`;
   const input = $('#bsearch');
   const filter = () => {
     state.bsearch = input.value;
@@ -2902,8 +2902,8 @@ function openSighting(id) {
   const b = state.raw.buildings.find((x) => x.id === id);
   if (!b) return;
   sheet(`<h2 style="margin:0 0 4px">👀 ${esc(b.name)}</h2>
-    <p class="muted small" style="margin:0 0 14px">Tu es sur place ? Dis ce que tu vois. C’est anonyme. Les modos vérifient avant de publier.</p>
-    <label class="see-photo need" id="sp-lbl"><input type="file" accept="image/*" capture="environment" id="sp-file" hidden><span id="sp-txt">📷 1. Prends une photo de l’entrée (obligatoire)</span><small>C’est la preuve : vue seulement par les modos, effacée ensuite. Pas de visage.</small></label>
+    <p class="muted small" style="margin:0 0 14px">Tu es sur place ? Dis ce que tu vois. C’est anonyme. Les modos vérifient puis confirment. Sans réponse en 5 min, l’état peut s’afficher selon les personnes sur place.</p>
+    <button type="button" class="see-photo need" id="sp-lbl"><span id="sp-txt">📷 1. Prends une photo de l’entrée (obligatoire)</span><small>C’est la preuve : vue seulement par les modos, effacée ensuite. Pas de visage. Aucun import.</small></button>
     <p class="faint small" style="margin:0 0 8px">2. Choisis ce que tu vois :</p>
     <div class="see-grid locked" id="sp-grid">
       <button class="ab red" data-st="bloque">🔴 Bloqué</button>
@@ -2911,12 +2911,21 @@ function openSighting(id) {
       <button class="ab green" data-st="ouvert">🟢 Ouvert</button>
     </div>`, (el, close) => {
     let photo = null;
-    $('#sp-file', el).onchange = async (e) => {
-      const f = e.target.files?.[0];
-      if (!f) return;
+    $('#sp-lbl', el).onclick = () => {
       $('#sp-txt', el).textContent = '⏳ Préparation…';
-      try { photo = await shrinkPhoto(f); $('#sp-txt', el).textContent = '✅ Photo prise (touche pour la refaire)'; $('#sp-lbl', el).classList.add('on'); $('#sp-lbl', el).classList.remove('need'); $('#sp-grid', el).classList.remove('locked'); }
-      catch { photo = null; $('#sp-txt', el).textContent = '📷 Photo illisible, réessaie'; }
+      openTerrainCamera(async (blob) => {
+        if (!blob) { $('#sp-txt', el).textContent = '📷 Prends une photo de l’entrée (obligatoire)'; return; }
+        try {
+          photo = await shrinkPhoto(blob);
+          $('#sp-txt', el).textContent = '✅ Photo prise (touche pour la refaire)';
+          $('#sp-lbl', el).classList.add('on');
+          $('#sp-lbl', el).classList.remove('need');
+          $('#sp-grid', el).classList.remove('locked');
+        } catch {
+          photo = null;
+          $('#sp-txt', el).textContent = '📷 Photo illisible, réessaie';
+        }
+      });
     };
     el.onclick = async (e) => {
       const st = e.target.closest('[data-st]')?.dataset.st;
@@ -2955,7 +2964,7 @@ async function drawSightings() {
     ${list.map((x) => `<div class="sight-row" data-b="${esc(x.building)}" data-st="${esc(x.status)}" data-from="${esc(x.current)}">
       <div class="grow"><b>${esc(x.name)}</b> → ${STATUS[x.status].dot} ${esc(STATUS[x.status].label)}
         <div class="faint small">${x.count} personne${x.count > 1 ? 's' : ''} · dernier ${esc(ago(x.last))} · affiché : ${esc(STATUS[x.current].label)}</div>
-        ${x.crowd ? '<div class="crowd-mod">📢 Affiché publiquement « selon les étudiant·es » : confirme ou ignore</div>' : x.publicAt ? `<div class="crowd-mod soon">⏱ Affiché publiquement dans ${Math.max(1, Math.ceil((new Date(x.publicAt) - Date.now()) / 60e3))} min si personne ne valide</div>` : ''}</div>
+        ${x.crowd ? '<div class="crowd-mod">📢 Affiché publiquement « selon les personnes sur place » : confirme ou ignore</div>' : x.publicAt ? `<div class="crowd-mod soon">⏱ Affiché publiquement dans ${Math.max(1, Math.ceil((new Date(x.publicAt) - Date.now()) / 60e3))} min si personne ne valide</div>` : ''}</div>
       <button class="btn small ${x.status === 'bloque' ? 'red' : x.status === 'partiel' ? 'orange' : 'green'}" data-ok>✓ Confirmer</button>
       ${x.photos?.length ? `<button class="btn small ghost" data-photos="${esc(x.photos.join(','))}">📷 ${x.photos.length} photo${x.photos.length > 1 ? 's' : ''}</button>` : ''}
       <button class="btn small ghost" data-no>Ignorer</button>

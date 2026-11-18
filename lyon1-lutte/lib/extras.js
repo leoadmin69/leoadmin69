@@ -224,7 +224,7 @@ export function registerExtras(app, mod, ctx) {
     for (const o of Object.values(out)) {
       o.times.sort();
       o.strongAt = o.count >= SIGHT_THRESHOLD() ? o.times[SIGHT_THRESHOLD() - 1] : null;
-      // affiché « selon les étudiant·es » : seuil atteint depuis 5 min, et aucun·e modo n'a touché ce bâtiment depuis
+      // affiché « selon les personnes sur place » : seuil atteint depuis 5 min, et aucun·e modo n'a touché ce bâtiment depuis
       o.publicAt = o.strongAt ? new Date(new Date(o.strongAt).getTime() + CROWD_DELAY()).toISOString() : null;
       o.crowd = !!o.strongAt && Date.now() >= new Date(o.publicAt).getTime() && !(o.updatedAt && o.updatedAt > o.strongAt);
       delete o.times; delete o.updatedAt;
@@ -245,7 +245,7 @@ export function registerExtras(app, mod, ctx) {
       const word = x.status === 'bloque' ? 'bloqué' : x.status === 'partiel' ? 'partiel' : 'ouvert';
       feed(`${siteName(x.site)} · 👀 ${x.name} affiché ${word} selon ${x.count} étudiant·es sur place (photos à l’appui, pas encore confirmé par les modos)`, x.status === 'bloque' ? 'alert' : 'warn');
       const ids = db.mods.filter((m) => !m.disabled && canSite(m, x.site)).map((m) => m.id);
-      sendModPush?.(ids, { title: `⏱ ${x.name} affiché ${word} sans confirmation`, body: `Personne n’a validé en 5 min : le site l’affiche « selon les étudiant·es ». Confirme ou ignore dans l’espace modo.`, url: '/#/modo', tag: `sight-${x.building}` }).catch(() => {});
+      sendModPush?.(ids, { title: `⏱ ${x.name} affiché ${word} sans confirmation`, body: `Personne n’a validé en 5 min : le site l’affiche « selon les personnes sur place ». Confirme ou ignore dans l’espace modo.`, url: '/#/modo', tag: `sight-${x.building}` }).catch(() => {});
     }
   }, 30e3).unref();
   // Sans photo : refusé (la photo de l'entrée est la preuve)
@@ -254,7 +254,7 @@ export function registerExtras(app, mod, ctx) {
   app.post('/api/sightings/photo', express.raw({ type: 'image/jpeg', limit: '2mb' }), async (req, res) => {
     if (!Buffer.isBuffer(req.body) || !isJpeg(req.body)) return bad(res, 'Photo invalide.');
     const dev = deviceKey(req, res);
-    if (limited(`sightph:${dev}`, 6, 3600e3)) return bad(res, 'Trop de photos envoyées, réessaie plus tard (ou signale sans photo).', 429);
+    if (limited(`sightph:${dev}`, 6, 3600e3)) return bad(res, 'Trop de photos envoyées, réessaie plus tard.', 429);
     const clean = stripJpeg(req.body);
     if (!clean) return bad(res, 'Photo illisible.');
     const b = db.buildings.find((x) => x.id === String(req.query.building || ''));
