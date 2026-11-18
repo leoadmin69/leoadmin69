@@ -901,7 +901,7 @@ async function viewModo() {
       </div>`;
     $('#login').onsubmit = async (e) => {
       e.preventDefault();
-      try { state.me = await api('/api/auth/login', { method: 'POST', body: { username: $('#u').value, password: $('#p').value } }); toast(`Connecté·e : ${state.me.org}`); render(true); }
+      try { state.me = await api('/api/auth/login', { method: 'POST', body: { username: $('#u').value, password: $('#p').value } }); try { sessionStorage.removeItem('l1-modpush-ask'); } catch {} toast(`Connecté·e : ${state.me.org}`); render(true); }
       catch (err) { toast(err.message); }
     };
     return;
@@ -2934,6 +2934,14 @@ async function modPushCard() {
   if (!box) return;
   if (!pushSupported()) {
     box.innerHTML = isIOS && !isStandalone() ? `<div class="card modpush">🔔 <b>Alertes modo</b> : sur iPhone, installe d’abord l’app (Partager → Sur l’écran d’accueil) pour recevoir les signalements à vérifier.</div>` : '';
+    if (isIOS && !isStandalone() && !sess.get('l1-modpush-ask') && !$('.sheet')) {
+      sess.set('l1-modpush-ask');
+      sheet(`<h3>🔔 Active tes alertes modo</h3><p class="muted">Sur iPhone, les notifications marchent seulement dans l’app installée. Ajoute-la à ton écran d’accueil, ouvre-la, connecte-toi : la fenêtre pour activer les alertes apparaîtra.</p>
+        <button class="btn green" id="mp-inst" style="width:100%">📲 Comment installer l’app</button><button class="btn ghost" id="mp-no" style="width:100%;margin-top:8px">Plus tard</button>`, (el, close) => {
+        $('#mp-no', el).onclick = close;
+        $('#mp-inst', el).onclick = () => { close(); showInstallHelp(true); };
+      });
+    }
     return;
   }
   const sub = await currentPushSub().catch(() => null);
@@ -2943,7 +2951,14 @@ async function modPushCard() {
   if (!on && Notification.permission === 'granted' && !store.get('l1-modpush-off', false)) {
     try { await subscribeModPush(); on = true; toast('🔔 Alertes modo activées sur ce téléphone'); } catch {}
   }
-  // Pas encore autorisées : on le propose à chaque ouverture de l'espace modo (une fois par visite)
+  // Refusées auparavant : le navigateur ne redemandera plus, on explique où les réautoriser
+  if (!on && Notification.permission === 'denied' && !sess.get('l1-modpush-ask') && !$('.sheet')) {
+    sess.set('l1-modpush-ask');
+    sheet(`<h3>🔕 Notifications bloquées sur ce téléphone</h3><p class="muted">Tu les as refusées pour ce site un jour : il ne peut plus te les redemander. Pour recevoir les signalements à vérifier :</p>
+      <ol class="steps">${isIOS ? '<li>Réglages de l’iPhone → <b>Notifications</b>.</li><li>Choisis l’app <b>La Doua en lutte</b> et active <b>Autoriser les notifications</b>.</li>' : '<li>Touche le <b>cadenas</b> (ou ⓘ) à gauche de l’adresse du site.</li><li><b>Autorisations</b> → <b>Notifications</b> → <b>Autoriser</b>.</li>'}<li>Reviens ici et touche <b>Activer</b> dans l’encart « Alertes modo ».</li></ol>
+      <button class="btn ghost" id="mp-no" style="width:100%">Compris</button>`, (el, close) => { $('#mp-no', el).onclick = close; });
+  }
+  // Pas encore autorisées : on le propose à chaque ouverture de l'espace modo (une fois par visite, et à chaque connexion)
   if (!on && Notification.permission === 'default' && !sess.get('l1-modpush-ask') && !$('.sheet')) {
     sess.set('l1-modpush-ask');
     sheet(`<h3>🔔 Active tes alertes modo</h3><p class="muted">Des étudiant·es signalent des bâtiments sur tes sites. Active les notifications pour être prévenu·e et les vérifier tout de suite.</p>
