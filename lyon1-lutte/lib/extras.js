@@ -5,6 +5,8 @@ import { db, save, newId, now } from './store.js';
 import { SECRET, parseCookies } from './auth.js';
 import { DEFAULT_SITE, site, siteName, siteOf, canSite, isAdmin, wantsSite, telegramChats } from './sites.js';
 import { renderRich } from './community.js';
+import express from 'express';
+import { saveSnap, readSnap, deleteSnap, stripJpeg, isJpeg } from './snaps.js';
 import { isSystemNick } from '../public/nicks.js';
 
 const SIGHT_WINDOW = 45 * 60e3;                                   // un signalement compte 45 min
@@ -70,7 +72,11 @@ Le ou la président·e de l'université est responsable de l'ordre dans les loca
 };
 
 export function registerExtras(app, mod, ctx) {
-  const { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, sendPush, postTelegram, tgEsc, sendModPush } = ctx;
+  const { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, sendPush, postTelegram, tgEsc, sendModPush, deviceKey } = ctx;
+  // Retire des signalements (et efface leurs photos)
+  const dropSightings = (keep) => { const out = db.sightings.filter((x) => !keep(x)); for (const x of out) if (x.photo) deleteSnap(x.photo); db.sightings = db.sightings.filter(keep); };
+  // signalements de plus de 2 h : retirés avec leurs photos
+  setInterval(() => { const n = db.sightings.length; dropSightings((x) => Date.now() - new Date(x.at).getTime() < 2 * 3600e3); if (db.sightings.length !== n) save(); }, 10 * 60e3).unref();
   db.sightings ||= [];
   db.sightIgnored ||= {};
   db.dayLog ||= {};
@@ -104,7 +110,7 @@ export function registerExtras(app, mod, ctx) {
     const entry = ((db.dayLog[day] ||= {})[sid] ||= { bloque: [], partiel: [] });
     if (!entry[b.status].includes(b.name)) { entry[b.status].push(b.name); save(); }
     // un bâtiment confirmé par un·e modo : ses signalements sont soldés
-    db.sightings = db.sightings.filter((s) => s.b !== b.id);
+    dropSightings((s) => s.b !== b.id);
   }
 
   function timeline(siteId) {
@@ -196,22 +202,35 @@ export function registerExtras(app, mod, ctx) {
       if (!b || s.status === b.status) continue;
       if (db.sightIgnored[s.b] && db.sightIgnored[s.b] > s.at) continue;
       const k = `${s.b}|${s.status}`;
-      const o = (out[k] ||= { building: s.b, name: b.name, site: siteOf(b), status: s.status, current: b.status, count: 0, last: s.at });
+      const o = (out[k] ||= { building: s.b, name: b.name, site: siteOf(b), status: s.status, current: b.status, count: 0, last: s.at, photos: [] });
       o.count++;
+      if (s.photo) o.photos.push(s.photo);
       if (s.at > o.last) o.last = s.at;
     }
     return Object.values(out).sort((a, b) => b.count - a.count);
   }
-  app.post('/api/sightings', (req, res) => {
-    const b = db.buildings.find((x) => x.id === req.body.building);
-    if (!b) return bad(res, 'Bâtiment inconnu.', 404);
-    const status = oneOf(req.body.status, ['bloque', 'partiel', 'ouvert'], null);
-    if (!status) return bad(res, 'État invalide.');
+  app.post('/api/sightings', (req, res) => addSighting(req, res, req.body.building, req.body.status, null));
+  // Signalement avec photo de preuve (vue seulement par les modos du site, effacée avec le signalement)
+  app.post('/api/sightings/photo', express.raw({ type: 'image/jpeg', limit: '2mb' }), async (req, res) => {
+    if (!Buffer.isBuffer(req.body) || !isJpeg(req.body)) return bad(res, 'Photo invalide.');
+    const dev = deviceKey(req, res);
+    if (limited(`sightph:${dev}`, 6, 3600e3)) return bad(res, 'Trop de photos envoyées, réessaie plus tard (ou signale sans photo).', 429);
+    const clean = stripJpeg(req.body);
+    if (!clean) return bad(res, 'Photo illisible.');
+    const pid = `sight-${newId()}${newId()}`;
+    await saveSnap(pid, clean);
+    addSighting(req, res, String(req.query.building || ''), String(req.query.status || ''), pid);
+  });
+  function addSighting(req, res, buildingId, rawStatus, photo) {
+    const b = db.buildings.find((x) => x.id === buildingId);
+    if (!b) { if (photo) deleteSnap(photo); return bad(res, 'Bâtiment inconnu.', 404); }
+    const status = oneOf(rawStatus, ['bloque', 'partiel', 'ouvert'], null);
+    if (!status) { if (photo) deleteSnap(photo); return bad(res, 'État invalide.'); }
     if (limited(`sight:${visitor(req)}`, 30, 3600e3)) return bad(res, 'Trop de signalements depuis ce réseau, réessaie plus tard.', 429);
     const v = mark('sight', b.id, device(req, res));
     // un seul signalement par appareil et par bâtiment toutes les 45 min (le dernier compte)
-    db.sightings = db.sightings.filter((s) => !(s.b === b.id && s.v === v) && Date.now() - new Date(s.at).getTime() < 2 * 3600e3);
-    db.sightings.push({ id: newId(), b: b.id, status, v, at: now() });
+    dropSightings((s) => !(s.b === b.id && s.v === v) && Date.now() - new Date(s.at).getTime() < 2 * 3600e3);
+    db.sightings.push({ id: newId(), b: b.id, status, v, at: now(), ...(photo ? { photo } : {}) });
     save();
     const s = summary().find((x) => x.building === b.id && x.status === status);
     broadcast('sighting', { building: b.id });
@@ -227,6 +246,16 @@ export function registerExtras(app, mod, ctx) {
     }
     if (s && s.count === SIGHT_THRESHOLD()) feed(`${siteName(siteOf(b))} · 👀 ${s.count} étudiant·es signalent ${b.name} ${status === 'bloque' ? 'bloqué' : status === 'partiel' ? 'partiellement bloqué' : 'ouvert'} (à confirmer par un·e modo)`, 'warn');
     res.json({ ok: true, count: s?.count || 1, message: s && s.count >= SIGHT_THRESHOLD() ? 'Merci ! Plusieurs personnes l’ont signalé : un·e modo va confirmer.' : 'Merci ! Ton signalement est transmis aux modos.' });
+  }
+  mod.get('/sightings/photo/:id', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private');
+    const x = db.sightings.find((y) => y.photo === req.params.id);
+    if (!x) return bad(res, 'Photo expirée.', 410);
+    const b = db.buildings.find((y) => y.id === x.b);
+    if (!b || !canSite(req.mod, siteOf(b))) return bad(res, 'Pas de droits sur ce site.', 403);
+    const buf = await readSnap(x.photo);
+    if (!buf) return bad(res, 'Photo introuvable.', 410);
+    res.type('image/jpeg').send(buf);
   });
   mod.get('/sightings', (req, res) => res.json({ threshold: SIGHT_THRESHOLD(), list: summary().filter((x) => canSite(req.mod, x.site)) }));
   // Envoie maintenant, aux modos concernés, une notification pour chaque signalement en attente (≥ seuil).

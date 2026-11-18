@@ -36,6 +36,9 @@ Accès `#/modo`. L'admin crée un compte par personne (mot de passe généré, �
   - **Reprendre l'AG** : un bouton remplit la saisie avec les bâtiments bloqués votés dans le dernier compte rendu.
   - **Annuler** pendant 10 s : l'email d'alerte en attente est retiré, aucun faux email ne part.
   - Blocus général : un tap = publié.
+  - **Chaque matin à 5 h** (`MORNING_RESET_HOUR`, `off` pour désactiver), les statuts de la veille passent « ⚪ À confirmer » (« Hier : 🔴 bloqué ») jusqu'à ce qu'un·e modo confirme ; le titre de chaque site repasse en automatique.
+  - **Comptes terrain** (piquets) : bâtiments uniquement, connexion par lien ou QR code sans mot de passe, lien régénérable par l'admin.
+  - **Photo dans les signalements** : facultative, ré-encodée sur le téléphone (sans GPS), visible seulement par les modos du site, effacée à la confirmation ou après 2 h.
   - **Bilan + story en un tap** : après chaque mise à jour, un encadré « ✅ Publié » indique combien de téléphones vont être prévenus, si Telegram est parti, combien de personnes sont en direct, avec le bouton **📸 Partager la story Insta** (déjà générée, lien du site inclus). Les flash et rendez-vous affichent aussi ce bilan.
 - **Story Insta** : images 1080 × 1920 prêtes à publier (statut du campus, prochain RDV, dernier compte rendu, résultat de vote), avec les infos à jour. « Partager » ouvre directement Instagram sur téléphone, sinon téléchargement.
 - **CR + IA** : glisser le PDF du compte rendu → l'IA le lit **en direct à l'écran**, retire les noms des personnes, produit les flash infos ; le modo relit, corrige, publie, et peut importer les RDV dans l'agenda et les revendications.

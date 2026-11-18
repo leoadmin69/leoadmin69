@@ -118,6 +118,7 @@ function audit(mod, action, detail = '', siteId = '') {
 
 // ---------- Session modo ----------
 function currentMod(req) { return readToken(parseCookies(req.headers.cookie)[COOKIE]); }
+const TERRAIN_OK = [/^PUT \/buildings-batch$/, /^PUT \/buildings\/[\w-]+$/, /^GET \/sightings$/, /^POST \/sightings\/(ignore|remind)$/, /^GET \/sightings\/photo\/[\w-]+$/, /^(GET|POST) \/push\//, /^GET \/presence$/, /^GET \/guide\.pdf$/];
 function requireMod(req, res, next) {
   const mod = currentMod(req);
   if (!mod) return bad(res, 'Connexion modo requise.', 401);
@@ -125,6 +126,8 @@ function requireMod(req, res, next) {
   if (req.method !== 'GET' && !/^(application\/json|application\/pdf)/.test(req.headers['content-type'] || '') && req.method !== 'DELETE') return bad(res, 'Type de contenu refusé.', 415);
   req.mod = mod;
   presence.set(mod.id, Date.now());
+  // Compte « terrain » (personnes des piquets) : seulement les bâtiments et les signalements
+  if (mod.role === 'terrain' && !TERRAIN_OK.some((r) => r.test(`${req.method} ${req.path}`))) return bad(res, 'Compte terrain : tu peux seulement mettre à jour les bâtiments.', 403);
   next();
 }
 // Qui est connecté·e en ce moment dans l'espace modo (pour savoir qu'on n'est pas seul·e à modifier)
@@ -456,6 +459,25 @@ if (!db.settings.flashTtlV1) { for (const f of db.flashes) if (f.expiresAt === u
 let liveFlashCount = liveFlashes().length;
 setInterval(() => { const n = liveFlashes().length; if (n !== liveFlashCount) { liveFlashCount = n; broadcast('flashes', {}); } }, 60e3).unref();
 
+// ---------- Chaque matin : les statuts de la veille passent « à confirmer » ----------
+// Les blocages se refont chaque jour : à 5 h (MORNING_RESET_HOUR, « off » pour désactiver), chaque bâtiment repasse
+// en « non renseigné » en gardant l'info de la veille (affichée « hier : bloqué »), jusqu'à ce qu'un·e modo confirme.
+function morningReset() {
+  const hourCfg = process.env.MORNING_RESET_HOUR ?? '5';
+  if (hourCfg === 'off') return;
+  const { day, hour } = parisNow();
+  if (hour < Number(hourCfg) || db.settings.lastMorningReset === day) return;
+  db.settings.lastMorningReset = day;
+  let n = 0;
+  for (const b of db.buildings) if (b.status !== 'inconnu') { b.yesterday = b.status; b.status = 'inconnu'; b.resetAt = now(); n++; }
+  // le titre de chaque site revient en automatique (il suit les bâtiments)
+  for (const st of Object.values(db.siteStatus || {})) if (st.state && st.state !== 'auto') { st.state = 'auto'; st.updatedAt = now(); }
+  save();
+  if (n) { feed(`🌅 Nouvelle journée : ${n} bâtiment(s) à confirmer par les modos sur place`, 'info'); broadcast('buildings', {}); broadcast('blocus', {}); }
+}
+setInterval(morningReset, 60e3).unref();
+setTimeout(morningReset, 10e3).unref();
+
 // Bilan affiché au modo juste après une publication : combien de personnes vont être prévenues, et par où.
 function reach(kind, sid, { push = true, delayMs = 0 } = {}) {
   const sids = sid === ALL_SITES ? null : [sid];
@@ -546,6 +568,17 @@ app.post('/api/auth/login', (req, res) => {
   if (!mod || !verifyPassword(req.body.password || '', mod)) return bad(res, 'Identifiants incorrects.', 401);
   res.setHeader('Set-Cookie', cookieHeader(createToken(mod), 14 * 86400));
   res.json(publicMod(mod));
+});
+// Compte terrain : connexion par lien / QR code (pas de mot de passe à retenir)
+const hashLink = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
+app.post('/api/auth/terrain', (req, res) => {
+  if (limited(`tlogin:${req.ip}`, 20, 15 * 60e3)) return bad(res, 'Trop de tentatives. Réessaie dans 15 minutes.', 429);
+  const t = String(req.body.token || '');
+  const m = t.length >= 20 && db.mods.find((x) => x.role === 'terrain' && !x.disabled && x.linkHash && x.linkHash === hashLink(t));
+  if (!m) return bad(res, 'Lien invalide ou désactivé. Demande un nouveau lien à l’admin.', 401);
+  res.setHeader('Set-Cookie', cookieHeader(createToken(m), 30 * 86400));
+  audit(m, 'connexion terrain', '');
+  res.json(publicMod(m));
 });
 app.post('/api/auth/logout', (req, res) => { res.setHeader('Set-Cookie', cookieHeader('', 0)); res.json({ ok: true }); });
 app.get('/api/auth/me', (req, res) => { const m = currentMod(req); res.json(m ? publicMod(m) : null); });
@@ -655,9 +688,9 @@ mod.put('/buildings/:id', (req, res) => {
   if (!needSite(req, res, siteOf(b))) return;
   if (req.body.from !== undefined && req.body.status !== undefined && req.body.from !== b.status) return bad(res, `${b.name} vient d'être mis à « ${STATUS_LABEL[b.status]} » par ${b.by || 'un·e autre modo'}.`, 409);
   const prev = b.status;
-  if (req.body.name !== undefined) b.name = clip(req.body.name, 80) || b.name;
+  if (req.body.name !== undefined && req.mod.role !== 'terrain') b.name = clip(req.body.name, 80) || b.name;
   if (req.body.note !== undefined) b.note = clip(req.body.note, 240);
-  if (req.body.status !== undefined) b.status = oneOf(req.body.status, STATUS, b.status);
+  if (req.body.status !== undefined) { b.status = oneOf(req.body.status, STATUS, b.status); delete b.yesterday; delete b.resetAt; }
   touch(req, b);
   save();
   audit(req.mod, 'bâtiment', `${b.name} → ${b.status}`, siteOf(b));
@@ -692,6 +725,7 @@ mod.put('/buildings-batch', (req, res) => {
     previous.push({ id: b.id, status: b.status, note: b.note });
     const changed = status !== b.status;
     b.status = status;
+    if (!undo) { delete b.yesterday; delete b.resetAt; }
     touch(req, b);
     touchedSites.add(siteOf(b));
     if (!changed) continue;
@@ -1023,12 +1057,14 @@ mod.post('/mods', requireAdmin, (req, res) => {
   if (!/^[a-z0-9._-]{3,40}$/.test(username)) return bad(res, 'Identifiant : 3 à 40 caractères (lettres, chiffres, . _ -).');
   if (db.mods.some((m) => m.username === username)) return bad(res, 'Identifiant déjà pris.');
   const password = crypto.randomBytes(9).toString('base64url');
-  const role = req.body.role === 'admin' ? 'admin' : 'mod';
+  const role = ['admin', 'terrain'].includes(req.body.role) ? req.body.role : 'mod';
   const msites = (Array.isArray(req.body.sites) ? req.body.sites : []).filter((x) => site(x));
-  if (role === 'mod' && !msites.length) return bad(res, 'Choisis au moins un site pour ce modo.');
+  if (role !== 'admin' && !msites.length) return bad(res, 'Choisis au moins un site pour ce compte.');
   const m = { id: newId(), username, org: clip(req.body.org, 80) || 'Syndicat', role, sites: role === 'admin' ? [] : msites, ...hashPassword(password), createdAt: now(), version: 1 };
-  db.mods.push(m); save(); audit(req.mod, 'compte modo créé', `${username} (${m.org})`);
-  res.json({ ...publicMod(m), password });
+  let link;
+  if (role === 'terrain') { const t = crypto.randomBytes(24).toString('base64url'); m.linkHash = hashLink(t); link = `${SITE_URL()}/#/terrain/${t}`; }
+  db.mods.push(m); save(); audit(req.mod, role === 'terrain' ? 'compte terrain créé' : 'compte modo créé', `${username} (${m.org})`);
+  res.json({ ...publicMod(m), ...(role === 'terrain' ? { link } : { password }) });
 });
 // Modifier un compte : nom affiché (AG, syndicat…), sites, rôle
 mod.put('/mods/:id', requireAdmin, (req, res) => {
@@ -1040,9 +1076,18 @@ mod.put('/mods/:id', requireAdmin, (req, res) => {
     if (m.role !== 'admin' && !msites.length) return bad(res, 'Au moins un site.');
     m.sites = msites;
   }
-  if (req.body.role && m.id !== req.mod.id) m.role = req.body.role === 'admin' ? 'admin' : 'mod';
+  if (req.body.role && m.id !== req.mod.id && m.role !== 'terrain') m.role = req.body.role === 'admin' ? 'admin' : 'mod';
   save(); audit(req.mod, 'compte modifié', `${m.username} : ${m.role === 'admin' ? 'admin' : (m.sites || []).map(siteName).join(', ')}`);
   res.json(publicMod(m));
+});
+// Nouveau lien de connexion pour un compte terrain (l'ancien lien et les sessions ouvertes ne marchent plus)
+mod.post('/mods/:id/link', requireAdmin, (req, res) => {
+  const m = db.mods.find((x) => x.id === req.params.id && x.role === 'terrain');
+  if (!m) return bad(res, 'Compte terrain introuvable.', 404);
+  const t = crypto.randomBytes(24).toString('base64url');
+  m.linkHash = hashLink(t); m.version = (m.version || 1) + 1; m.disabled = false; save();
+  audit(req.mod, 'nouveau lien terrain', m.username);
+  res.json({ ...publicMod(m), link: `${SITE_URL()}/#/terrain/${t}` });
 });
 mod.post('/mods/:id/reset', requireAdmin, (req, res) => {
   const m = db.mods.find((x) => x.id === req.params.id);
@@ -1097,7 +1142,7 @@ mod.delete('/sites/:id', requireAdmin, (req, res) => {
 // ---------- Votes, blog, témoignages ----------
 const community = registerCommunity(app, mod, { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, targetSite, stale, touch });
 // Signalements, « J'y vais », frise, page droits, entraide
-extras = registerExtras(app, mod, { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, sendPush, postTelegram, tgEsc, sendModPush });
+extras = registerExtras(app, mod, { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, sendPush, postTelegram, tgEsc, sendModPush, deviceKey });
 
 // ---------- Site ----------
 // Le service worker doit toujours être relu, sinon les mises à jour de l'app n'arriveraient pas.

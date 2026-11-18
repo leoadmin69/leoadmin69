@@ -268,7 +268,7 @@ function render(force = false) {
   renderSiteBar();
   const [r, arg] = route().split('/');
   if (!state.data) { view().innerHTML = '<div class="empty"><div class="big typing mono">_</div>Connexion au flux…</div>'; return; }
-  const views = { '': viewLive, batiments: viewBuildings, agenda: viewAgenda, chat: viewChat, cr: arg ? () => viewReport(arg) : viewReports, revendications: viewDemands, votes: () => viewPolls(arg), blog: () => viewBlog(arg), temoignages: viewTestimonies, contacts: viewContacts, alertes: viewAlerts, plus: viewPlus, modo: viewModo, frise: viewFrise, entraide: () => viewEntraide(arg), droits: viewDroits };
+  const views = { '': viewLive, batiments: viewBuildings, agenda: viewAgenda, chat: viewChat, cr: arg ? () => viewReport(arg) : viewReports, revendications: viewDemands, votes: () => viewPolls(arg), blog: () => viewBlog(arg), temoignages: viewTestimonies, contacts: viewContacts, alertes: viewAlerts, plus: viewPlus, modo: viewModo, terrain: () => terrainLogin(arg), frise: viewFrise, entraide: () => viewEntraide(arg), droits: viewDroits };
   (views[r] || viewLive)();
 }
 window.addEventListener('hashchange', () => { render(true); window.scrollTo(0, 0); });
@@ -379,9 +379,10 @@ function viewBuildings() {
     ${signaled ? `<p class="sight-hint">👀 ${signaled} bâtiment${signaled > 1 ? 's' : ''} signalé${signaled > 1 ? 's' : ''} par des étudiant·es, en haut de la liste (pas encore confirmé${signaled > 1 ? 's' : ''} par les modos).</p>` : ''}
     <div class="grid cols-3" id="bgrid">${list.map((b) => `
       <div class="bld ${esc(b.status)} ${sightCount(b.id) ? 'signaled' : ''}" data-q="${esc(normSearch(`${b.name} ${b.note || ''} ${b.campus}`))}">
-        <div class="status">${STATUS[b.status].dot} ${STATUS[b.status].label}</div>
+        <div class="status">${b.yesterday && b.status === 'inconnu' ? '⚪ À CONFIRMER' : `${STATUS[b.status].dot} ${STATUS[b.status].label}`}</div>
         <div class="name">${esc(b.name)}</div>
         <div class="campus">${esc(b.campus)}</div>
+        ${b.yesterday && b.status === 'inconnu' ? `<div class="yday">Hier : ${STATUS[b.yesterday].dot} ${esc(STATUS[b.yesterday].label.toLowerCase())} · pas encore confirmé aujourd’hui</div>` : ''}
         ${b.note ? `<div class="note">${esc(b.note)}</div>` : ''}
         <div class="when">${b.updatedAt ? 'MAJ ' + esc(ago(b.updatedAt)) : ''}</div>
         ${sightLine(b)}
@@ -950,13 +951,15 @@ async function viewModo() {
     return;
   }
   const isAdm = state.me.role === 'admin';
-  const tabs = MOD_TABS.filter(([id]) => !['comptes', 'sites', 'audience'].includes(id) || isAdm);
+  const isTerrain = state.me.role === 'terrain';
+  if (isTerrain) state.modTab = 'situation';
+  const tabs = isTerrain ? [['situation', '🚧 Bâtiments']] : MOD_TABS.filter(([id]) => !['comptes', 'sites', 'audience'].includes(id) || isAdm);
   // Sites où ce modo peut agir (l'admin : tous). Le site de travail est choisi ici et s'applique à tous les onglets.
   const mySites = isAdm ? siteList().map((x) => x.id) : (state.me.sites || []).filter((id) => siteList().some((x) => x.id === id));
   if (!mySites.includes(state.modSite)) { state.modSite = mySites.includes(store.get('l1-modsite', '')) ? store.get('l1-modsite', '') : mySites[0] || defaultSite(); applyScope(); }
   view().innerHTML = `
     <h1 class="large-title">Espace modos</h1>
-    <p class="subtitle mono small">${esc(state.me.username)} · ${esc(state.me.org)} · ${isAdm ? 'admin (tous les sites)' : 'modo'} · <span id="mstats">…</span></p>
+    <p class="subtitle mono small">${esc(state.me.username)} · ${esc(state.me.org)} · ${isAdm ? 'admin (tous les sites)' : state.me.role === 'terrain' ? 'compte terrain (bâtiments)' : 'modo'} · <span id="mstats">…</span></p>
     <div class="modsites" id="msites"><span class="faint small">Tu agis sur :</span>${mySites.map((id) => `<button data-ms="${esc(id)}" class="${id === state.modSite ? 'on' : ''}">📍 ${esc(siteShort(id))}</button>`).join('')}</div>
     <a class="guide-link" href="/api/mod/guide.pdf" target="_blank" rel="noopener">📘 Guide des modos (PDF) : comment faire, à faire / à ne jamais faire</a>
     <div id="modpush"></div>
@@ -1095,7 +1098,8 @@ function modSituation(el) {
   el.innerHTML = `
     <div id="sightings"></div>
     <div id="pubres"></div>
-    <div class="card">
+    ${state.me.role === 'terrain' ? '<div class="card terrain-hint">📍 <b>Compte terrain</b> : touche les bâtiments que tu vois, puis 🔴 🟠 🟢. Confirme même si rien n’a changé depuis hier : c’est ce qui rend l’info fiable.</div>' : ''}
+    <div class="card" ${state.me.role === 'terrain' ? 'hidden' : ''}>
       <div class="kicker">Titre de l’accueil · ${esc(siteShort(state.modSite))} · un tap = publié</div>
       <div class="segmented status-seg" id="bstate" style="margin-top:10px">${['auto', 'actif', 'partiel', 'leve'].map((k) => `<button data-s="${k}" class="${(b.auto ? 'auto' : b.state) === k ? 'on ' + ({ auto: 'auto', actif: 'bloque', partiel: 'partiel', leve: 'ouvert' }[k]) : ''}">${{ auto: '🤖 Auto', actif: '🔴 Blocus', partiel: '🟠 Partiel', leve: '🟢 Levé' }[k]}</button>`).join('')}</div>
       <p class="faint small" id="bhint" style="margin:6px 2px 0">${b.auto ? `Automatique : le titre suit les bâtiments (actuellement « ${esc(BLOCUS[blocusNow(b)])} »).` : 'Choisi à la main : il ne bouge plus avec les bâtiments. Touche « Auto » pour qu’il les suive.'}</p>
@@ -1121,7 +1125,7 @@ function modSituation(el) {
     <h2 class="section">Bâtiments <span class="faint small">touche pour sélectionner, puis choisis la couleur · ✏️ ou appui long pour la note</span></h2>
     <div id="tiles"></div>
 
-    <details class="card" style="margin-top:14px" ${d.buildings.length ? "" : "open"}><summary class="kicker" style="cursor:pointer">＋ Ajouter un bâtiment</summary>
+    <details class="card" style="margin-top:14px" ${d.buildings.length ? "" : "open"} ${state.me.role === 'terrain' ? 'hidden' : ''}><summary class="kicker" style="cursor:pointer">＋ Ajouter un bâtiment</summary>
       <form class="form" id="addb" style="margin-top:10px">
         <div class="field"><label>Nom du bâtiment (ajouté à ${esc(siteShort(state.modSite))})</label><input type="text" id="bn" required maxlength="80"></div>
         <button class="btn small">Ajouter</button></form></details>
@@ -1203,7 +1207,7 @@ function modSituation(el) {
     box.innerHTML = Object.entries(byCampus).map(([campus, list]) => `
       <div class="campus-block">
         <div class="campus-head"><span class="kicker">${esc(campus)}</span><span class="faint small">${list.filter((x) => x.status === 'bloque').length}/${list.length} bloqués</span><button class="btn small ghost" data-campus="${esc(campus)}">${list.every((x) => sel.has(x.id)) ? 'Aucun' : 'Tout'}</button></div>
-        <div class="qtiles">${list.map((x) => `<button class="qt ${x.status} ${sel.has(x.id) ? 'sel' : ''}" data-id="${esc(x.id)}"><span class="qdot">${STATUS[x.status].dot}</span><span class="qn">${esc(x.name)}</span>${x.note ? '<span class="qnote">✎</span>' : ''}</button>`).join('')}</div>
+        <div class="qtiles">${list.map((x) => `<button class="qt ${x.status} ${sel.has(x.id) ? 'sel' : ''}" data-id="${esc(x.id)}"><span class="qdot">${STATUS[x.status].dot}</span><span class="qn">${esc(x.name)}${x.yesterday && x.status === 'inconnu' ? `<small class="qyday">hier ${STATUS[x.yesterday].dot}</small>` : ''}</span>${x.note ? '<span class="qnote">✎</span>' : ''}</button>`).join('')}</div>
       </div>`).join('');
     const bar = $('#abar');
     bar.hidden = !sel.size;
@@ -1279,16 +1283,16 @@ function editBuilding(id) {
   if (!x) return;
   sheet(`<h3>${esc(x.name)}</h3><form class="form" id="eb">
     <div class="field"><label>Note visible par tous (ex : entrée côté tram ouverte)</label><input type="text" id="en" maxlength="240" value="${esc(x.note)}"></div>
-    <div class="field"><label>Nom</label><input type="text" id="enm" maxlength="80" value="${esc(x.name)}"></div>
-    <div class="btn-row"><button class="btn">Enregistrer</button><button type="button" class="btn red ghost" id="edel">Supprimer le bâtiment</button></div>
+    <div class="field" ${state.me?.role === 'terrain' ? 'hidden' : ''}><label>Nom</label><input type="text" id="enm" maxlength="80" value="${esc(x.name)}"></div>
+    <div class="btn-row"><button class="btn">Enregistrer</button>${state.me?.role === 'terrain' ? '' : '<button type="button" class="btn red ghost" id="edel">Supprimer le bâtiment</button>'}</div>
     <p class="faint small">Astuce : appui long sur une tuile pour ouvrir cette fiche.</p></form>`, (root, close) => {
     $('#eb', root).onsubmit = async (e) => {
       e.preventDefault();
-      await act(() => api(`/api/mod/buildings/${id}`, { method: 'PUT', body: { note: $('#en', root).value, name: $('#enm', root).value } }), 'Enregistré.');
+      await act(() => api(`/api/mod/buildings/${id}`, { method: 'PUT', body: { note: $('#en', root).value, ...(state.me?.role === 'terrain' ? {} : { name: $('#enm', root).value }) } }), 'Enregistré.');
       x.note = $('#en', root).value; x.name = $('#enm', root).value || x.name;
       close(); window.drawTiles?.();
     };
-    $('#edel', root).onclick = async () => { if (!confirm('Supprimer ce bâtiment de la liste ?')) return; await act(() => api(`/api/mod/buildings/${id}`, { method: 'DELETE' }), 'Supprimé.'); close(); await refresh(); render(true); };
+    if ($('#edel', root)) $('#edel', root).onclick = async () => { if (!confirm('Supprimer ce bâtiment de la liste ?')) return; await act(() => api(`/api/mod/buildings/${id}`, { method: 'DELETE' }), 'Supprimé.'); close(); await refresh(); render(true); };
   });
 }
 
@@ -2049,14 +2053,25 @@ async function modAccounts(el) {
       <div class="field"><label>Sites où ce modo peut agir</label></div>
       <div class="chips" id="msitesNew">${siteList().map((x) => `<label class="check" style="padding:2px 8px 2px 0"><input type="checkbox" name="ns" value="${esc(x.id)}" ${x.id === state.modSite ? 'checked' : ''}> ${esc(x.short)}</label>`).join('')}</div>
       <label class="check"><input type="checkbox" id="ma"> Admin : tous les sites, comptes et réglages</label>
+      <label class="check"><input type="checkbox" id="mt"> <span>📍 Compte <b>terrain</b> (piquet) : seulement les bâtiments, connexion par lien ou QR code, sans mot de passe</span></label>
       <button class="btn">Créer et générer le mot de passe</button></form></div>
     ${modPushSummary(mods)}
-    <div class="list" style="margin-top:14px">${mods.map((m) => `<div class="row"><div class="grow"><div class="title">${esc(m.username)} ${m.role === 'admin' ? '<span class="pill purple">admin</span>' : ''} ${m.disabled ? '<span class="pill grey">désactivé</span>' : m.modPush ? `<span class="pill green" title="Dernière activation ${esc(ago(m.modPushAt))}">🔔 alertes · ${m.modPush} tél.</span>` : '<span class="pill orange">🔕 alertes non activées</span>'}</div><div class="sub">${esc(m.org)} · ${m.role === 'admin' ? 'tous les sites' : esc((m.sites || []).map(siteShort).join(', ') || 'aucun site')}</div></div>
-      ${m.id === state.me.id ? '' : `<button class="btn small ghost" data-edit="${esc(m.id)}">Modifier</button>`}<button class="btn small ghost" data-reset="${esc(m.id)}">Nouveau mdp</button>${m.disabled || m.id === state.me.id ? '' : `<button class="btn small red" data-off="${esc(m.id)}">Désactiver</button>`}</div>`).join('')}</div>`;
+    <div class="list" style="margin-top:14px">${mods.map((m) => `<div class="row"><div class="grow"><div class="title">${esc(m.username)} ${m.role === 'admin' ? '<span class="pill purple">admin</span>' : m.role === 'terrain' ? '<span class="pill orange">📍 terrain</span>' : ''} ${m.disabled ? '<span class="pill grey">désactivé</span>' : m.modPush ? `<span class="pill green" title="Dernière activation ${esc(ago(m.modPushAt))}">🔔 alertes · ${m.modPush} tél.</span>` : '<span class="pill orange">🔕 alertes non activées</span>'}</div><div class="sub">${esc(m.org)} · ${m.role === 'admin' ? 'tous les sites' : esc((m.sites || []).map(siteShort).join(', ') || 'aucun site')}</div></div>
+      ${m.id === state.me.id ? '' : `<button class="btn small ghost" data-edit="${esc(m.id)}">Modifier</button>`}${m.role === 'terrain' ? `<button class="btn small ghost" data-link="${esc(m.id)}">Nouveau lien</button>` : `<button class="btn small ghost" data-reset="${esc(m.id)}">Nouveau mdp</button>`}${m.disabled || m.id === state.me.id ? '' : `<button class="btn small red" data-off="${esc(m.id)}">Désactiver</button>`}</div>`).join('')}</div>`;
+  const showLink = (m) => sheet(`<h3>📍 Lien terrain · ${esc(m.org)}</h3>
+    <p class="muted">À ouvrir sur le téléphone de la personne du piquet (ou à scanner) : elle est connectée directement, avec seulement les bâtiments de ${esc((m.sites || []).map(siteShort).join(', '))}.</p>
+    <div class="qr-box">${qrImg(m.link)}</div>
+    <div class="secret" style="font-size:12px;word-break:break-all">${esc(m.link)}</div>
+    <div class="btn-row"><button class="btn" id="lcopy">Copier le lien</button>${navigator.share ? '<button class="btn ghost" id="lshare">Partager…</button>' : ''}</div>
+    <p class="faint small">Envoie-le par Signal. Il ne sera plus affiché : en cas de perte, « Nouveau lien » (l’ancien cessera de marcher).</p>`, (root) => {
+      $('#lcopy', root).onclick = async () => { try { await navigator.clipboard.writeText(m.link); toast('Lien copié ✅'); } catch { prompt('Lien :', m.link); } };
+      if ($('#lshare', root)) $('#lshare', root).onclick = () => navigator.share({ title: 'Accès terrain · La Doua en lutte', text: 'Ton accès terrain pour mettre à jour les bâtiments :', url: m.link }).catch(() => {});
+    });
   const showPw = (m) => sheet(`<h3>Accès pour ${esc(m.username)}</h3><p class="muted">Transmets-le en main propre ou par messagerie chiffrée (Signal). Il ne sera plus affiché.</p><div class="secret">${esc(m.password)}</div><p class="faint small">La personne pourra le changer dans « Mon compte ».</p>`);
-  $('#mf').onsubmit = async (e) => { e.preventDefault(); const m = await act(() => api('/api/mod/mods', { method: 'POST', body: { username: $('#mu').value, org: $('#mo').value, role: $('#ma').checked ? 'admin' : 'mod', sites: $$('input[name=ns]:checked').map((x) => x.value) } })); showPw(m); await modAccounts(el); };
+  $('#mf').onsubmit = async (e) => { e.preventDefault(); const m = await act(() => api('/api/mod/mods', { method: 'POST', body: { username: $('#mu').value, org: $('#mo').value, role: $('#ma').checked ? 'admin' : $('#mt').checked ? 'terrain' : 'mod', sites: $$('input[name=ns]:checked').map((x) => x.value) } })); m.link ? showLink(m) : showPw(m); await modAccounts(el); };
   el.querySelector('.list').onclick = async (e) => {
-    const r = e.target.dataset.reset; const o = e.target.dataset.off; const ed = e.target.dataset.edit;
+    const r = e.target.dataset.reset; const o = e.target.dataset.off; const ed = e.target.dataset.edit; const lk = e.target.dataset.link;
+    if (lk && confirm('Générer un nouveau lien terrain ? L’ancien lien et les téléphones déjà connectés ne marcheront plus.')) { showLink(await act(() => api(`/api/mod/mods/${lk}/link`, { method: 'POST' }))); await modAccounts(el); return; }
     if (ed) {
       const m = mods.find((x) => x.id === ed);
       sheet(`<h3>${esc(m.username)}</h3><form class="form" id="emf">
@@ -2649,7 +2664,7 @@ document.addEventListener('click', (e) => { if (e.target.closest('[data-install]
 // Dans un navigateur : à chaque visite (une fois par session). Dans l'app installée : seulement si les notifs ne sont pas activées.
 const sess = { get(k) { try { return sessionStorage.getItem(k); } catch { return '1'; } }, set(k) { try { sessionStorage.setItem(k, '1'); } catch {} } };
 async function welcomePopup() {
-  if (sess.get('l1-welcome') || route().startsWith('modo') || $('.sheet') || $('.react-pop')) return;
+  if (sess.get('l1-welcome') || route().startsWith('modo') || route().startsWith('terrain') || $('.sheet') || $('.react-pop')) return;
   const standalone = isStandalone();
   let pushOn = false;
   try { pushOn = !!(await currentPushSub()) && Notification.permission === 'granted'; } catch {}
@@ -2708,15 +2723,33 @@ function openSighting(id) {
   if (!b) return;
   sheet(`<h2 style="margin:0 0 4px">👀 ${esc(b.name)}</h2>
     <p class="muted small" style="margin:0 0 14px">Tu es sur place ? Dis ce que tu vois. C’est anonyme. Les modos vérifient avant de publier.</p>
+    <label class="see-photo" id="sp-lbl"><input type="file" accept="image/*" capture="environment" id="sp-file" hidden><span id="sp-txt">📷 Ajouter une photo (facultatif)</span><small>Vue seulement par les modos, pour vérifier. Pas de visage.</small></label>
     <div class="see-grid">
       <button class="ab red" data-st="bloque">🔴 Bloqué</button>
       <button class="ab orange" data-st="partiel">🟠 Partiel</button>
       <button class="ab green" data-st="ouvert">🟢 Ouvert</button>
     </div>`, (el, close) => {
+    let photo = null;
+    $('#sp-file', el).onchange = async (e) => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      $('#sp-txt', el).textContent = '⏳ Préparation…';
+      try { photo = await shrinkPhoto(f); $('#sp-txt', el).textContent = '✅ Photo jointe (touche pour changer)'; $('#sp-lbl', el).classList.add('on'); }
+      catch { photo = null; $('#sp-txt', el).textContent = '📷 Photo illisible, réessaie'; }
+    };
     el.onclick = async (e) => {
       const st = e.target.closest('[data-st]')?.dataset.st;
       if (!st) return;
-      try { const r = await api('/api/sightings', { method: 'POST', body: { building: id, status: st } }); toast(r.message); close(); } catch (err) { toast(err.message); }
+      try {
+        let r;
+        if (photo) {
+          const q = new URLSearchParams({ building: id, status: st });
+          const res = await fetch(`/api/sightings/photo?${q}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'image/jpeg' }, body: photo });
+          r = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(r.error || 'Envoi impossible.');
+        } else r = await api('/api/sightings', { method: 'POST', body: { building: id, status: st } });
+        toast(r.message); close();
+      } catch (err) { toast(err.message); }
     };
   });
 }
@@ -2738,6 +2771,7 @@ async function drawSightings() {
       <div class="grow"><b>${esc(x.name)}</b> → ${STATUS[x.status].dot} ${esc(STATUS[x.status].label)}
         <div class="faint small">${x.count} personne${x.count > 1 ? 's' : ''} · dernier ${esc(ago(x.last))} · affiché : ${esc(STATUS[x.current].label)}</div></div>
       <button class="btn small ${x.status === 'bloque' ? 'red' : x.status === 'partiel' ? 'orange' : 'green'}" data-ok>✓ Confirmer</button>
+      ${x.photos?.length ? `<button class="btn small ghost" data-photos="${esc(x.photos.join(','))}">📷 ${x.photos.length} photo${x.photos.length > 1 ? 's' : ''}</button>` : ''}
       <button class="btn small ghost" data-no>Ignorer</button>
       ${x.count >= r.threshold ? '<button class="btn small ghost" data-remind title="Renvoyer la notification aux modos du site">🔔 Prévenir les modos</button>' : ''}
     </div>`).join('')}
@@ -2746,6 +2780,8 @@ async function drawSightings() {
   box.onclick = async (e) => {
     const row = e.target.closest('.sight-row');
     if (!row) return;
+    const ph = e.target.closest('[data-photos]')?.dataset.photos;
+    if (ph) return showSightPhotos(ph.split(','), row.querySelector('b')?.textContent || '');
     if (e.target.closest('[data-ok]')) {
       await applyChanges([{ id: row.dataset.b, status: row.dataset.st, from: row.dataset.from }], 'Signalement confirmé');
       drawSightings();
@@ -3366,4 +3402,41 @@ async function modAudience(el) {
   chart.addEventListener('pointermove', show);
   chart.addEventListener('pointerdown', show);
   chart.addEventListener('pointerleave', () => { tip.hidden = true; $$('.aud-col.on', chart).forEach((x) => x.classList.remove('on')); });
+}
+
+// ---------- Compte terrain : connexion par lien ----------
+async function terrainLogin(token) {
+  view().innerHTML = '<div class="empty mono typing">Connexion…</div>';
+  try {
+    state.me = await api('/api/auth/terrain', { method: 'POST', body: { token } });
+    history.replaceState(null, '', '#/modo'); // le lien n'apparaît plus dans l'historique
+    toast(`📍 Connecté·e : ${state.me.org}`);
+    render(true);
+  } catch (e) {
+    view().innerHTML = `<div class="card empty"><div class="big">🔒</div>${esc(e.message)}</div>`;
+  }
+}
+// QR code (bibliothèque qrcode-generator déjà chargée)
+function qrImg(text) {
+  try { const q = qrcode(0, 'M'); q.addData(text); q.make(); return q.createImgTag(6, 12, 'QR code du lien'); } catch { return ''; }
+}
+
+// ---------- Photo de preuve d'un signalement ----------
+// réduite et ré-encodée dans le téléphone (les données cachées comme la position GPS disparaissent)
+async function shrinkPhoto(file) {
+  const bmp = await createImageBitmap(file);
+  const k = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  bmp.close?.();
+  return new Promise((r, j) => c.toBlob((b) => (b ? r(b) : j(new Error('photo'))), 'image/jpeg', 0.8));
+}
+async function showSightPhotos(ids, name) {
+  const urls = [];
+  for (const id of ids) {
+    try { const r = await fetch(`/api/mod/sightings/photo/${encodeURIComponent(id)}`, { credentials: 'same-origin', cache: 'no-store' }); if (r.ok) urls.push(URL.createObjectURL(await r.blob())); } catch {}
+  }
+  if (!urls.length) return toast('Photos expirées.');
+  sheet(`<h3>📷 ${esc(name)} · ${urls.length} photo${urls.length > 1 ? 's' : ''}</h3><p class="faint small">Envoyées par les étudiant·es qui ont signalé. Effacées avec le signalement (2 h max ou dès ta confirmation).</p>
+    <div class="sight-photos">${urls.map((u) => `<img src="${u}" alt="Photo du signalement">`).join('')}</div>`);
 }
