@@ -685,3 +685,7 @@ input[type="file"] { width: 100%; font-size: 14px; }
 /* Fenêtre ouverte : les petits messages s'affichent en haut pour ne pas cacher son contenu */
 body:has(.sheet-backdrop) #toast { bottom: auto; top: calc(16px + var(--safe-t)); transform: translateX(-50%) translateY(-20px); }
 body:has(.sheet-backdrop) #toast.show { transform: translateX(-50%) translateY(0); }
+.ttl-seg button { font-size: 13px; padding: 7px 6px; }
+.row.expired { opacity: 0.55; }
+.ttl-left { font-weight: 600; }
+.ttl-acts { margin-top: 6px; }

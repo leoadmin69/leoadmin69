@@ -188,7 +188,7 @@ app.get('/api/state', (req, res) => {
     context: db.contexts?.[DEFAULT_SITE] || null,
     buildings: db.buildings,
     events: upcomingEvents(),
-    flashes: db.flashes.slice(0, 20),
+    flashes: liveFlashes().slice(0, 20),
     reports: db.reports.filter((r) => r.status === 'published').sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || '')).slice(0, 30).map(publicReport),
     demands: db.demands.map(publicDemand),
     contacts: db.contacts,
@@ -445,6 +445,18 @@ async function flushBuildingAlert() {
     console.log(`[alertes] bâtiments : ${messages.length} email(s), ${r.sent} envoyé(s)`);
   }
 }
+// ---------- Flash infos : durée de vie ----------
+// 1 h, 6 h, 24 h (par défaut), 72 h, ou 0 = jusqu'à suppression. Expiré = retiré de l'accueil, gardé dans l'historique des modos.
+const FLASH_TTLS = [1, 6, 24, 72, 0];
+const flashTtl = (v) => (FLASH_TTLS.includes(Number(v)) ? Number(v) : 24);
+const flashLive = (f) => !f.expiresAt || new Date(f.expiresAt).getTime() > Date.now();
+const liveFlashes = () => db.flashes.filter(flashLive);
+// Anciens flash (avant cette fonction) : ils expirent 24 h après leur publication
+if (!db.settings.flashTtlV1) { for (const f of db.flashes) if (f.expiresAt === undefined) f.expiresAt = new Date(new Date(f.at).getTime() + 24 * 3600e3).toISOString(); db.settings.flashTtlV1 = true; save(); }
+// Toutes les minutes : si un flash vient d'expirer, les écrans se mettent à jour
+let liveFlashCount = liveFlashes().length;
+setInterval(() => { const n = liveFlashes().length; if (n !== liveFlashCount) { liveFlashCount = n; broadcast('flashes', {}); } }, 60e3).unref();
+
 // Bilan affiché au modo juste après une publication : combien de personnes vont être prévenues, et par où.
 function reach(kind, sid, { push = true, delayMs = 0 } = {}) {
   const sids = sid === ALL_SITES ? null : [sid];
@@ -773,7 +785,8 @@ mod.post('/flashes', (req, res) => {
   if (!text) return bad(res, 'Texte requis.');
   const fsite = targetSite(req);
   if (!needSite(req, res, fsite)) return;
-  const f = { id: newId(), site: fsite, level: oneOf(req.body.level, ['alerte', 'info', 'ok'], 'info'), text, at: now(), org: req.mod.org };
+  const ttl = flashTtl(req.body.ttl);
+  const f = { id: newId(), site: fsite, level: oneOf(req.body.level, ['alerte', 'info', 'ok'], 'info'), text, at: now(), org: req.mod.org, expiresAt: ttl ? new Date(Date.now() + ttl * 3600e3).toISOString() : null };
   db.flashes.unshift(f); db.flashes = db.flashes.slice(0, 100); save();
   audit(req.mod, 'flash', text, fsite);
   feed(`${siteName(fsite)} · ${text}`, f.level === 'alerte' ? 'alert' : f.level === 'ok' ? 'ok' : 'info');
@@ -781,6 +794,18 @@ mod.post('/flashes', (req, res) => {
   if (f.level === 'alerte' && req.body.push !== false) sendPush('urgent', { title: `🚨 Alerte · ${siteName(fsite)}`, body: text, url: '/', tag: `flash-${f.id}` }, (sub) => wantsSite(sub, fsite)).catch((e) => console.error('[push]', e.message));
   broadcast('flashes', {});
   res.json({ ...f, reach: { ...reach(f.level === 'alerte' && req.body.push !== false ? 'urgent' : null, fsite), telegram: req.body.push !== false ? telegramChats(fsite).length * (telegramEnabled() ? 1 : 0) : 0 } });
+});
+// Historique complet pour les modos (y compris les flash expirés)
+mod.get('/flashes', (req, res) => res.json(db.flashes.filter((f) => canSite(req.mod, siteOf(f)) || siteOf(f) === ALL_SITES)));
+// Changer la durée d'un flash (le remettre en ligne, le prolonger, le rendre permanent)
+mod.put('/flashes/:id', (req, res) => {
+  const f = db.flashes.find((x) => x.id === req.params.id);
+  if (!f) return bad(res, 'Introuvable', 404);
+  if (!needSite(req, res, siteOf(f))) return;
+  const ttl = flashTtl(req.body.ttl);
+  f.expiresAt = ttl ? new Date(Date.now() + ttl * 3600e3).toISOString() : null;
+  save(); audit(req.mod, 'flash : durée', `${f.text.slice(0, 60)} → ${ttl ? ttl + ' h' : 'sans limite'}`, siteOf(f)); broadcast('flashes', {});
+  res.json(f);
 });
 mod.delete('/flashes/:id', (req, res) => {
   const f = db.flashes.find((x) => x.id === req.params.id);
