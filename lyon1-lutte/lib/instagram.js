@@ -5,7 +5,10 @@ import { DEFAULT_SITE, site, siteName } from './sites.js';
 
 const DEFAULT_CHANNEL = 'https://www.instagram.com/channel/UFc6KiIvKuUCSwgk/';
 const channelUrl = () => String(db.settings.instagram?.url || process.env.INSTAGRAM_CHANNEL_URL || DEFAULT_CHANNEL).trim();
-const intervalMinutes = () => Math.max(5, Number(db.settings.instagram?.interval || process.env.INSTAGRAM_CHANNEL_INTERVAL_MINUTES || 15));
+export const instagramEnabled = () => (typeof db.settings.instagram?.enabled === 'boolean'
+  ? db.settings.instagram.enabled
+  : /^(true|1|yes|oui)$/i.test(String(process.env.INSTAGRAM_CHANNEL_ENABLED || '').trim()));
+export const intervalMinutes = () => Math.max(5, Number(db.settings.instagram?.interval || process.env.INSTAGRAM_CHANNEL_INTERVAL_MINUTES || 15));
 
 const decodeJsonText = (value) => {
   try { return JSON.parse(`"${value.replace(/\\$/g, '').replace(/"/g, '\\"')}"`); } catch { return value; }
@@ -35,6 +38,10 @@ export async function fetchInstagramChannel() {
   const r = await fetch(url, { headers, redirect: 'follow', signal: AbortSignal.timeout(30000) });
   if (!r.ok) throw new Error(`Instagram HTTP ${r.status}`);
   const html = await r.text();
+  // page de connexion à la place du canal : rien à lire (et surtout rien à publier)
+  if (/\/accounts\/login/.test(r.url) || /loginForm|"is_logged_in"\s*:\s*false|Log in to Instagram|Connectez-vous à Instagram/i.test(html)) {
+    throw new Error('Instagram demande une connexion : le canal ne peut pas être lu automatiquement (cookie de session requis).');
+  }
   const messages = stripHtml(html);
   if (!messages.length) throw new Error('Aucun message exploitable : Instagram a demandé une connexion ou bloque la lecture automatique.');
   return { url, messages };
@@ -42,9 +49,19 @@ export async function fetchInstagramChannel() {
 
 const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 const hash = (text) => crypto.createHash('sha256').update(text).digest('hex').slice(0, 24);
+// Date et heure lues à l'heure de Paris → Date UTC
+function parisToDate(y, mo, d, h, mi) {
+  if (h > 23 || mi > 59) return null;
+  const guess = Date.UTC(y, mo - 1, d, h, mi);
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Paris', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(guess)).map((x) => [x.type, x.value]));
+  const out = new Date(guess - (Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute) - guess));
+  return Number.isNaN(out.getTime()) ? null : out;
+}
 const parisIso = (value) => {
   if (!value) return '';
   const clean = String(value).trim();
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(clean);
+  if (day) { const d = parisToDate(+day[1], +day[2], +day[3], 12, 0); return d ? d.toISOString() : ''; }
   if (/^\d{4}-\d{2}-\d{2}/.test(clean)) {
     const d = new Date(clean);
     return Number.isNaN(d.getTime()) ? '' : d.toISOString();
@@ -52,8 +69,8 @@ const parisIso = (value) => {
   const match = clean.match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](20\d{2})(?:[ ,]+(\d{1,2})[:h](\d{2}))?/);
   if (match) {
     const [, dd, mm, yyyy, hh = '12', min = '00'] = match;
-    const d = new Date(Date.UTC(Number(yyyy), Number(mm) - 1, Number(dd), Number(hh) - 1, Number(min)));
-    return Number.isNaN(d.getTime()) ? '' : d.toISOString();
+    const d = parisToDate(Number(yyyy), Number(mm), Number(dd), Number(hh), Number(min));
+    return d ? d.toISOString() : '';
   }
   return '';
 };
@@ -62,8 +79,10 @@ export async function syncInstagram(ctx = {}) {
   const channel = await fetchInstagramChannel();
   const text = channel.messages.slice(0, 30).join('\n\n');
   const result = await analyzeInstagramText(text);
+  if (result.source === 'local') throw new Error('Clé IA (Gemini ou Groq) requise : sans IA, rien n’est publié automatiquement.');
   db.settings.instagram ||= {};
   db.settings.instagram.lastCheck = now();
+  delete db.settings.instagram.lastError;
   db.settings.instagram.source = channel.url;
   db.settings.instagram.sourceCount = channel.messages.length;
   db.settings.instagram.sourceModel = result.source;
@@ -78,9 +97,9 @@ export async function syncInstagram(ctx = {}) {
     const needle = norm(item.name);
     if (!needle) continue;
     const b = db.buildings.find((x) => {
-      const sameSite = String(x.site || DEFAULT_SITE) === siteId;
+      const sameSite = (x.site || DEFAULT_SITE) === siteId;
       const name = norm(x.name);
-      return sameSite && (name === needle || name.includes(needle) || needle.includes(name));
+      return sameSite && name === needle;
     });
     if (!b) continue;
     const status = ['bloque', 'partiel', 'ouvert'].includes(item.status) ? item.status : null;
@@ -155,14 +174,10 @@ export async function syncInstagram(ctx = {}) {
 
 export function startInstagramSync(ctx = {}) {
   db.settings.instagram ||= {};
-  const enabled = typeof db.settings.instagram.enabled === 'boolean'
-    ? db.settings.instagram.enabled
-    : /^true|1|yes$/i.test(process.env.INSTAGRAM_CHANNEL_ENABLED || '');
-  if (!enabled) return null;
-  let running = false;
+  let running = false, lastRun = 0;
   const run = async () => {
-    if (running) return;
-    running = true;
+    if (running || !instagramEnabled() || Date.now() - lastRun < intervalMinutes() * 60e3) return;
+    running = true; lastRun = Date.now();
     try {
       const r = await syncInstagram(ctx);
       console.log(`[instagram] canal lu : ${r.sourceCount} message(s), ${r.applied.buildings.length} bâtiment(s), ${r.applied.events.length} événement(s), ${r.applied.flashes.length} flash(s)`);
@@ -175,6 +190,5 @@ export function startInstagramSync(ctx = {}) {
     } finally { running = false; }
   };
   setTimeout(run, 5000).unref();
-  const timer = setInterval(run, intervalMinutes() * 60e3).unref();
-  return timer;
+  return setInterval(run, 60e3).unref();
 }

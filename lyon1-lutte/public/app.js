@@ -990,7 +990,9 @@ async function viewModo() {
     <div class="presence" id="presence" hidden></div>
     <div class="tabs-inline" id="mtabs">${tabs.map(([id, l]) => `<button data-t="${id}" class="${id === state.modTab ? 'on' : ''}">${l}</button>`).join('')}</div>`}
     <div id="mod"></div>`;
-  $('#mtabs').onclick = (e) => { if (e.target.dataset.t) { state.modTab = e.target.dataset.t; render(true); } };
+  // le compte piquet n'a pas d'onglets
+  const mtabs = $('#mtabs');
+  if (mtabs) mtabs.onclick = (e) => { if (e.target.dataset.t) { state.modTab = e.target.dataset.t; render(true); } };
   $('#msites').onclick = (e) => { const id = e.target.closest('[data-ms]')?.dataset.ms; if (id) { state.modSite = id; store.set('l1-modsite', id); applyScope(); render(true); } };
   showPresence();
   modPushCard();
@@ -2219,7 +2221,7 @@ async function modInstagram(el) {
   el.innerHTML = `
     <div class="card">
       <div class="kicker">📷 Canal Instagram officiel</div>
-      <p class="muted small">Le canal fourni est lu périodiquement. Les messages sont analysés par l’IA, puis les bâtiments, AG/manifs et flashs sont publiés automatiquement sans doublon.</p>
+      <p class="muted small">Le canal est lu périodiquement et analysé par l’IA (clé Gemini ou Groq obligatoire). Seuls les bâtiments au nom exact, les AG/manifs datées et les flashs sont publiés, sans doublon. ⚠ Instagram bloque souvent la lecture sans connexion : si une erreur s’affiche, ça ne marchera pas sans cookie de session.</p>
       <form class="form" id="instagram-config">
         <div class="field"><label>URL du canal</label><input type="url" id="instagram-url" value="${esc(cfg.url)}" required></div>
         <div class="grid cols-2">
@@ -2722,7 +2724,7 @@ function scheduleRefresh() {
     try { await refresh(); } catch { return; }
     const r = route().split('/')[0];
     if (r === 'chat') { renderNav(); renderAlertBar(); return; }
-    if (r === 'modo' && state.me) { renderNav(); renderAlertBar(); if (state.me.role === 'terrain') { render(true); return; } if (state.modTab === 'situation') { window.drawTiles?.(); const h = $('#bhint'); if (h && state.data.blocus.auto) h.textContent = `Automatique : le titre suit les bâtiments (actuellement « ${BLOCUS[blocusNow(state.data.blocus)]} »).`; } return; }
+    if (r === 'modo' && state.me) { renderNav(); renderAlertBar(); if (state.me.role === 'terrain') { if (!$('.sheet') && !$('.cam') && !view().contains(document.activeElement)) render(true); return; } if (state.modTab === 'situation') { window.drawTiles?.(); const h = $('#bhint'); if (h && state.data.blocus.auto) h.textContent = `Automatique : le titre suit les bâtiments (actuellement « ${BLOCUS[blocusNow(state.data.blocus)]} »).`; } return; }
     render();
   }, 250);
 }

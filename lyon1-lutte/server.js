@@ -31,7 +31,7 @@ const EMOTE_SET = new Set(EMOTES.map((e) => e.code));
 import { bannedList, findBanned, normalize as normalizeWord, BANNED_BASE } from './lib/moderation.js';
 import { telegramEnabled, telegramUrl, postTelegram, tgEsc, telegramCheck, telegramTest, telegramStatus, normalizeChat } from './lib/telegram.js';
 import { DEFAULT_SITE, site, siteName, modSites, canSite, siteOf, migrateSites, effectiveBlocus, wantsSite, isAdmin, ALL_SITES, telegramChats } from './lib/sites.js';
-import { syncInstagram, startInstagramSync } from './lib/instagram.js';
+import { syncInstagram, startInstagramSync, instagramEnabled, intervalMinutes as instagramInterval } from './lib/instagram.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -1180,25 +1180,32 @@ mod.delete('/reports/:id', (req, res) => {
 
 // Canal Instagram officiel : lecture périodique, extraction IA, publication automatique.
 mod.get('/instagram', requireAdmin, (req, res) => res.json({
- enabled: typeof db.settings.instagram?.enabled === 'boolean'
-   ? db.settings.instagram.enabled
-   : /^true|1|yes$/i.test(process.env.INSTAGRAM_CHANNEL_ENABLED || ''),
+ enabled: instagramEnabled(),
  url: db.settings.instagram?.url || process.env.INSTAGRAM_CHANNEL_URL || 'https://www.instagram.com/channel/UFc6KiIvKuUCSwgk/',
- interval: Math.max(5, Number(db.settings.instagram?.interval || process.env.INSTAGRAM_CHANNEL_INTERVAL_MINUTES || 15)),
+ interval: instagramInterval(),
  site: db.settings.instagram?.site || DEFAULT_SITE,
  status: db.settings.instagram || {},
 }));
 mod.put('/instagram', requireAdmin, (req, res) => {
  db.settings.instagram ||= {};
- if (req.body.url !== undefined) db.settings.instagram.url = String(req.body.url).trim().slice(0, 500);
+  if (req.body.url !== undefined) {
+    const u = String(req.body.url).trim().slice(0, 500);
+    if (!/^https:\/\/(www\.)?instagram\.com\//i.test(u)) return bad(res, 'Lien Instagram attendu (https://www.instagram.com/…).');
+    db.settings.instagram.url = u;
+  }
  if (req.body.site !== undefined && site(req.body.site)) db.settings.instagram.site = req.body.site;
  db.settings.instagram.enabled = !!req.body.enabled;
- db.settings.instagram.interval = Math.max(5, Number(req.body.interval || 15));
+  db.settings.instagram.interval = Math.min(1440, Math.max(5, Number(req.body.interval) || 15));
  save();
  res.json({ ok: true, enabled: db.settings.instagram.enabled, site: db.settings.instagram.site });
 });
 mod.post('/instagram/sync', requireAdmin, async (req, res) => {
- const out = await syncInstagram({ broadcast, feed, queueBuildingAlert });
+ let out;
+ try { out = await syncInstagram({ broadcast, feed, queueBuildingAlert }); } catch (e) {
+   db.settings.instagram ||= {}; db.settings.instagram.lastError = e.message; db.settings.instagram.lastErrorAt = now(); save();
+   return bad(res, e.message, 502);
+ }
+ if (db.settings.instagram?.lastError) { delete db.settings.instagram.lastError; save(); }
  audit(req.mod, 'canal Instagram synchronisé', out.source, db.settings.instagram?.site || DEFAULT_SITE);
  res.json(out);
 });
