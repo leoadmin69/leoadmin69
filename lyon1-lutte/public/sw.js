@@ -1,12 +1,12 @@
 // Service worker : installation sur l'écran d'accueil, ouverture même sans réseau (dernières infos connues),
 // et réception des notifications (bâtiment bloqué, alerte, AG…).
-const VERSION = 'v38'; // à changer à chaque mise à jour importante : force les téléphones à recharger l'app
+const VERSION = 'v39'; // à changer à chaque mise à jour importante : force les téléphones à recharger l'app
 const SHELL = `shell-${VERSION}`;
 const DATA = 'data';
 const SHELL_FILES = ['/', '/style.css', '/app.js', '/nicks.js', '/emotes.js', '/vendor/qrcode.js', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/badge-96.png'];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(SHELL).then((c) => c.addAll(SHELL_FILES)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(SHELL).then((c) => c.addAll(SHELL_FILES.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== SHELL && k !== DATA).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
@@ -30,7 +30,12 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(fetch(req).catch(() => caches.match('/')));
     return;
   }
-  // Fichiers du site : réponse immédiate depuis le cache, mise à jour en arrière-plan
+  // Code du site (js, css) : réseau d'abord pour avoir toujours la dernière version, sinon la copie (hors ligne)
+  if (/\.(js|css|webmanifest)$/.test(url.pathname)) {
+    e.respondWith(fetch(req, { cache: 'no-cache' }).then((res) => { if (res.ok) { const copy = res.clone(); caches.open(SHELL).then((c) => c.put(req, copy)); } return res; }).catch(() => caches.match(req)));
+    return;
+  }
+  // Images, icônes, stickers : réponse immédiate depuis le cache, mise à jour en arrière-plan
   e.respondWith(caches.open(SHELL).then(async (c) => {
     const cached = await c.match(req);
     const network = fetch(req).then((res) => { if (res.ok) c.put(req, res.clone()); return res; }).catch(() => cached);

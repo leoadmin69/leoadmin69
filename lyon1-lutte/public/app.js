@@ -32,7 +32,7 @@ async function api(path, { method = 'GET', body, raw } = {}) {
   if (method !== 'GET' && body === undefined && !raw) { opt.headers['Content-Type'] = 'application/json'; opt.body = '{}'; }
   const res = await fetch(path, opt);
   const data = await res.json().catch(() => ({}));
-  if (res.status === 409 && path.startsWith('/api/mod/')) setTimeout(async () => { try { await refresh(); render(true); } catch {} }, 600);
+  if (res.status === 409 && path.startsWith('/api/mod/')) setTimeout(async () => { try { await refresh(); if (route() === 'modo' && state.modTab === 'situation' && window.drawTiles) { applyScope(); window.drawTiles(); } else render(true); } catch {} }, 600);
   if (!res.ok) throw new Error(data.error || `Erreur ${res.status}`);
   return data;
 }
@@ -268,10 +268,16 @@ document.addEventListener('selectionchange', () => {
   const sel = window.getSelection();
   if (sel && !sel.isCollapsed) sel.removeAllRanges();
 });
+// Pages où l'on remplit un formulaire : une mise à jour en direct ne les redessine pas (on perdrait ce qui est coché ou tapé)
+const FORM_ROUTES = ['alertes', 'temoignages', 'entraide'];
 function render(force = false) {
   const active = document.activeElement;
   if (!force && active && view().contains(active) && /INPUT|TEXTAREA|SELECT/.test(active.tagName)) { state.dirty = true; return; }
+  if (!force && FORM_ROUTES.includes(route().split('/')[0])) { applyScope(); renderNav(); renderAlertBar(); return; }
   state.dirty = false;
+  // les écouteurs posés par la page précédente sur la zone principale ne doivent pas survivre
+  const v = view(); v.onclick = null; v.onsubmit = null; v.oninput = null; v.onchange = null;
+  const keepY = force ? null : window.scrollY;
   applyScope();
   chatNoSelect();
   renderNav();
@@ -280,7 +286,9 @@ function render(force = false) {
   const [r, arg] = route().split('/');
   if (!state.data) { view().innerHTML = '<div class="empty"><div class="big typing mono">_</div>Connexion au flux…</div>'; return; }
   const views = { '': viewLive, batiments: viewBuildings, agenda: viewAgenda, chat: viewChat, cr: arg ? () => viewReport(arg) : viewReports, revendications: viewDemands, votes: () => viewPolls(arg), blog: () => viewBlog(arg), temoignages: viewTestimonies, contacts: viewContacts, alertes: viewAlerts, plus: viewPlus, modo: viewModo, terrain: () => terrainLogin(arg), frise: viewFrise, entraide: () => viewEntraide(arg), droits: viewDroits };
-  (views[r] || viewLive)();
+  const out = (views[r] || viewLive)();
+  // mise à jour en direct : on reste au même endroit de la page
+  if (keepY != null) Promise.resolve(out).then(() => { if (Math.abs(window.scrollY - keepY) > 2) window.scrollTo(0, keepY); });
 }
 window.addEventListener('hashchange', () => { render(true); window.scrollTo(0, 0); });
 document.addEventListener('focusout', () => setTimeout(() => { if (state.dirty && !view().contains(document.activeElement)) render(); }, 50));
@@ -725,7 +733,8 @@ async function viewChat() {
     const shade = document.createElement('div');
     shade.className = 'react-shade';
     document.body.appendChild(shade);
-    shade.onclick = closeMenu;
+    const openedAt = Date.now();
+    shade.onclick = () => { if (Date.now() - openedAt > 500) closeMenu(); };
     pop.onclick = async (e) => {
       if (e.target.closest('[data-more]')) { $('.react-all', pop).hidden = false; $('.react-quick', pop).hidden = true; return; }
       const c = e.target.closest('[data-pick]')?.dataset.pick;
@@ -737,7 +746,8 @@ async function viewChat() {
     };
   }
   function closeMenu() { $$('.react-pop, .react-shade').forEach((x) => x.remove()); $$('.msg.held').forEach((x) => x.classList.remove('held')); }
-  window.addEventListener('hashchange', closeMenu, { once: true });
+  window.__closeReactMenu = closeMenu;
+  if (!window.__reactHashOn) { window.__reactHashOn = true; window.addEventListener('hashchange', () => window.__closeReactMenu?.()); }
   function replyTo(rid) {
     const el = $(`.msg[data-id="${CSS.escape(rid)}"]`);
     const m = (state.chatMsgs || []).find((x) => x.id === rid) || (el && { id: rid, nick: $('.who b', el).textContent, text: $('.bubble', el).innerText });
@@ -929,9 +939,11 @@ function viewPlus() {
 function sheet(html, setup) {
   const root = $('#sheet-root');
   root.innerHTML = `<div class="sheet-backdrop"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${html}</div></div>`;
-  const close = () => { root.innerHTML = ''; };
-  $('.sheet-backdrop', root).onclick = (e) => { if (e.target.classList.contains('sheet-backdrop')) close(); };
-  document.addEventListener('keydown', function k(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', k); } });
+  const openedAt = Date.now();
+  function k(e) { if (e.key === 'Escape') close(); }
+  const close = () => { root.innerHTML = ''; document.removeEventListener('keydown', k); };
+  $('.sheet-backdrop', root).onclick = (e) => { if (e.target.classList.contains('sheet-backdrop') && Date.now() - openedAt > 500) close(); };
+  document.addEventListener('keydown', k);
   setup?.($('.sheet', root), close);
   $('.sheet input, .sheet textarea', root)?.focus();
 }
@@ -1156,8 +1168,11 @@ function modSituation(el) {
   $('#bstate').onclick = async (e) => {
     const s = e.target.closest('[data-s]')?.dataset.s;
     if (!s) return;
+    const prevCls = $$('#bstate button').map((x) => x.className);
     $$('#bstate button').forEach((x) => (x.className = x.dataset.s === s ? 'on ' + ({ auto: 'auto', actif: 'bloque', partiel: 'partiel', leve: 'ouvert' }[s] || '') : ''));
-    const r = await act(() => api('/api/mod/blocus', { method: 'PUT', body: { state: s, from: state.data.blocus.state, message: $('#bmsg').value, notify: $('#bnotify').checked } }));
+    let r;
+    try { r = await act(() => api('/api/mod/blocus', { method: 'PUT', body: { state: s, from: state.data.blocus.state, message: $('#bmsg').value, notify: $('#bnotify').checked } })); }
+    catch { $$('#bstate button').forEach((x, i) => (x.className = prevCls[i])); return; }
     Object.assign(state.data.blocus, r, { auto: s === 'auto' });
     toast(s === 'auto' ? `Automatique : « ${BLOCUS[r.effective]} »` : BLOCUS[s]);
     const h = $('#bhint');
@@ -2215,7 +2230,7 @@ async function viewPolls(focusId) {
 // ----- Blog -----
 async function viewBlog(id) {
   if (id) {
-    view().innerHTML = '<div class="empty faint mono typing">chargement</div>';
+    if (!view().querySelector('.prose')) view().innerHTML = '<div class="empty faint mono typing">chargement</div>';
     try {
       const p = await api(`/api/blog/${encodeURIComponent(id)}`);
       view().innerHTML = `
@@ -2540,6 +2555,7 @@ function scheduleRefresh() {
     render();
   }, 250);
 }
+document.addEventListener('visibilitychange', () => { if (!document.hidden && state.raw) scheduleRefresh(); });
 function connectLive() {
   const es = new EventSource('/api/live');
   for (const ev of ['buildings', 'events', 'flashes', 'reports', 'demands', 'contacts', 'blocus']) es.addEventListener(ev, scheduleRefresh);
@@ -2560,9 +2576,14 @@ function connectLive() {
     const b = $(`[data-going="${CSS.escape(id)}"] b`);
     if (b) b.textContent = count;
   });
-  es.addEventListener('entraide', () => { if (route() === 'entraide' && !$('.sheet') && !view().contains(document.activeElement)) render(); });
+  // Entraide : nouvelles annonces en direct, sauf si la personne est en train d'écrire une réponse
+  es.addEventListener('entraide', () => {
+    if (route().split('/')[0] !== 'entraide' || $('.sheet') || view().contains(document.activeElement)) return;
+    if ($$('.ent-form input').some((i) => i.value.trim())) return;
+    const y = window.scrollY; Promise.resolve(viewEntraide()).then(() => window.scrollTo(0, y));
+  });
   es.addEventListener('pages', scheduleRefresh);
-  es.addEventListener('poll', () => { scheduleRefresh(); if (route() === 'votes' && !$('.sheet')) viewPolls(); });
+  es.addEventListener('poll', () => scheduleRefresh());
   for (const [ev, r] of [['blog', 'blog'], ['testimonies', 'temoignages']]) es.addEventListener(ev, () => { if (route() === r && !$('.sheet')) render(); });
   es.addEventListener('chat-react', (e) => { const { id, reactions } = JSON.parse(e.data); updateReacts(id, reactions); });
   es.addEventListener('chat-del', (e) => { const id = JSON.parse(e.data).id; $(`.msg[data-id="${CSS.escape(id)}"]`)?.remove(); });
@@ -2573,7 +2594,10 @@ function connectLive() {
     const b = $(`.support[data-id="${CSS.escape(id)}"] b`);
     if (b) b.textContent = support;
   });
-  es.onerror = () => { $('#online-side').textContent = 'reconnexion…'; };
+  es.onerror = () => {
+    $('#online-side').textContent = 'reconnexion…';
+    if (es.readyState === 2) { es.close(); setTimeout(connectLive, 5000); } // fermé pour de bon (ex. redéploiement) : on relance
+  };
   es.onopen = () => scheduleRefresh();
 }
 
@@ -2759,6 +2783,8 @@ function openSighting(id) {
       const st = e.target.closest('[data-st]')?.dataset.st;
       if (!st) return;
       if (!photo) { const l = $('#sp-lbl', el); l.classList.remove('shake'); void l.offsetWidth; l.classList.add('shake'); return toast('📷 Prends d’abord une photo de l’entrée : c’est obligatoire.'); }
+      if (el.dataset.busy) return;
+      el.dataset.busy = '1'; $('#sp-grid', el).classList.add('locked');
       try {
         let r;
         if (photo) {
@@ -2769,6 +2795,7 @@ function openSighting(id) {
         } else r = await api('/api/sightings', { method: 'POST', body: { building: id, status: st } });
         toast(r.message); close();
       } catch (err) { toast(err.message); }
+      delete el.dataset.busy; $('#sp-grid', el)?.classList.remove('locked');
     };
   });
 }
@@ -2780,8 +2807,8 @@ async function drawSightings() {
   const list = r.list.filter((x) => inScope(x));
   const strong = list.filter((x) => x.count >= r.threshold);
   // nouveau signalement à vérifier pendant que le modo a l'écran ouvert
-  const keyNow = strong.map((x) => `${x.building}|${x.status}`).sort().join(',');
-  if (state.sightSeen !== undefined && strong.some((x) => !state.sightSeen.includes(`${x.building}|${x.status}`))) { navigator.vibrate?.([30, 60, 30]); toast('👀 Nouveau signalement à vérifier en haut de la page'); }
+  const keyNow = strong.map((x) => `${x.building}|${x.status}`);
+  if (state.sightSeen && keyNow.some((k) => !state.sightSeen.includes(k))) { navigator.vibrate?.([30, 60, 30]); toast('👀 Nouveau signalement à vérifier en haut de la page'); }
   state.sightSeen = keyNow;
   if (!list.length) { box.innerHTML = ''; return; }
   box.innerHTML = `<div class="card sight-card ${strong.length ? 'hot' : ''}" style="margin-bottom:12px">
@@ -2832,7 +2859,7 @@ async function toggleGoing(id, btn) {
 
 // ----- Frise -----
 async function viewFrise() {
-  view().innerHTML = '<div class="empty mono typing">Chargement de la frise…</div>';
+  if (!view().querySelector('.frise-stats')) view().innerHTML = '<div class="empty mono typing">Chargement de la frise…</div>';
   const sc = scopeSite();
   let f;
   try { f = await api(`/api/frise?site=${encodeURIComponent(sc)}`); } catch (e) { view().innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
@@ -2888,7 +2915,7 @@ const ENT_KIND = { propose: ['Je propose', 'green'], cherche: ['Je cherche', 'bl
 async function viewEntraide(focus) {
   let data;
   try { data = await api('/api/entraide'); } catch (e) { view().innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
-  if (route() !== 'entraide') return;
+  if (route().split('/')[0] !== 'entraide') return;
   const mine = store.get('l1-entraide', {});
   state.entFilter ||= 'tout';
   const sc = scopeSite();
@@ -3152,15 +3179,22 @@ function snapHtml(m, me) {
     <span class="snap-label">${label}</span></button>`;
 }
 
+let snapOpening = false;
 async function openSnap(pid, asMod = false) {
   if (!asMod && seenSnaps()[pid] && !state.me) return toast('Déjà vue : une seule vue par personne.');
+  if (snapOpening || $('.snap-view')) return;
+  snapOpening = true;
+  try { await openSnapInner(pid); } finally { snapOpening = false; }
+}
+async function openSnapInner(pid) {
   let blob;
   try {
     const r = await fetch(`/api/chat/photo/${encodeURIComponent(pid)}`, { credentials: 'same-origin', cache: 'no-store' });
     if (!r.ok) { const j = await r.json().catch(() => ({})); if (r.status === 410 && !state.me) markSnapSeen(pid); return toast(j.error || 'Photo indisponible.'); }
     blob = await r.blob();
   } catch { return toast('Connexion impossible.'); }
-  const bmp = await createImageBitmap(blob);
+  let bmp;
+  try { bmp = await createImageBitmap(blob); } catch { if (!state.me) markSnapSeen(pid); return toast('Photo illisible.'); }
   blob = null;
   const ov = document.createElement('div');
   ov.className = 'snap-view';
@@ -3215,12 +3249,17 @@ async function openCamera() {
     <div class="cam-bottom"><p>⚠️ Pas de visage reconnaissable sans accord</p><button class="cam-shot" aria-label="Prendre et envoyer"></button></div>`;
   document.body.appendChild(ov);
   const video = $('video', ov);
+  let closed = false, seq = 0, shooting = false;
   const stop = () => { stream?.getTracks().forEach((t) => t.stop()); stream = null; };
-  const close = () => { stop(); ov.remove(); };
+  const close = () => { closed = true; stop(); ov.remove(); };
   async function start() {
     stop();
+    const my = ++seq;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 1440 }, height: { ideal: 1440 } }, audio: false });
+      const st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 1440 }, height: { ideal: 1440 } }, audio: false });
+      // fenêtre fermée ou autre caméra demandée entre-temps : ce flux est coupé tout de suite
+      if (closed || my !== seq) { st.getTracks().forEach((t) => t.stop()); return; }
+      stream = st;
       video.srcObject = stream;
       video.classList.toggle('mirror', facing === 'user');
     } catch (e) { close(); toast(e.name === 'NotAllowedError' ? 'Autorise la caméra pour envoyer une photo.' : 'Caméra indisponible.'); }
@@ -3228,7 +3267,8 @@ async function openCamera() {
   $('.cam-x', ov).onclick = close;
   $('.cam-flip', ov).onclick = () => { facing = facing === 'user' ? 'environment' : 'user'; store.set('l1-cam', facing); start(); };
   $('.cam-shot', ov).onclick = async () => {
-    if (!video.videoWidth) return;
+    if (!video.videoWidth || shooting) return;
+    shooting = true;
     // Même cadre que l'aperçu : portrait 3:4, recadré au centre (comme object-fit: cover)
     const vw = video.videoWidth, vh = video.videoHeight;
     let sx = 0, sy = 0, sw = vw, sh = vh;
