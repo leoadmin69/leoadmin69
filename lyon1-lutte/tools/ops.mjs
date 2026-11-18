@@ -15,7 +15,7 @@ import path from 'node:path';
 
 const [cmd, arg, ...rest] = process.argv.slice(2);
 const env = (k) => (process.env[k] || '').trim();
-const SITE = () => (env('SITE_URL') || 'https://ladoua-en-lutte.onrender.com').replace(/\/$/, '');
+const SITE = () => (env('SITE_URL') || 'https://leoadmin69.onrender.com').replace(/\/$/, '');
 const die = (msg) => { console.error('✗', msg); process.exit(1); };
 const need = (...keys) => { const miss = keys.filter((k) => !env(k)); if (miss.length) die(`Variable(s) manquante(s) : ${miss.join(', ')} (voir AGENTS.md → « Accès production »).`); };
 
@@ -27,11 +27,8 @@ async function render(p, opts = {}) {
   return text ? JSON.parse(text) : {};
 }
 async function serviceId() {
-  if (env('RENDER_SERVICE_ID')) return env('RENDER_SERVICE_ID');
-  const list = await render('/services?name=ladoua-en-lutte&limit=5');
-  const s = list.map((x) => x.service || x).find((x) => x.name === 'ladoua-en-lutte');
-  if (!s) die('Service « ladoua-en-lutte » introuvable sur ce compte Render : crée-le (Blueprint, render.yaml) ou mets RENDER_SERVICE_ID.');
-  return s.id;
+  // service de production (avec Supabase, Telegram, IA) : « Lyon1-ladoua-en-lutte » → https://leoadmin69.onrender.com
+  return env('RENDER_SERVICE_ID') || 'srv-dbu3je68bjmc73a7vt1g';
 }
 const supa = (p) => `${env('SUPABASE_URL').replace(/\/$/, '')}/storage/v1/object/${env('SUPABASE_BUCKET') || 'ladoua-en-lutte'}/${p}`;
 const supaHeaders = () => { const k = env('SUPABASE_SERVICE_KEY'); return { apikey: k, ...(k.startsWith('sb_') ? {} : { Authorization: `Bearer ${k}` }) }; };

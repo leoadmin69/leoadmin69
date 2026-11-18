@@ -1,6 +1,6 @@
 # Mise en ligne GRATUITE de « Lyon 1 · La Doua en lutte » (dossier lyon1-lutte/) sur Render.
 # Render → New → Blueprint → choisir ce dépôt. Les valeurs marquées sync: false sont demandées à la création.
-# Adresse fournie automatiquement : https://ladoua-en-lutte.onrender.com (pas besoin de nom de domaine).
+# Production actuelle : https://leoadmin69.onrender.com (service « Lyon1-ladoua-en-lutte »). Voir AGENTS.md → Passation.
 # La formule gratuite n'a pas de disque : les données et fichiers sont gardés dans Supabase (gratuit aussi).
 services:
   - type: web

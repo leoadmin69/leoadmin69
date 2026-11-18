@@ -23,11 +23,14 @@ dans le même commit que le code.
 - **Fait** : audit complet (failles médias inter-sites et droits du compte piquet dans le chat corrigées, liste noire,
   annulation sans écrasement, limite signalements wifi campus, photo du piquet visible par les modos, chat plein écran
   iPhone, barre latérale bureau, fautes et textes, guide PDF). PR #2 de Copilot fusionnée. Rouge foncé sous texte blanc.
-- **Bloqué** : le site n'est PAS en ligne : `ladoua-en-lutte.onrender.com` répond « no-server » (aucun service Render).
-  L'admin doit créer le service (Render → New → Blueprint → ce dépôt, branche de travail) ou donner l'adresse réelle.
-  Vérifier avec `node tools/ops.mjs health`.
-- **À faire** : quand le service existe, mettre `RENDER_API_KEY` / `RENDER_SERVICE_ID` dans les accès (ci-dessous),
-  puis `node tools/ops.mjs status`. Bouton « Pause Telegram » dans l'admin proposé, pas encore demandé.
+- **En ligne** : le site de production est **https://leoadmin69.onrender.com** (service Render « Lyon1-ladoua-en-lutte »,
+  `srv-dbu3je68bjmc73a7vt1g`, runtime Node, dossier `lyon1-lutte`, Supabase + Telegram + IA branchés, déploiement auto
+  à chaque push). `node tools/ops.mjs status` / `health` le visent par défaut.
+- **Doublon à trancher** : un 2ᵉ service « ladoua-en-lutte » (`srv-dbv25vlg1s2s73dv1vhg`, https://ladoua-en-lutte.onrender.com,
+  Docker) a été créé le 18/11 à 22 h 13 par Blueprint. Il n'a NI Supabase (données perdues à chaque redémarrage) NI mot de
+  passe admin NI bot Telegram. Ne pas le brancher sur le même Supabase tant que l'autre tourne (ils s'écraseraient).
+  Attente de la décision de l'admin : le supprimer, ou y migrer la production.
+- **À faire** : bouton « Pause Telegram » dans l'admin proposé, pas encore demandé.
 - **Décidé** : affichage « selon les personnes sur place » à partir de 3 signalements non validés en 5 min (confirmé par l'admin).
 
 ## Accès production (serveur, base, hébergeur)
@@ -35,10 +38,12 @@ Tout se pilote avec `node tools/ops.mjs` (dans `lyon1-lutte/`) : `health`, `stat
 `backup`, `restore fichier --oui`. **Les secrets ne sont jamais dans le dépôt** ; chaque assistant les reçoit ainsi :
 - **Copilot** : GitHub → Settings → Environments → `copilot` → secrets `RENDER_API_KEY`, `RENDER_SERVICE_ID`,
   `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, variable `SITE_URL`. Puis Settings → Copilot → Coding agent → pare-feu :
-  autoriser `api.render.com`, `*.supabase.co`, `ladoua-en-lutte.onrender.com`. L'environnement est préparé par
+  autoriser `api.render.com`, `*.supabase.co`, `leoadmin69.onrender.com`. L'environnement est préparé par
   `.github/workflows/copilot-setup-steps.yml`.
-- **Claude Code (cloud)** : les mêmes clés en « secrets réseau » de l'environnement de la session (demandées par Claude
-  avec un formulaire sécurisé, jamais collées dans le chat).
+- **Claude Code (cloud)** : clé Render déjà enregistrée en « secret réseau » de l'environnement « Par défaut » (le proxy
+  l'injecte). Lancer l'outil avec `NODE_USE_ENV_PROXY=1 NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt RENDER_API_KEY=proxy-injected`.
+  Autres clés : demandées avec le formulaire sécurisé, jamais collées dans le chat.
+- **Une clé collée dans un chat (Claude, Copilot, n'importe où) est grillée** : la révoquer et en créer une nouvelle.
 - **Données privées** : une sauvegarde (`backup`) contient des données personnelles : jamais dans le dépôt
   (`backups/` est ignoré par git), jamais envoyée ailleurs. Toujours faire `backup` avant `restore` ou une migration.
 - **Déploiement** : Render redéploie tout seul à chaque push sur la branche de travail (dossier `lyon1-lutte/`).
