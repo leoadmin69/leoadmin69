@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { db, save, newId, now, initStore } from './lib/store.js';
 import { remoteEnabled } from './lib/remote.js';
-import { publicKey, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe, sendPush, pushCount, PUSH_KINDS } from './lib/push.js';
+import { publicKey, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe, sendPush, pushCount, PUSH_KINDS, modSubscribe, modUnsubscribe, modPushOn, sendModPush } from './lib/push.js';
 import { seed } from './lib/seed.js';
 import { ensureAdmin, hashPassword, verifyPassword, createToken, readToken, cookieHeader, parseCookies, COOKIE, publicMod, SECRET } from './lib/auth.js';
 import { mailEnabled, mailProvider, mailQuota, sendMany, renderEmail, SITE_URL, SITE_NAME, INSTAGRAM_URL } from './lib/mail.js';
@@ -460,6 +460,15 @@ app.get('/api/auth/me', (req, res) => { const m = currentMod(req); res.json(m ? 
 const mod = express.Router();
 mod.use(requireMod);
 app.use('/api/mod', mod);
+// Alertes modo sur le téléphone (signalements des étudiant·es à vérifier…)
+mod.post('/push/subscribe', (req, res) => {
+  try { modSubscribe(req.mod.id, req.body.subscription); } catch (e) { return bad(res, e.message); }
+  audit(req.mod, 'alertes modo activées', '');
+  res.json({ ok: true });
+});
+mod.post('/push/unsubscribe', (req, res) => { modUnsubscribe(req.mod.id, String(req.body.endpoint || '')); res.json({ ok: true }); });
+mod.post('/push/status', (req, res) => res.json({ on: modPushOn(req.mod.id, String(req.body.endpoint || '')) }));
+
 // Mots interdits ajoutés par les modos (en plus de la liste de base)
 mod.get('/chat-banned', (req, res) => res.json({ base: BANNED_BASE.length, extra: db.settings.chatBanned || [] }));
 mod.put('/chat-banned', (req, res) => {
@@ -951,7 +960,7 @@ mod.delete('/sites/:id', requireAdmin, (req, res) => {
 // ---------- Votes, blog, témoignages ----------
 const community = registerCommunity(app, mod, { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, targetSite, stale, touch });
 // Signalements, « J'y vais », frise, page droits, entraide
-extras = registerExtras(app, mod, { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, sendPush, postTelegram, tgEsc });
+extras = registerExtras(app, mod, { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, sendPush, postTelegram, tgEsc, sendModPush });
 
 // ---------- Site ----------
 // Le service worker doit toujours être relu, sinon les mises à jour de l'app n'arriveraient pas.

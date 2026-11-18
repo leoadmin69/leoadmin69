@@ -70,7 +70,7 @@ Le ou la président·e de l'université est responsable de l'ordre dans les loca
 };
 
 export function registerExtras(app, mod, ctx) {
-  const { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, sendPush, postTelegram, tgEsc } = ctx;
+  const { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, sendPush, postTelegram, tgEsc, sendModPush } = ctx;
   db.sightings ||= [];
   db.sightIgnored ||= {};
   db.dayLog ||= {};
@@ -215,6 +215,16 @@ export function registerExtras(app, mod, ctx) {
     save();
     const s = summary().find((x) => x.building === b.id && x.status === status);
     broadcast('sighting', { building: b.id });
+    // Seuil atteint : notification aux modos de ce site (une fois par bâtiment et par état, puis plus avant 45 min)
+    const key = `${b.id}|${status}`;
+    db.sightNotified ||= {};
+    if (s && s.count >= SIGHT_THRESHOLD() && Date.now() - new Date(db.sightNotified[key] || 0).getTime() > SIGHT_WINDOW) {
+      db.sightNotified[key] = now(); save();
+      const sid = siteOf(b);
+      const ids = db.mods.filter((m) => !m.disabled && canSite(m, sid)).map((m) => m.id);
+      const word = status === 'bloque' ? 'BLOQUÉ' : status === 'partiel' ? 'PARTIEL' : 'OUVERT';
+      sendModPush?.(ids, { title: `👀 À vérifier · ${b.name} ${word} ?`, body: `${s.count} étudiant·es le signalent (${siteName(sid)}). Vérifie puis confirme en un tap dans l’espace modo.`, url: '/#/modo', tag: `sight-${b.id}` }).catch((e) => console.error('[push modo]', e.message));
+    }
     if (s && s.count === SIGHT_THRESHOLD()) feed(`${siteName(siteOf(b))} · 👀 ${s.count} étudiant·es signalent ${b.name} ${status === 'bloque' ? 'bloqué' : status === 'partiel' ? 'partiellement bloqué' : 'ouvert'} (à confirmer par un·e modo)`, 'warn');
     res.json({ ok: true, count: s?.count || 1, message: s && s.count >= SIGHT_THRESHOLD() ? 'Merci ! Plusieurs personnes l’ont signalé : un·e modo va confirmer.' : 'Merci ! Ton signalement est transmis aux modos.' });
   });

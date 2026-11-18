@@ -37,6 +37,35 @@ export function unsubscribe(endpoint) {
 // Envoie à tous les abonné·es concerné·es. filter(sub) permet de cibler (ex. par campus).
 export async function sendPush(kind, { title, body, url = '/', tag }, filter = () => true) {
   const subs = (db.pushSubs || []).filter((s) => s.kinds?.includes(kind) && filter(s));
+  return deliver(subs, kind, { title, body, url, tag }, 'pushSubs');
+}
+
+// ---------- Alertes réservées aux modos (liées à leur compte, pas aux abonnements publics) ----------
+export function modSubscribe(modId, subscription) {
+  if (!subscription?.endpoint || !/^https:\/\//.test(subscription.endpoint) || !subscription.keys?.p256dh || !subscription.keys?.auth) throw new Error('Abonnement invalide.');
+  db.modPushSubs ||= [];
+  let s = db.modPushSubs.find((x) => x.endpoint === subscription.endpoint);
+  if (!s) { s = { id: newId(), endpoint: subscription.endpoint, createdAt: now() }; db.modPushSubs.push(s); }
+  s.modId = modId;
+  s.keys = { p256dh: String(subscription.keys.p256dh).slice(0, 200), auth: String(subscription.keys.auth).slice(0, 100) };
+  // au plus 5 téléphones par modo
+  const mine = db.modPushSubs.filter((x) => x.modId === modId);
+  if (mine.length > 5) db.modPushSubs = db.modPushSubs.filter((x) => x.modId !== modId || mine.slice(-5).includes(x));
+  save();
+  return s;
+}
+export function modUnsubscribe(modId, endpoint) {
+  db.modPushSubs = (db.modPushSubs || []).filter((x) => !(x.modId === modId && x.endpoint === endpoint));
+  save();
+}
+export const modPushOn = (modId, endpoint) => (db.modPushSubs || []).some((x) => x.modId === modId && x.endpoint === endpoint);
+// modIds : liste des comptes à prévenir
+export async function sendModPush(modIds, payload) {
+  const ids = new Set(modIds);
+  return deliver((db.modPushSubs || []).filter((s) => ids.has(s.modId)), 'mod', payload, 'modPushSubs');
+}
+
+async function deliver(subs, kind, { title, body, url = '/', tag }, listName) {
   if (!subs.length) return { sent: 0 };
   vapid();
   const payload = JSON.stringify({ title, body, url, tag: tag || kind });
@@ -55,7 +84,7 @@ export async function sendPush(kind, { title, body, url = '/', tag }, filter = (
       }
     }));
   }
-  if (dead.size) { db.pushSubs = db.pushSubs.filter((s) => !dead.has(s.endpoint)); save(); }
+  if (dead.size) { db[listName] = (db[listName] || []).filter((s) => !dead.has(s.endpoint)); save(); }
   console.log(`[push] ${kind} : ${sent}/${subs.length} envoyée(s)`);
   return { sent };
 }

@@ -912,12 +912,14 @@ async function viewModo() {
     <p class="subtitle mono small">${esc(state.me.username)} · ${esc(state.me.org)} · ${isAdm ? 'admin (tous les sites)' : 'modo'} · <span id="mstats">…</span></p>
     <div class="modsites" id="msites"><span class="faint small">Tu agis sur :</span>${mySites.map((id) => `<button data-ms="${esc(id)}" class="${id === state.modSite ? 'on' : ''}">📍 ${esc(siteShort(id))}</button>`).join('')}</div>
     <a class="guide-link" href="/api/mod/guide.pdf" target="_blank" rel="noopener">📘 Guide des modos (PDF) : comment faire, à faire / à ne jamais faire</a>
+    <div id="modpush"></div>
     <div class="presence" id="presence" hidden></div>
     <div class="tabs-inline" id="mtabs">${tabs.map(([id, l]) => `<button data-t="${id}" class="${id === state.modTab ? 'on' : ''}">${l}</button>`).join('')}</div>
     <div id="mod"></div>`;
   $('#mtabs').onclick = (e) => { if (e.target.dataset.t) { state.modTab = e.target.dataset.t; render(true); } };
   $('#msites').onclick = (e) => { const id = e.target.closest('[data-ms]')?.dataset.ms; if (id) { state.modSite = id; store.set('l1-modsite', id); applyScope(); render(true); } };
   showPresence();
+  modPushCard();
   api('/api/mod/stats').then((s) => { const el = $('#mstats'); if (el) el.innerHTML = `${s.pushSubs} téléphone(s) · ${s.subscribers} email(s) · IA ${esc(s.aiEnabled ? s.aiProviders.join(' → ') : 'sans IA')} · emails ${s.mailProvider ? `${esc(s.mailProvider)} ${s.mailQuota.used}/${s.mailQuota.limit} aujourd’hui` : 'OFF'} · stockage ${s.storage === 'temporaire' ? '<b style="color:var(--red)">TEMPORAIRE (configure Supabase !)</b>' : esc(s.storage)}${s.reported ? ` · ${s.reported} msg signalé(s)` : ''}`; }).catch(() => {});
   const fn = { story: modStory, votes: modPolls, blog: modBlog, temoignages: modTestimonies, entraide: modEntraide, droits: modDroits, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, sites: modSites, journal: modJournal, moi: modMe }[state.modTab] || modSituation;
   try { await fn($('#mod')); } catch (err) { if (/Connexion modo/.test(err.message)) { state.me = null; render(true); } else toast(err.message); }
@@ -2639,6 +2641,10 @@ async function drawSightings() {
   try { r = await api('/api/mod/sightings'); } catch { return; }
   const list = r.list.filter((x) => inScope(x));
   const strong = list.filter((x) => x.count >= r.threshold);
+  // nouveau signalement à vérifier pendant que le modo a l'écran ouvert
+  const keyNow = strong.map((x) => `${x.building}|${x.status}`).sort().join(',');
+  if (state.sightSeen !== undefined && strong.some((x) => !state.sightSeen.includes(`${x.building}|${x.status}`))) { navigator.vibrate?.([30, 60, 30]); toast('👀 Nouveau signalement à vérifier en haut de la page'); }
+  state.sightSeen = keyNow;
   if (!list.length) { box.innerHTML = ''; return; }
   box.innerHTML = `<div class="card sight-card ${strong.length ? 'hot' : ''}" style="margin-bottom:12px">
     <div class="kicker">📣 Signalements des étudiant·es · ${r.threshold} concordants = à vérifier</div>
@@ -2908,4 +2914,39 @@ function updateReacts(id, reactions) {
 // Case « tous les sites » (admin uniquement) dans les formulaires Flash et Agenda
 function allSitesBox(id) {
   return `<label class="check all-sites"><input type="checkbox" id="${id}"> <span>🌍 <b>Tous les sites</b> : visible par tout le monde (La Doua, IUT, Rockefeller, Lyon Sud, Gerland…), notifications et Telegram de chaque site</span></label>`;
+}
+
+// ---------- Alertes modo sur ce téléphone ----------
+async function modPushCard() {
+  const box = $('#modpush');
+  if (!box) return;
+  if (!pushSupported()) {
+    box.innerHTML = isIOS && !isStandalone() ? `<div class="card modpush">🔔 <b>Alertes modo</b> : sur iPhone, installe d’abord l’app (Partager → Sur l’écran d’accueil) pour recevoir les signalements à vérifier.</div>` : '';
+    return;
+  }
+  const sub = await currentPushSub().catch(() => null);
+  let on = false;
+  if (sub && Notification.permission === 'granted') { try { on = (await api('/api/mod/push/status', { method: 'POST', body: { endpoint: sub.endpoint } })).on; } catch {} }
+  box.innerHTML = `<div class="card modpush ${on ? 'on' : ''}"><div class="grow">🔔 <b>Alertes modo sur ce téléphone</b><div class="muted small">${on ? 'Activées : tu es prévenu·e quand 3 étudiant·es signalent un bâtiment de tes sites.' : 'Sois prévenu·e dès que 3 étudiant·es signalent un bâtiment de tes sites, pour vérifier et valider.'}</div></div>
+    <button class="btn small ${on ? 'ghost' : 'green'}" id="modpush-btn">${on ? 'Désactiver' : 'Activer'}</button></div>`;
+  $('#modpush-btn').onclick = async () => {
+    try {
+      if (on) {
+        const s = await currentPushSub();
+        if (s) await api('/api/mod/push/unsubscribe', { method: 'POST', body: { endpoint: s.endpoint } });
+        toast('Alertes modo désactivées sur ce téléphone.');
+      } else {
+        const perm = await Notification.requestPermission();
+        if (perm !== 'granted') return toast('Notifications refusées. Autorise-les dans les réglages du téléphone.');
+        const reg = (await navigator.serviceWorker.getRegistration()) || (await registerSW());
+        await navigator.serviceWorker.ready;
+        const { key } = await api('/api/push/key');
+        let s = await reg.pushManager.getSubscription();
+        if (!s) s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) });
+        await api('/api/mod/push/subscribe', { method: 'POST', body: { subscription: s.toJSON() } });
+        toast('Alertes modo activées ✊');
+      }
+    } catch (e) { toast(e.message); }
+    modPushCard();
+  };
 }

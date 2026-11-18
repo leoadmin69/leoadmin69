@@ -585,3 +585,6 @@ body.has-alert .topbar { padding-top: 0; }
 .w-later { width: 100%; margin-top: 4px; }
 .check.all-sites { border: 1px dashed rgba(191,90,242,0.6); background: rgba(191,90,242,0.1); border-radius: 12px; padding: 10px 12px; }
 .qt.pressing { transform: scale(.96); box-shadow: 0 0 0 2px rgba(255,255,255,.25); transition: transform .8s; }
+.modpush { display: flex; gap: 12px; align-items: center; margin: 10px 0; border-color: rgba(255,159,10,0.45); }
+.modpush .grow { flex: 1; min-width: 0; }
+.modpush.on { border-color: rgba(48,209,88,0.45); }

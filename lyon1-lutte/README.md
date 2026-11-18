@@ -17,7 +17,7 @@ Style iOS, sombre, « terminal live » ; marche sur téléphone (barre d'onglets
 | **Revendications** | Liste avec statut (en lutte / obtenu) et bouton « Je soutiens » anonyme. |
 | **Blog & tribunes** | Articles des syndicats + tribunes proposées anonymement par les étudiant·es (relues avant publication). |
 | **Témoignages** | Dépôt anonyme de témoignages de violences avec photos/vidéos, publiés seulement après validation. |
-| **Bâtiments · 👀 Signaler** | Sur place, un·e étudiant·e signale ce qu'il ou elle voit. 3 signalements concordants (appareils différents, 45 min) → encadré chez les modos du site, qui confirment en un tap. Jamais publié automatiquement. |
+| **Bâtiments · 👀 Signaler** | Sur place, un·e étudiant·e signale ce qu'il ou elle voit. 3 signalements concordants (appareils différents, 45 min) → encadré chez les modos du site **et notification sur leur téléphone** (à activer dans l'espace modo, « Alertes modo sur ce téléphone »), qui confirment en un tap. Jamais publié automatiquement. |
 | **✋ J'y vais** | Compteur anonyme sur chaque AG/manif ; rappel automatique 1 h avant (notification, Telegram, fil). |
 | **Frise de la lutte** | Jour N de la mobilisation, remplie toute seule : blocages du jour, AG, votes, CR, alertes, revendications obtenues. |
 | **Tes droits** | Absences, examens, bourses, interpellation. Brouillon fourni, publié seulement par l'admin après relecture syndicale. |
