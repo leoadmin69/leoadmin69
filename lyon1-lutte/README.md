@@ -36,7 +36,7 @@ Accès `#/modo`. L'admin crée un compte par personne (mot de passe généré, �
   - **Reprendre l'AG** : un bouton remplit la saisie avec les bâtiments bloqués votés dans le dernier compte rendu.
   - **Annuler** pendant 10 s : l'email d'alerte en attente est retiré, aucun faux email ne part.
   - Blocus général : un tap = publié.
-  - **Chaque matin à 5 h** (`MORNING_RESET_HOUR`, `off` pour désactiver), les statuts de la veille passent « ⚪ À confirmer » (« Hier : 🔴 bloqué ») jusqu'à ce qu'un·e modo confirme ; le titre de chaque site repasse en automatique.
+  - **Chaque soir à 22 h** (`DAY_RESET_HOUR`, `off` pour désactiver), les statuts de la journée passent « ⚪ À confirmer » (« Dernière info : 🔴 bloqué ») jusqu'à ce qu'un·e modo reconfirme le lendemain ; le titre de chaque site repasse en automatique. Jamais de remise à zéro en journée, même au redémarrage du site.
   - **Comptes terrain** (piquets) : bâtiments uniquement, connexion par lien ou QR code sans mot de passe, lien régénérable par l'admin.
   - **Signalement = photo obligatoire.** Si le seuil est atteint (3 personnes) et qu'aucun·e modo ne valide ni n'ignore en 5 min (`SIGHT_PUBLIC_MIN`), le bâtiment s'affiche « selon les personnes sur place, photos à l'appui · pas encore confirmé par les modos » (carte en pointillés + bandeau, pas de notification publique) et les modos sont relancés.
   - **Photo dans les signalements** : obligatoire, ré-encodée sur le téléphone (sans GPS), visible seulement par les modos du site, effacée à la confirmation ou après 2 h.

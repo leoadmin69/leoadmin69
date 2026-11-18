@@ -385,7 +385,7 @@ function viewBuildings() {
         <div class="name">${esc(b.name)}</div>
         <div class="campus">${esc(b.campus)}</div>
         ${crowdOf(b) ? `<div class="crowd-tag">👀 Selon ${crowdOf(b).count} personnes sur place, photos à l’appui · pas encore confirmé par les modos</div>` : ''}
-        ${!crowdOf(b) && b.yesterday && b.status === 'inconnu' ? `<div class="yday">Hier : ${STATUS[b.yesterday].dot} ${esc(STATUS[b.yesterday].label.toLowerCase())} · pas encore confirmé aujourd’hui</div>` : ''}
+        ${!crowdOf(b) && b.yesterday && b.status === 'inconnu' ? `<div class="yday">Dernière info : ${STATUS[b.yesterday].dot} ${esc(STATUS[b.yesterday].label.toLowerCase())} · à reconfirmer sur place</div>` : ''}
         ${b.note ? `<div class="note">${esc(b.note)}</div>` : ''}
         <div class="when">${b.updatedAt ? 'MAJ ' + esc(ago(b.updatedAt)) : ''}</div>
         ${sightLine(b)}
@@ -1101,7 +1101,7 @@ function modSituation(el) {
   el.innerHTML = `
     <div id="sightings"></div>
     <div id="pubres"></div>
-    ${state.me.role === 'terrain' ? '<div class="card terrain-hint">📍 <b>Compte terrain</b> : touche les bâtiments que tu vois, puis 🔴 🟠 🟢. Confirme même si rien n’a changé depuis hier : c’est ce qui rend l’info fiable.</div>' : ''}
+    ${state.me.role === 'terrain' ? '<div class="card terrain-hint">📍 <b>Compte terrain</b> : touche les bâtiments que tu vois, puis 🔴 🟠 🟢. Confirme chaque matin, même si rien n’a changé : c’est ce qui rend l’info fiable.</div>' : ''}
     <div class="card" ${state.me.role === 'terrain' ? 'hidden' : ''}>
       <div class="kicker">Titre de l’accueil · ${esc(siteShort(state.modSite))} · un tap = publié</div>
       <div class="segmented status-seg" id="bstate" style="margin-top:10px">${['auto', 'actif', 'partiel', 'leve'].map((k) => `<button data-s="${k}" class="${(b.auto ? 'auto' : b.state) === k ? 'on ' + ({ auto: 'auto', actif: 'bloque', partiel: 'partiel', leve: 'ouvert' }[k]) : ''}">${{ auto: '🤖 Auto', actif: '🔴 Blocus', partiel: '🟠 Partiel', leve: '🟢 Levé' }[k]}</button>`).join('')}</div>
@@ -1210,7 +1210,7 @@ function modSituation(el) {
     box.innerHTML = Object.entries(byCampus).map(([campus, list]) => `
       <div class="campus-block">
         <div class="campus-head"><span class="kicker">${esc(campus)}</span><span class="faint small">${list.filter((x) => x.status === 'bloque').length}/${list.length} bloqués</span><button class="btn small ghost" data-campus="${esc(campus)}">${list.every((x) => sel.has(x.id)) ? 'Aucun' : 'Tout'}</button></div>
-        <div class="qtiles">${list.map((x) => `<button class="qt ${x.status} ${sel.has(x.id) ? 'sel' : ''}" data-id="${esc(x.id)}"><span class="qdot">${STATUS[x.status].dot}</span><span class="qn">${esc(x.name)}${x.yesterday && x.status === 'inconnu' ? `<small class="qyday">hier ${STATUS[x.yesterday].dot}</small>` : ''}</span>${x.note ? '<span class="qnote">✎</span>' : ''}</button>`).join('')}</div>
+        <div class="qtiles">${list.map((x) => `<button class="qt ${x.status} ${sel.has(x.id) ? 'sel' : ''}" data-id="${esc(x.id)}"><span class="qdot">${STATUS[x.status].dot}</span><span class="qn">${esc(x.name)}${x.yesterday && x.status === 'inconnu' ? `<small class="qyday">dernière info ${STATUS[x.yesterday].dot}</small>` : ''}</span>${x.note ? '<span class="qnote">✎</span>' : ''}</button>`).join('')}</div>
       </div>`).join('');
     const bar = $('#abar');
     bar.hidden = !sel.size;

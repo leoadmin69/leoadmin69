@@ -459,24 +459,34 @@ if (!db.settings.flashTtlV1) { for (const f of db.flashes) if (f.expiresAt === u
 let liveFlashCount = liveFlashes().length;
 setInterval(() => { const n = liveFlashes().length; if (n !== liveFlashCount) { liveFlashCount = n; broadcast('flashes', {}); } }, 60e3).unref();
 
-// ---------- Chaque matin : les statuts de la veille passent « à confirmer » ----------
-// Les blocages se refont chaque jour : à 5 h (MORNING_RESET_HOUR, « off » pour désactiver), chaque bâtiment repasse
-// en « non renseigné » en gardant l'info de la veille (affichée « hier : bloqué »), jusqu'à ce qu'un·e modo confirme.
-function morningReset() {
-  const hourCfg = process.env.MORNING_RESET_HOUR ?? '5';
+// ---------- Chaque soir à 22 h : les statuts de la journée passent « à reconfirmer » ----------
+// Les blocages se refont chaque jour : à 22 h (DAY_RESET_HOUR, « off » pour désactiver), chaque bâtiment repasse
+// en « non renseigné » en gardant la dernière info (« Dernière info : bloqué »), jusqu'à ce qu'un·e modo reconfirme le lendemain.
+// Fenêtre 22 h → minuit seulement : un redémarrage du site en journée ne remet jamais rien à zéro.
+const RESET_HOUR = () => process.env.DAY_RESET_HOUR ?? '22';
+function dayReset() {
+  const hourCfg = RESET_HOUR();
   if (hourCfg === 'off') return;
   const { day, hour } = parisNow();
-  if (hour < Number(hourCfg) || db.settings.lastMorningReset === day) return;
-  db.settings.lastMorningReset = day;
+  if (hour < Number(hourCfg) || db.settings.lastDayReset === day) return;
+  db.settings.lastDayReset = day;
   let n = 0;
   for (const b of db.buildings) if (b.status !== 'inconnu') { b.yesterday = b.status; b.status = 'inconnu'; b.resetAt = now(); n++; }
-  // le titre de chaque site revient en automatique (il suit les bâtiments)
-  for (const st of Object.values(db.siteStatus || {})) if (st.state && st.state !== 'auto') { st.state = 'auto'; st.updatedAt = now(); }
+  // le titre de chaque site revient en automatique (il suit les bâtiments) ; on garde l'ancien réglage au cas où
+  for (const st of Object.values(db.siteStatus || {})) if (st.state && st.state !== 'auto') { st.beforeReset = st.state; st.state = 'auto'; st.updatedAt = now(); }
   save();
-  if (n) { feed(`🌅 Nouvelle journée : ${n} bâtiment(s) à confirmer par les modos sur place`, 'info'); broadcast('buildings', {}); broadcast('blocus', {}); }
+  if (n) { feed(`🌙 Fin de journée : ${n} bâtiment(s) à reconfirmer demain matin par les modos sur place`, 'info'); broadcast('buildings', {}); broadcast('blocus', {}); }
 }
-setInterval(morningReset, 60e3).unref();
-setTimeout(morningReset, 10e3).unref();
+// Réparation : la première version (5 h) s'est déclenchée au démarrage en pleine journée et a effacé les statuts du jour.
+// On remet ceux qu'aucun·e modo n'a reconfirmés depuis.
+if (!db.settings.resetRestoreV1) {
+  let n = 0;
+  for (const b of db.buildings) if (b.yesterday && b.status === 'inconnu' && b.resetAt) { b.status = b.yesterday; delete b.yesterday; delete b.resetAt; n++; }
+  db.settings.resetRestoreV1 = true; delete db.settings.lastMorningReset; save();
+  if (n) console.log(`[réparation] ${n} bâtiment(s) remis à leur statut d’avant la remise à zéro`);
+}
+setInterval(dayReset, 60e3).unref();
+setTimeout(dayReset, 10e3).unref();
 
 // Bilan affiché au modo juste après une publication : combien de personnes vont être prévenues, et par où.
 function reach(kind, sid, { push = true, delayMs = 0 } = {}) {
