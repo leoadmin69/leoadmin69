@@ -1396,7 +1396,8 @@ function modSituation(el) {
     if (!lastUndo) return;
     const prev = lastUndo; lastUndo = null;
     $('#undo').hidden = true;
-    await act(() => api('/api/mod/buildings-batch', { method: 'PUT', body: { changes: prev, undo: true } }), 'Annulé, aucun email ne partira.');
+    const r = await act(() => api('/api/mod/buildings-batch', { method: 'PUT', body: { changes: prev, undo: true } }), 'Annulé, aucune notification ne partira.');
+    if (r?.conflicts?.length) toast(`⚠ Pas annulé pour ${r.conflicts.map((c) => c.name).join(', ')} : un·e autre modo l’a changé entre-temps.`);
     for (const c of prev) { const x = state.data.buildings.find((y) => y.id === c.id); if (x) x.status = c.status; }
     drawTiles();
   };
@@ -1409,7 +1410,18 @@ function editBuilding(id) {
     <div class="field"><label>Note visible par tous (ex : entrée côté tram ouverte)</label><input type="text" id="en" maxlength="240" value="${esc(x.note)}"></div>
     <div class="field" ${state.me?.role === 'terrain' ? 'hidden' : ''}><label>Nom</label><input type="text" id="enm" maxlength="80" value="${esc(x.name)}"></div>
     <div class="btn-row"><button class="btn">Enregistrer</button>${state.me?.role === 'terrain' ? '' : '<button type="button" class="btn red ghost" id="edel">Supprimer le bâtiment</button>'}</div>
+    ${x.proofAt ? `<button type="button" class="btn ghost" id="eproof" style="width:100%;margin-top:8px">📷 Voir la photo du piquet (${esc(ago(x.proofAt))})</button>` : ''}
     <p class="faint small">Astuce : appui long sur une tuile pour ouvrir cette fiche.</p></form>`, (root, close) => {
+    if ($('#eproof', root)) $('#eproof', root).onclick = async () => {
+      try {
+        const r = await fetch(`/api/mod/buildings/${encodeURIComponent(id)}/proof`, { credentials: 'same-origin', cache: 'no-store' });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Photo expirée.');
+        const url = URL.createObjectURL(await r.blob());
+        close();
+        sheet(`<h3>📷 ${esc(x.name)}</h3><p class="faint small">Photo prise sur place par le compte piquet · effacée après 24 h.</p><img src="${url}" alt="Photo du piquet" style="display:block;width:100%;border-radius:16px">`);
+        setTimeout(() => URL.revokeObjectURL(url), 5 * 60e3);
+      } catch (err) { toast(err.message); }
+    };
     $('#eb', root).onsubmit = async (e) => {
       e.preventDefault();
       await act(() => api(`/api/mod/buildings/${id}`, { method: 'PUT', body: { note: $('#en', root).value, ...(state.me?.role === 'terrain' ? {} : { name: $('#enm', root).value }) } }), 'Enregistré.');
@@ -3201,7 +3213,7 @@ function findBannedLocal(text) {
   const list = state.chatRules || [];
   if (!list.length || !text) return null;
   const n = ` ${normWord(text)} `;
-  const glued = ` ${n.replace(/\b([a-z]) (?=[a-z]\b)/g, '$1')} `;
+  const glued = ` ${n.replace(/\b([a-z]) (?=[a-z]\b)/g, '$1').replace(/([a-z])\1+/g, '$1')} `;
   return list.find((w) => n.includes(` ${w} `) || glued.includes(` ${w} `)) || null;
 }
 

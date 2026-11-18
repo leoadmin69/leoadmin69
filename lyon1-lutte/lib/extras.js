@@ -260,7 +260,7 @@ export function registerExtras(app, mod, ctx) {
     const b = db.buildings.find((x) => x.id === String(req.query.building || ''));
     if (!b) return bad(res, 'Bâtiment inconnu.', 404);
     if (!['bloque', 'partiel', 'ouvert'].includes(String(req.query.status))) return bad(res, 'État invalide.');
-    if (limited(`sightpre:${visitor(req)}`, 30, 3600e3)) return bad(res, 'Trop de signalements depuis ce réseau, réessaie plus tard.', 429);
+    if (limited(`sightpre:${visitor(req)}`, 400, 3600e3)) return bad(res, 'Trop de signalements depuis ce réseau, réessaie plus tard.', 429);
     const pid = `sight-${newId()}${newId()}`;
     try { await saveSnap(pid, clean); } catch (e) { console.error('[photo]', e.message); return bad(res, 'Enregistrement impossible, réessaie.', 500); }
     addSighting(req, res, b.id, String(req.query.status), pid);
@@ -270,7 +270,7 @@ export function registerExtras(app, mod, ctx) {
     if (!b) { if (photo) deleteSnap(photo); return bad(res, 'Bâtiment inconnu.', 404); }
     const status = oneOf(rawStatus, ['bloque', 'partiel', 'ouvert'], null);
     if (!status) { if (photo) deleteSnap(photo); return bad(res, 'État invalide.'); }
-    if (limited(`sight:${visitor(req)}`, 30, 3600e3)) return bad(res, 'Trop de signalements depuis ce réseau, réessaie plus tard.', 429);
+    if (limited(`sight:${visitor(req)}`, 400, 3600e3)) { if (photo) deleteSnap(photo); return bad(res, 'Trop de signalements depuis ce réseau, réessaie plus tard.', 429); }
     const v = mark('sight', b.id, device(req, res));
     // un seul signalement par appareil et par bâtiment toutes les 45 min (le dernier compte)
     dropSightings((s) => !(s.b === b.id && s.v === v) && Date.now() - new Date(s.at).getTime() < 2 * 3600e3);

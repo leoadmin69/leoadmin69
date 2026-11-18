@@ -49,7 +49,7 @@ export const bannedList = () => [...new Set([...BANNED_BASE, ...(db.settings?.ch
 export function findBanned(text, list = bannedList()) {
   const n = ` ${normalize(text)} `;
   // lettres isolées séparées (« s a l o p e ») recollées
-  const glued = ` ${n.replace(/\b([a-z]) (?=[a-z]\b)/g, '$1')} `;
+  const glued = ` ${n.replace(/\b([a-z]) (?=[a-z]\b)/g, '$1').replace(/([a-z])\1+/g, '$1')} `;
   for (const w of list) {
     if (n.includes(` ${w} `) || glued.includes(` ${w} `)) return w;
   }

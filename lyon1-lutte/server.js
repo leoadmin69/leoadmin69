@@ -143,6 +143,8 @@ function audit(mod, action, detail = '', siteId = '') {
 
 // ---------- Session modo ----------
 function currentMod(req) { return readToken(parseCookies(req.headers.cookie)[COOKIE]); }
+// Dans le chat, seul·es les vrais modos ont des droits en plus (pas les comptes piquet)
+function chatMod(req) { const m = currentMod(req); return m && m.role !== 'terrain' ? m : null; }
 const TERRAIN_OK = [/^GET \/terrain\/buildings$/, /^POST \/terrain\/buildings$/, /^PUT \/buildings-batch$/, /^PUT \/buildings\/[\w-]+$/, /^POST \/terrain\/building\/[\w-]+\/photo$/, /^GET \/sightings$/, /^POST \/sightings\/(ignore|remind)$/, /^GET \/sightings\/photo\/[\w-]+$/, /^POST \/push\/(subscribe|unsubscribe|status)$/, /^GET \/presence$/, /^GET \/guide\.pdf$/];
 function requireMod(req, res, next) {
   const mod = currentMod(req);
@@ -214,7 +216,8 @@ app.get('/api/state', (req, res) => {
     // Anciens champs gardés pour les apps pas encore mises à jour (site principal)
     blocus: { ...(db.siteStatus[DEFAULT_SITE] || {}), effective: effectiveBlocus(DEFAULT_SITE), auto: ['auto', 'inconnu'].includes(db.siteStatus[DEFAULT_SITE]?.state || 'auto') },
     context: db.contexts?.[DEFAULT_SITE] || null,
-    buildings: db.buildings.map(({ terrainProof, ...b }) => b),
+    // la photo du piquet reste privée ; on indique seulement qu'elle existe (pour le bouton des modos)
+    buildings: db.buildings.map(({ terrainProof, ...b }) => (terrainProof ? { ...b, proofAt: terrainProof.at } : b)),
     events: upcomingEvents(),
     flashes: liveFlashes().slice(0, 20),
     reports: db.reports.filter((r) => r.status === 'published').sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || '')).slice(0, 30).map(publicReport),
@@ -260,16 +263,16 @@ app.post('/api/chat', (req, res) => {
   const nick = clip(req.body.nick, 24);
   const text = clip(req.body.text, 600).replace(/\s{3,}/g, '  ');
   if (!NICK.test(nick)) return bad(res, 'Pseudo : 2 à 24 lettres, chiffres, espaces ou tirets.');
-  if (!currentMod(req) && !isSystemNick(nick)) return bad(res, 'Pseudo non reconnu : les pseudos sont donnés par le système. Recharge la page.');
+  if (!chatMod(req) && !isSystemNick(nick)) return bad(res, 'Pseudo non reconnu : les pseudos sont donnés par le système. Recharge la page.');
   if (!text) return bad(res, 'Message vide.');
-  const modNow = currentMod(req);
+  const modNow = chatMod(req);
   if (!modNow && req.body.charter !== true) return bad(res, 'Lis et accepte la charte du chat avant d’écrire.', 403);
   if (findBanned(nick)) return bad(res, 'Ce pseudo contient un mot interdit par la charte.');
   if (findBanned(text)) return bad(res, 'Message bloqué : il contient un mot ou une expression interdit·e par la charte du chat.');
   const v = deviceKey(req, res);
   if (limited(`chat:${v}`, 1, 1500) || limited(`chatm:${v}`, 20, 60000)) return bad(res, 'Doucement 🙂 attends quelques secondes.', 429);
   if (limited(`chatip:${visitor(req)}`, 300, 60000)) return bad(res, 'Le chat est très sollicité depuis ce réseau, réessaie dans une minute.', 429);
-  const mod = currentMod(req);
+  const mod = chatMod(req);
   if ((text.match(/:[a-z0-9]+:/g) || []).length > 15) return bad(res, 'Trop de stickers dans un seul message (15 max).');
   // Réponse à un message : on garde l'auteur et un extrait (le message d'origine peut ensuite être masqué)
   let reply = null;
@@ -295,7 +298,7 @@ function pushMessage(m) {
 app.post('/api/chat/photo', express.raw({ type: 'image/jpeg', limit: '2mb' }), async (req, res) => {
   const channel = clip(req.query.channel, 40);
   const nick = clip(req.query.nick, 24);
-  const modNow = currentMod(req);
+  const modNow = chatMod(req);
   if (!db.channels.some((c) => c.id === channel)) return bad(res, 'Salon inconnu.');
   if (!modNow && !isSystemNick(nick)) return bad(res, 'Pseudo non reconnu. Recharge la page.');
   if (!modNow && req.query.charter !== '2') return bad(res, 'Lis et accepte la nouvelle charte du chat (photos) avant d’envoyer.', 403);
@@ -321,7 +324,7 @@ app.get('/api/chat/photo/:id', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store, private');
   const m = db.messages.find((x) => x.photo?.id === req.params.id);
   if (!m || m.photo.gone) return bad(res, 'Photo expirée ou supprimée.', 410);
-  const modNow = currentMod(req);
+  const modNow = chatMod(req);
   if (!modNow) {
     if (m.hidden) return bad(res, 'Photo retirée par les modos.', 410);
     const v = deviceKey(req, res, true);
@@ -851,6 +854,16 @@ mod.post('/terrain/building/:id/photo', express.raw({ type: 'image/jpeg', limit:
   res.json({ ...b, terrainProof: undefined });
 });
 
+// Photo prise par le compte piquet (24 h) : visible par les modos du site
+mod.get('/buildings/:id/proof', async (req, res) => {
+  const b = db.buildings.find((x) => x.id === req.params.id);
+  if (!b?.terrainProof) return bad(res, 'Pas de photo (ou plus de 24 h).', 404);
+  if (!needSite(req, res, siteOf(b))) return;
+  const buf = await readSnap(b.terrainProof.id).catch(() => null);
+  if (!buf) return bad(res, 'Photo expirée.', 404);
+  res.set({ 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, no-store' }).send(buf);
+});
+
 // Plusieurs bâtiments d'un coup (sélection multiple, saisie rapide, dictée) : une seule ligne dans le fil, un seul email.
 // - « from » = statut que le modo voyait : si un·e autre modo l'a changé entre-temps, ce bâtiment n'est pas écrasé (conflit renvoyé).
 // - les bâtiments des sites où le modo n'a pas de droits sont ignorés.
@@ -868,10 +881,10 @@ mod.put('/buildings-batch', (req, res) => {
     const b = db.buildings.find((x) => x.id === c.id);
     if (!b) continue;
     if (!canSite(req.mod, siteOf(b))) { forbidden.push(b.name); continue; }
-    if (!undo && c.from !== undefined && c.from !== b.status) { conflicts.push({ id: b.id, name: b.name, status: b.status, by: b.by, at: b.updatedAt }); continue; }
+    if (c.from !== undefined && c.from !== b.status) { conflicts.push({ id: b.id, name: b.name, status: b.status, by: b.by, at: b.updatedAt }); continue; }
     const status = oneOf(c.status, STATUS, b.status);
     if (status === b.status && c.note === undefined) continue;
-    previous.push({ id: b.id, status: b.status, note: b.note });
+    previous.push({ id: b.id, status: b.status, note: b.note, from: status }); // from : pour annuler sans écraser un·e autre modo
     if (c.note !== undefined) b.note = clip(c.note, 240);
     const changed = status !== b.status;
     b.status = status;
@@ -1194,14 +1207,14 @@ mod.put('/instagram', requireAdmin, (req, res) => {
     db.settings.instagram.url = u;
   }
  if (req.body.site !== undefined && site(req.body.site)) db.settings.instagram.site = req.body.site;
- db.settings.instagram.enabled = !!req.body.enabled;
-  db.settings.instagram.interval = Math.min(1440, Math.max(5, Number(req.body.interval) || 15));
+ if (req.body.enabled !== undefined) db.settings.instagram.enabled = !!req.body.enabled;
+ if (req.body.interval !== undefined) db.settings.instagram.interval = Math.min(1440, Math.max(5, Number(req.body.interval) || 15));
  save();
  res.json({ ok: true, enabled: db.settings.instagram.enabled, site: db.settings.instagram.site });
 });
 mod.post('/instagram/sync', requireAdmin, async (req, res) => {
  let out;
- try { out = await syncInstagram({ broadcast, feed, queueBuildingAlert }); } catch (e) {
+ try { out = await syncInstagram({ broadcast, feed, audit, queueBuildingAlert, onBuilding: (b) => extras?.onBuilding(b) }); } catch (e) {
    db.settings.instagram ||= {}; db.settings.instagram.lastError = e.message; db.settings.instagram.lastErrorAt = now(); save();
    return bad(res, e.message, 502);
  }
@@ -1353,7 +1366,7 @@ app.use((err, req, res, next) => {
 });
 app.get('*', (req, res) => res.sendFile(path.join(ROOT, 'public', 'index.html')));
 
-startInstagramSync({ broadcast, feed, queueBuildingAlert });
+startInstagramSync({ broadcast, feed, audit, queueBuildingAlert, onBuilding: (b) => extras?.onBuilding(b) });
 
 app.listen(PORT, () => {
   console.log(`${SITE_NAME} → ${SITE_URL()} (port ${PORT})`);

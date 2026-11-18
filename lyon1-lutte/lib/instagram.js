@@ -62,6 +62,8 @@ const parisIso = (value) => {
   const clean = String(value).trim();
   const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(clean);
   if (day) { const d = parisToDate(+day[1], +day[2], +day[3], 12, 0); return d ? d.toISOString() : ''; }
+  const local = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$/.exec(clean);
+  if (local) { const d = parisToDate(+local[1], +local[2], +local[3], +local[4], +local[5]); return d ? d.toISOString() : ''; }
   if (/^\d{4}-\d{2}-\d{2}/.test(clean)) {
     const d = new Date(clean);
     return Number.isNaN(d.getTime()) ? '' : d.toISOString();
@@ -75,6 +77,7 @@ const parisIso = (value) => {
   return '';
 };
 
+const IG = { username: 'instagram', org: 'Canal Instagram' };
 export async function syncInstagram(ctx = {}) {
   const channel = await fetchInstagramChannel();
   const text = channel.messages.slice(0, 30).join('\n\n');
@@ -114,9 +117,9 @@ export async function syncInstagram(ctx = {}) {
       b.by = 'Instagram';
       delete b.yesterday;
       delete b.resetAt;
-      db.audit.push({ id: newId(), at: now(), by: 'Instagram', org: 'Canal Instagram', action: 'mises à jour Instagram', detail: `${b.name} → ${status}`, site: siteId });
-      db.feed.unshift({ at: now(), level: status === 'bloque' ? 'alert' : status === 'partiel' ? 'warn' : 'ok', text: `${siteName(siteId)} · ${b.name} → ${status === 'bloque' ? 'bloqué' : status === 'partiel' ? 'partiel' : 'rouvert'}${b.note ? ' · ' + b.note : ''} · Canal Instagram` });
-      db.feed = db.feed.slice(0, 40);
+      ctx.audit?.(IG, 'mise à jour Instagram', `${b.name} → ${status}`, siteId);
+      ctx.feed?.(`${b.name} (${b.campus}) → ${status === 'bloque' ? 'BLOQUÉ' : status === 'partiel' ? 'PARTIEL' : 'OUVERT'}${b.note ? ' · ' + b.note : ''} · canal Instagram`, status === 'bloque' ? 'alert' : status === 'partiel' ? 'warn' : 'ok');
+      ctx.onBuilding?.(b);
       ctx.queueBuildingAlert?.(b);
       ctx.broadcast?.('buildings', { id: b.id });
       applied.buildings.push({ name: b.name, status });
@@ -142,7 +145,7 @@ export async function syncInstagram(ctx = {}) {
       org: 'Canal Instagram',
       createdAt: now(),
     });
-    db.audit.push({ id: newId(), at: now(), by: 'Instagram', org: 'Canal Instagram', action: 'événement Instagram', detail: title, site: siteId });
+    ctx.audit?.(IG, 'événement Instagram', title, siteId);
     ctx.broadcast?.('events', {});
     applied.events.push({ title, start });
   }
@@ -155,10 +158,9 @@ export async function syncInstagram(ctx = {}) {
     if (seen.has(key)) continue;
     seen.add(key);
     const expiresAt = new Date(Date.now() + 24 * 3600e3).toISOString();
-    db.flashes.push({ id: newId(), site: siteId, title, text, type: ['info', 'warn', 'alert', 'ok'].includes(item.tone) ? item.tone : 'info', at: now(), expiresAt, org: 'Canal Instagram' });
-    db.feed.unshift({ at: now(), level: ['warn', 'alert', 'ok'].includes(item.tone) ? item.tone : 'info', text: `${title}${text ? ' · ' + text : ''} · Canal Instagram` });
-    db.feed = db.feed.slice(0, 40);
-    db.audit.push({ id: newId(), at: now(), by: 'Instagram', org: 'Canal Instagram', action: 'flash Instagram', detail: title, site: siteId });
+    db.flashes.unshift({ id: newId(), site: siteId, level: { alert: 'alerte', warn: 'alerte', ok: 'ok' }[item.tone] || 'info', text: `${title} · ${text}`.slice(0, 500), at: now(), expiresAt, org: 'Canal Instagram', official: false });
+    db.flashes = db.flashes.slice(0, 100);
+    ctx.audit?.(IG, 'flash Instagram', title, siteId);
     ctx.broadcast?.('flashes', {});
     applied.flashes.push({ title, text });
   }

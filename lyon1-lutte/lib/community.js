@@ -224,9 +224,18 @@ export function registerCommunity(app, mod, ctx) {
     if (!m) return res.status(404).end();
     sendMedia(req, res, m);
   });
+  // à qui appartient un média (témoignage ou article) : le modo doit avoir les droits sur ce site
+  const mediaSite = (id) => {
+    const t = db.testimonies.find((x) => (x.media || []).includes(id));
+    if (t) return siteOf(t);
+    const p = db.posts.find((x) => x.cover === id || (x.media || []).includes(id));
+    return p ? siteOf(p) : null;
+  };
   mod.get('/media/:id', (req, res) => {
     const m = db.media.find((x) => x.id === req.params.id);
     if (!m) return res.status(404).end();
+    const sid = mediaSite(m.id);
+    if (sid ? !canSite(req.mod, sid) : req.mod.role !== 'admin') return res.status(403).end();
     sendMedia(req, res, m);
   });
   const mediaInfo = (ids, forMod = false) => (ids || []).map((id) => db.media.find((m) => m.id === id)).filter((m) => m && (forMod || m.public)).map((m) => ({ id: m.id, kind: m.kind, size: m.size, cleaned: m.cleaned, public: m.public, url: forMod ? `/api/mod/media/${m.id}` : `/media/${m.id}` }));
@@ -424,7 +433,7 @@ export function registerCommunity(app, mod, ctx) {
     if (req.body.sensitive !== undefined) t.sensitive = !!req.body.sensitive;
     // Médias publiés un par un : le modo peut publier le texte sans les photos/vidéos (visages reconnaissables…).
     const publishMedia = Array.isArray(req.body.publishMedia) ? req.body.publishMedia : null;
-    if (req.body.removeMedia) { deleteMedia([req.body.removeMedia]); t.media = t.media.filter((id) => id !== req.body.removeMedia); }
+    if (req.body.removeMedia && t.media.includes(req.body.removeMedia)) { deleteMedia([req.body.removeMedia]); t.media = t.media.filter((id) => id !== req.body.removeMedia); }
     if (req.body.removeContact) t.contact = '';
     if (req.body.status) {
       const prev = t.status;
