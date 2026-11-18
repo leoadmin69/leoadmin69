@@ -1,0 +1,32 @@
+# Environnement de travail de l'agent Copilot (GitHub lit ce fichier avant chaque tâche de Copilot).
+# Les secrets viennent de GitHub → Settings → Environments → « copilot » (voir AGENTS.md → « Accès production »).
+name: Copilot Setup Steps
+on:
+  workflow_dispatch:
+  push:
+    paths: [.github/workflows/copilot-setup-steps.yml]
+  pull_request:
+    paths: [.github/workflows/copilot-setup-steps.yml]
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    environment: copilot
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: lyon1-lutte/package-lock.json
+      - name: Dépendances du site
+        working-directory: lyon1-lutte
+        run: npm ci --no-audit --no-fund
+      - name: Navigateur pour les tests
+        working-directory: lyon1-lutte
+        run: npx --yes playwright@1 install --with-deps chromium || true
+      - name: Vérification rapide
+        working-directory: lyon1-lutte
+        run: for f in server.js public/app.js lib/*.js tools/*.mjs; do node --check "$f"; done

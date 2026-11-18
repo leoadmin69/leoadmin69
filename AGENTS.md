@@ -13,6 +13,36 @@ dans le même commit que le code.
 3. **Après chaque modif de `public/`** : augmenter `VERSION` dans `public/sw.js` (sinon les téléphones gardent l'ancienne version).
 4. Messages de commit en français, courts, qui disent ce que ça change pour les gens.
 5. Ajouter une ligne dans « Journal des décisions » en bas quand on prend une décision produit.
+6. **Passation obligatoire** : à la fin de chaque session (Claude ou Copilot), mettre à jour la section
+   « Passation » ci-dessous (fait / en cours / à faire / bloqué) et la pousser. La session suivante, quel que soit
+   l'assistant, commence par lire cette section et `git log -15`. Personne ne doit avoir besoin de l'historique d'un chat.
+7. Copilot (agent cloud) travaille dans une PR dont la **base est la branche de travail** ; la PR est fusionnée
+   dans cette branche (jamais dans la branche par défaut du dépôt, qui est celle d'un autre projet).
+
+## Passation (état au 2026-11-18, mis à jour par Claude)
+- **Fait** : audit complet (failles médias inter-sites et droits du compte piquet dans le chat corrigées, liste noire,
+  annulation sans écrasement, limite signalements wifi campus, photo du piquet visible par les modos, chat plein écran
+  iPhone, barre latérale bureau, fautes et textes, guide PDF). PR #2 de Copilot fusionnée. Rouge foncé sous texte blanc.
+- **Bloqué** : le site n'est PAS en ligne : `ladoua-en-lutte.onrender.com` répond « no-server » (aucun service Render).
+  L'admin doit créer le service (Render → New → Blueprint → ce dépôt, branche de travail) ou donner l'adresse réelle.
+  Vérifier avec `node tools/ops.mjs health`.
+- **À faire** : quand le service existe, mettre `RENDER_API_KEY` / `RENDER_SERVICE_ID` dans les accès (ci-dessous),
+  puis `node tools/ops.mjs status`. Bouton « Pause Telegram » dans l'admin proposé, pas encore demandé.
+- **Décidé** : affichage « selon les personnes sur place » à partir de 3 signalements non validés en 5 min (confirmé par l'admin).
+
+## Accès production (serveur, base, hébergeur)
+Tout se pilote avec `node tools/ops.mjs` (dans `lyon1-lutte/`) : `health`, `status`, `deploy`, `env`, `setenv NOM=valeur`,
+`backup`, `restore fichier --oui`. **Les secrets ne sont jamais dans le dépôt** ; chaque assistant les reçoit ainsi :
+- **Copilot** : GitHub → Settings → Environments → `copilot` → secrets `RENDER_API_KEY`, `RENDER_SERVICE_ID`,
+  `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, variable `SITE_URL`. Puis Settings → Copilot → Coding agent → pare-feu :
+  autoriser `api.render.com`, `*.supabase.co`, `ladoua-en-lutte.onrender.com`. L'environnement est préparé par
+  `.github/workflows/copilot-setup-steps.yml`.
+- **Claude Code (cloud)** : les mêmes clés en « secrets réseau » de l'environnement de la session (demandées par Claude
+  avec un formulaire sécurisé, jamais collées dans le chat).
+- **Données privées** : une sauvegarde (`backup`) contient des données personnelles : jamais dans le dépôt
+  (`backups/` est ignoré par git), jamais envoyée ailleurs. Toujours faire `backup` avant `restore` ou une migration.
+- **Déploiement** : Render redéploie tout seul à chaque push sur la branche de travail (dossier `lyon1-lutte/`).
+  `deploy` sert à forcer un redéploiement (ex. après `setenv`). Après un déploiement : `health`, puis vérifier le site.
 
 ## Le projet
 PWA gratuite « Lyon 1 · La Doua en lutte » (dossier `lyon1-lutte/`) : infos de la mobilisation étudiante
