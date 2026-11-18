@@ -737,3 +737,5 @@ html.no-select * { -webkit-tap-highlight-color: transparent; }
 .see-photo.on { border-color: var(--green); background: rgba(48,209,88,0.1); }
 .sight-photos { display: grid; gap: 10px; }
 .sight-photos img { width: 100%; border-radius: 14px; }
+.official-box { border: 1px solid rgba(255,69,58,0.55); background: rgba(255,69,58,0.1); border-radius: 12px; padding: 10px 12px; }
+.official-pill { background: rgba(255,69,58,0.18); color: #ff6b61; font-size: 11px; margin-right: 4px; }

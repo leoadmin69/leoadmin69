@@ -302,7 +302,7 @@ function viewLive() {
     ${d.pollsOpen ? `<a class="card" href="#/votes" style="display:flex;gap:14px;align-items:center;margin-top:14px;color:inherit;border-color:rgba(10,132,255,0.5)"><div style="font-size:28px">🗳️</div><div class="grow"><b>${d.pollsOpen} vote${d.pollsOpen > 1 ? 's' : ''} anonyme${d.pollsOpen > 1 ? 's' : ''} en cours</b><div class="muted small">Un tap, aucune trace. Donne ton avis.</div></div><span class="chev">${icon('chev', 18)}</span></a>` : ''}
 
     ${d.flashes.length ? `<h2 class="section">⚡ Flash infos</h2>${d.flashes.slice(0, 4).map((f) => `
-      <div class="flash ${f.level === 'alerte' ? 'alerte' : f.level === 'ok' ? 'action' : 'vote'}"><div class="ico">${f.level === 'alerte' ? '🚨' : f.level === 'ok' ? '✅' : 'ℹ️'}</div><div><div class="fx">${esc(f.text)}</div><div class="faint small mono">${esc(ago(f.at))} · ${esc(f.org || '')}</div></div></div>`).join('')}` : ''}
+      <div class="flash ${f.level === 'alerte' ? 'alerte' : f.level === 'ok' ? 'action' : 'vote'}"><div class="ico">${f.level === 'alerte' ? '🚨' : f.level === 'ok' ? '✅' : 'ℹ️'}</div><div><div class="fx">${f.official ? '<span class="pill official-pill">📢 Administration du site</span> ' : ''}${esc(f.text)}</div><div class="faint small mono">${esc(ago(f.at))} · ${esc(f.org || '')}</div></div></div>`).join('')}` : ''}
 
     <h2 class="section">${blocked.length ? '🔴' : '🏛️'} Bâtiments bloqués <a href="#/batiments">Tout voir</a></h2>
     ${blocked.length || partial.length
@@ -1943,6 +1943,7 @@ function modFlash(el) {
         <div class="segmented ttl-seg" id="fttl">${[[1, '1 h'], [6, '6 h'], [24, '24 h'], [72, '3 jours'], [0, 'Sans limite']].map(([v, l]) => `<button type="button" data-ttl="${v}" class="${v === 24 ? 'on' : ''}">${l}</button>`).join('')}</div>
         <p class="faint small" style="margin:4px 2px 0">Ensuite, il disparaît tout seul de l’accueil (il reste ici, dans l’historique).</p></div>
       ${state.me.role === 'admin' ? allSitesBox('fall') : ''}
+      ${state.me.role === 'admin' ? `<label class="check official-box"><input type="checkbox" id="foff"> <span>📢 <b>Annonce officielle</b> : notification sur <b>tous les téléphones abonnés</b> (tous sites, tous réglages) + Telegram, signée « Administration du site »</span></label>` : ''}
       <button class="btn">Publier</button></form></div>
     <h2 class="section">Flash publiés</h2>
     <div class="list" id="flist"><div class="empty">Chargement…</div></div>`;
@@ -1951,9 +1952,11 @@ function modFlash(el) {
   $('#fttl').onclick = (e) => { const v = e.target.closest('[data-ttl]')?.dataset.ttl; if (v !== undefined) { ttl = Number(v); $$('#fttl button').forEach((b) => b.classList.toggle('on', b.dataset.ttl === v)); } };
   drawFlashList();
   $('#fl').onclick = (e) => { if (e.target.dataset.l) { level = e.target.dataset.l; $$('#fl button').forEach((b) => b.classList.toggle('on', b === e.target)); } };
-  $('#ff').onsubmit = async (e) => { e.preventDefault(); const all = $('#fall')?.checked;
-    if (all && !confirm(`Publier ce flash pour TOUS les sites${level === 'alerte' ? ' (alerte : notification à tout le monde)' : ''} ?`)) return;
-    const fr = await act(() => api('/api/mod/flashes', { method: 'POST', body: { level, ttl, text: $('#ft').value, ...(all ? { site: ALL_SITES } : {}) } }));
+  if ($('#foff')) $('#foff').onchange = () => { const on = $('#foff').checked; if ($('#fall')) { $('#fall').checked = on || $('#fall').checked; $('#fall').disabled = on; } $('#ff .btn:not(.ghost)').textContent = on ? '📢 Envoyer à tout le monde' : 'Publier'; };
+  $('#ff').onsubmit = async (e) => { e.preventDefault(); const all = $('#fall')?.checked; const official = $('#foff')?.checked;
+    if (official && !confirm('Envoyer cette annonce en notification sur TOUS les téléphones abonnés et sur Telegram, au nom de l’administration du site ?')) return;
+    if (!official && all && !confirm(`Publier ce flash pour TOUS les sites${level === 'alerte' ? ' (alerte : notification à tout le monde)' : ''} ?`)) return;
+    const fr = await act(() => api('/api/mod/flashes', { method: 'POST', body: { level, ttl, text: $('#ft').value, ...(official ? { official: true } : all ? { site: ALL_SITES } : {}) } }));
     toast(`✅ Publié${reachText(fr.reach)}`); await refresh(); render(true); };
   el.querySelector('.list').onclick = async (e) => {
     const id = e.target.closest('[data-del]')?.dataset.del;

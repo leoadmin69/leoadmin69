@@ -40,6 +40,11 @@ export async function sendPush(kind, { title, body, url = '/', tag }, filter = (
   return deliver(subs, kind, { title, body, url, tag }, 'pushSubs');
 }
 
+// Annonce officielle de l'admin : à TOUS les appareils abonnés, quels que soient leurs choix de sites et de types
+export async function sendPushAll(payload) {
+  return deliver([...(db.pushSubs || [])], 'urgent', payload, 'pushSubs');
+}
+
 // ---------- Alertes réservées aux modos (liées à leur compte, pas aux abonnements publics) ----------
 export function modSubscribe(modId, subscription) {
   if (!subscription?.endpoint || !/^https:\/\//.test(subscription.endpoint) || !subscription.keys?.p256dh || !subscription.keys?.auth) throw new Error('Abonnement invalide.');

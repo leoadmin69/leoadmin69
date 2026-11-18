@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { db, save, newId, now, initStore } from './lib/store.js';
 import { remoteEnabled } from './lib/remote.js';
-import { publicKey, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe, sendPush, pushCount, PUSH_KINDS, modSubscribe, modUnsubscribe, modPushOn, sendModPush } from './lib/push.js';
+import { publicKey, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe, sendPush, sendPushAll, pushCount, PUSH_KINDS, modSubscribe, modUnsubscribe, modPushOn, sendModPush } from './lib/push.js';
 import { seed } from './lib/seed.js';
 import { ensureAdmin, hashPassword, verifyPassword, createToken, readToken, cookieHeader, parseCookies, COOKIE, publicMod, SECRET } from './lib/auth.js';
 import { mailEnabled, mailProvider, mailQuota, sendMany, renderEmail, SITE_URL, SITE_NAME } from './lib/mail.js';
@@ -816,10 +816,23 @@ mod.get('/events/all', (req, res) => res.json(db.events.filter((e) => canSite(re
 mod.post('/flashes', (req, res) => {
   const text = clip(req.body.text, 280);
   if (!text) return bad(res, 'Texte requis.');
-  const fsite = targetSite(req);
+  // Annonce officielle (admin) : tous les sites, notification à tout le monde + Telegram, signée « Administration du site »
+  const official = !!req.body.official;
+  if (official && !isAdmin(req.mod)) return bad(res, 'Seul·e l’admin peut faire une annonce officielle.', 403);
+  const fsite = official ? ALL_SITES : targetSite(req);
   if (!needSite(req, res, fsite)) return;
   const ttl = flashTtl(req.body.ttl);
-  const f = { id: newId(), site: fsite, level: oneOf(req.body.level, ['alerte', 'info', 'ok'], 'info'), text, at: now(), org: req.mod.org, expiresAt: ttl ? new Date(Date.now() + ttl * 3600e3).toISOString() : null };
+  const f = { id: newId(), site: fsite, level: oneOf(req.body.level, ['alerte', 'info', 'ok'], 'info'), text, at: now(), org: official ? 'Administration du site' : req.mod.org, official, expiresAt: ttl ? new Date(Date.now() + ttl * 3600e3).toISOString() : null };
+  if (official) {
+    db.flashes.unshift(f); db.flashes = db.flashes.slice(0, 100); save();
+    audit(req.mod, 'annonce officielle', text, fsite);
+    feed(`📢 Administration du site · ${text}`, f.level === 'alerte' ? 'alert' : f.level === 'ok' ? 'ok' : 'info');
+    const icon = { alerte: '🚨', info: '📢', ok: '✅' }[f.level];
+    for (const chat of telegramChats(ALL_SITES)) postTelegram(`${icon} <b>Administration du site · La Doua en lutte</b>\n${tgEsc(text)}`, '/', chat);
+    const pushed = sendPushAll({ title: `${icon} Administration · La Doua en lutte`, body: text, url: '/', tag: `officiel-${f.id}` }).catch((e) => console.error('[push]', e.message));
+    broadcast('flashes', {});
+    return res.json({ ...f, reach: { phones: (db.pushSubs || []).length, emails: 0, telegram: telegramEnabled() ? telegramChats(ALL_SITES).length : 0, online: clients.size, delaySec: 0 } });
+  }
   db.flashes.unshift(f); db.flashes = db.flashes.slice(0, 100); save();
   audit(req.mod, 'flash', text, fsite);
   feed(`${siteName(fsite)} · ${text}`, f.level === 'alerte' ? 'alert' : f.level === 'ok' ? 'ok' : 'info');
