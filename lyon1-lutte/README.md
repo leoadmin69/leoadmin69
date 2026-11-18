@@ -32,7 +32,7 @@ Accès `#/modo`. L'admin crée un compte par personne (mot de passe généré, �
 
 - **Bâtiments**, pensé pour aller vite sur le terrain :
   - **Saisie éclair** : écrire ou **dicter au micro** une phrase comme « Thémis, Nautibus bloqués. Darwin partiel. Le reste ouvert » ou « toute la Doua bloquée ». L'aperçu en couleur montre ce qui va changer avant d'appliquer ; les fautes de frappe et les surnoms (« Déambu ») sont reconnus.
-  - **Sélection multiple** : toucher plusieurs tuiles (ou « Tout » pour un campus), puis un seul bouton 🔴 / 🟠 / 🟢. Appui long sur une tuile = note / renommer / supprimer.
+  - **Sélection multiple** : toucher plusieurs tuiles (ou « Tout » pour un campus), puis un seul bouton 🔴 / 🟠 / 🟢. Bouton ✏️ (un seul bâtiment sélectionné) ou appui long immobile (0,8 s, annulé si on fait défiler) sur une tuile = note / renommer / supprimer.
   - **Reprendre l'AG** : un bouton remplit la saisie avec les bâtiments bloqués votés dans le dernier compte rendu.
   - **Annuler** pendant 10 s : l'email d'alerte en attente est retiré, aucun faux email ne part.
   - Blocus général : un tap = publié.

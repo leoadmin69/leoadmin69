@@ -1067,7 +1067,7 @@ function modSituation(el) {
       </div>
     </div>
 
-    <h2 class="section">Bâtiments <span class="faint small">touche pour sélectionner, puis choisis la couleur</span></h2>
+    <h2 class="section">Bâtiments <span class="faint small">touche pour sélectionner, puis choisis la couleur · ✏️ ou appui long pour la note</span></h2>
     <div id="tiles"></div>
 
     <details class="card" style="margin-top:14px" ${d.buildings.length ? "" : "open"}><summary class="kicker" style="cursor:pointer">＋ Ajouter un bâtiment</summary>
@@ -1080,6 +1080,7 @@ function modSituation(el) {
       <button data-set="bloque" class="ab red">🔴 Bloqué</button>
       <button data-set="partiel" class="ab orange">🟠 Partiel</button>
       <button data-set="ouvert" class="ab green">🟢 Ouvert</button>
+      <button data-set="edit" id="abar-edit" class="ab ghost" hidden aria-label="Modifier le bâtiment">✏️</button>
       <button data-set="clear" class="ab ghost" aria-label="Désélectionner">✕</button>
     </div>
     <div class="actionbar undo" id="undo" hidden><span id="undo-txt"></span><button class="ab ghost" id="undo-btn">↩️ Annuler</button></div>`;
@@ -1156,16 +1157,36 @@ function modSituation(el) {
     const bar = $('#abar');
     bar.hidden = !sel.size;
     $('#abar-n').textContent = `${sel.size} sélect.`;
+    $('#abar-edit').hidden = sel.size !== 1;
   }
   drawTiles();
+  // Appui long (0,8 s, doigt immobile) = éditer la note / renommer / supprimer.
+  // Annulé dès que le doigt bouge ou que la page défile, pour ne pas ouvrir la fiche en scrollant.
   let pressTimer = null;
+  let pressStart = null;
+  const cancelPress = () => {
+    if (pressTimer && pressTimer !== 'long') clearTimeout(pressTimer);
+    if (pressTimer !== 'long') pressTimer = null;
+    pressStart = null;
+    $$('.qt.pressing').forEach((x) => x.classList.remove('pressing'));
+  };
   $('#tiles').addEventListener('pointerdown', (e) => {
     const t = e.target.closest('.qt');
-    if (!t) return;
-    // appui long = éditer la note / supprimer
-    pressTimer = setTimeout(() => { pressTimer = 'long'; editBuilding(t.dataset.id); }, 550);
+    if (!t || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    cancelPress();
+    pressStart = { x: e.clientX, y: e.clientY, scroll: window.scrollY };
+    t.classList.add('pressing');
+    pressTimer = setTimeout(() => {
+      t.classList.remove('pressing');
+      if (!pressStart || Math.abs(window.scrollY - pressStart.scroll) > 4) { pressTimer = null; return; }
+      pressTimer = 'long'; navigator.vibrate?.(15); editBuilding(t.dataset.id);
+    }, 800);
   });
-  $('#tiles').addEventListener('pointerup', () => { if (pressTimer !== 'long') clearTimeout(pressTimer); });
+  $('#tiles').addEventListener('pointermove', (e) => { if (pressStart && (Math.abs(e.clientX - pressStart.x) > 8 || Math.abs(e.clientY - pressStart.y) > 8)) cancelPress(); });
+  $('#tiles').addEventListener('pointerup', () => { if (pressTimer !== 'long') cancelPress(); });
+  $('#tiles').addEventListener('pointercancel', cancelPress);
+  $('#tiles').addEventListener('pointerleave', () => { if (pressTimer !== 'long') cancelPress(); });
+  window.addEventListener('scroll', () => { if (pressStart) cancelPress(); }, { passive: true });
   $('#tiles').addEventListener('contextmenu', (e) => { if (e.target.closest('.qt')) e.preventDefault(); });
   $('#tiles').onclick = (e) => {
     const c = e.target.closest('[data-campus]')?.dataset.campus;
@@ -1185,6 +1206,7 @@ function modSituation(el) {
   $('#abar').onclick = async (e) => {
     const s = e.target.closest('[data-set]')?.dataset.set;
     if (!s) return;
+    if (s === 'edit') { const id = [...sel][0]; sel.clear(); drawTiles(); return editBuilding(id); }
     if (s !== 'clear') await applyChanges([...sel].map((id) => ({ id, status: s })), STATUS[s].label);
     sel.clear();
     drawTiles();
