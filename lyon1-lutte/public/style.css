@@ -696,3 +696,20 @@ body:has(.sheet-backdrop) #toast.show { transform: translateX(-50%) translateY(0
 html.no-select, html.no-select body, html.no-select body * { -webkit-user-select: none !important; user-select: none !important; -webkit-touch-callout: none !important; }
 html.no-select textarea, html.no-select input { -webkit-user-select: text !important; user-select: text !important; -webkit-touch-callout: default !important; }
 html.no-select * { -webkit-tap-highlight-color: transparent; }
+
+/* Notifications téléphone en avant, Telegram en lien secondaire */
+.notif-card { display: flex; gap: 14px; align-items: center; margin-top: 14px; color: inherit; border-color: rgba(255,69,58,0.55) !important; background: linear-gradient(120deg, rgba(255,69,58,0.18), var(--card) 70%) !important; }
+.notif-card .nc-ico { font-size: 34px; animation: ring 2.4s ease-in-out infinite; transform-origin: 50% 10%; }
+.notif-card.on { border-color: rgba(48,209,88,0.45) !important; background: var(--card) !important; }
+.notif-card.on .nc-ico { animation: none; }
+.notif-card .nc-btn { margin-top: 10px; display: inline-block; }
+@keyframes ring { 0%, 70%, 100% { transform: rotate(0); } 75% { transform: rotate(14deg); } 80% { transform: rotate(-12deg); } 85% { transform: rotate(8deg); } 90% { transform: rotate(-5deg); } }
+@media (prefers-reduced-motion: reduce) { .notif-card .nc-ico { animation: none; } }
+.tg-link { display: flex; gap: 8px; align-items: center; justify-content: center; margin: 12px 0 0; padding: 8px; font-size: 13px; color: var(--muted); text-decoration: none; }
+.tg-link:hover span { color: #5ec2f2; text-decoration: underline; }
+.tg-link svg { flex-shrink: 0; }
+.notif-side { display: flex !important; gap: 10px; align-items: center; background: linear-gradient(90deg, rgba(255,69,58,0.2), rgba(255,69,58,0.05)) !important; }
+.notif-side b { color: #ff6b61 !important; }
+.notif-side .ns-ico { font-size: 22px; }
+.tg-mini { display: block; margin: 6px 12px 0; font-size: 12px; color: var(--muted); text-decoration: none; }
+.tg-mini:hover { color: #5ec2f2; text-decoration: underline; }

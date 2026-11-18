@@ -91,7 +91,7 @@ Si une IA a épuisé son quota gratuit ou est en panne, la suivante prend le rel
 
 ### Nom, Instagram et Telegram
 
-Pas de logo : le site, les emails et les stories affichent seulement « Lyon 1 · La Doua en lutte ». Il n'y a **pas de compte Instagram central** : chaque modo publie sur le compte Insta de son AG / syndicat (stories générées par le site, avec le lien du site). Le site renvoie vers la **chaîne Telegram** https://t.me/ladoualyon1 (logo Telegram) : barre latérale, accueil, contacts, alertes, menu Plus, pied des emails et des stories.
+Pas de logo : le site, les emails et les stories affichent seulement « Lyon 1 · La Doua en lutte ». Il n'y a **pas de compte Instagram central** : chaque modo publie sur le compte Insta de son AG / syndicat (stories générées par le site, avec le lien du site). Le site met en avant les **notifications sur le téléphone** (carte « 🔔 Sois prévenu·e » en haut de l'accueil, barre latérale, contacts, menu Plus, pied des stories). La **chaîne Telegram** https://t.me/ladoualyon1 reste proposée en lien discret (avec le logo), pour celles et ceux qui ne peuvent pas recevoir de notifications, et en pied des emails.
 
 ### Mise en ligne 100 % gratuite, sans nom de domaine
 

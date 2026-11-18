@@ -162,6 +162,14 @@ const DEMAND_STATUS = { 'en-lutte': ['En lutte', 'red'], obtenu: ['Obtenu ✊', 
 // ---------- Dates (heure de Paris) ----------
 const TZ = 'Europe/Paris';
 const tgCard = (text = 'Les alertes postées automatiquement, gratuit et sans limite') => (state.data?.telegramUrl ? `<a class="card tg-card" href="${esc(state.data.telegramUrl)}" target="_blank" rel="noopener" style="margin-top:14px"><svg class="tg-logo" viewBox="0 0 24 24" width="38" height="38" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#229ED9"/><path d="M5.4 11.7 16.9 7.3c.5-.2 1 .1.8.9l-1.9 9.1c-.1.6-.5.8-1.1.5l-3-2.2-1.4 1.4c-.2.2-.3.3-.6.3l.2-3 5.4-4.9c.2-.2 0-.3-.3-.1l-6.7 4.2-2.9-.9c-.6-.2-.6-.6.1-.9Z" fill="#fff"/></svg><div class="grow"><b>Rejoindre la chaîne Telegram</b><div class="muted small">${esc(text)}</div></div><span class="chev">${icon('chev', 18)}</span></a>` : '');
+// Lien Telegram discret : les notifications du téléphone restent le moyen principal
+const tgLink = (text = 'Pas de notifs sur ton téléphone ? Les alertes sont aussi sur Telegram') => (state.data?.telegramUrl ? `<a class="tg-link" href="${esc(state.data.telegramUrl)}" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#229ED9"/><path d="M5.4 11.7 16.9 7.3c.5-.2 1 .1.8.9l-1.9 9.1c-.1.6-.5.8-1.1.5l-3-2.2-1.4 1.4c-.2.2-.3.3-.6.3l.2-3 5.4-4.9c.2-.2 0-.3-.3-.1l-6.7 4.2-2.9-.9c-.6-.2-.6-.6.1-.9Z" fill="#fff"/></svg><span>${esc(text)}</span></a>` : '');
+// Carte principale : activer les notifications (ou rappel discret si déjà fait)
+function notifCard() {
+  const on = !!store.get('l1-push', null);
+  if (on) return `<a class="card notif-card on" href="#/alertes"><div class="nc-ico">🔔</div><div class="grow"><b>Notifications activées ✓</b><div class="muted small">Tu es prévenu·e dès qu’un bâtiment est bloqué. Régler les sites et les types d’alertes.</div></div><span class="chev">${icon('chev', 18)}</span></a>`;
+  return `<a class="card notif-card" href="#/alertes"><div class="nc-ico">🔔</div><div class="grow"><b>Sois prévenu·e dès qu’un bâtiment est bloqué</b><div class="muted small">Une notification sur ton téléphone pour chaque blocage, AG ou alerte. Gratuit, sans compte, sans email.</div><span class="btn red small nc-btn">Activer les notifications</span></div></a>`;
+}
 const fmt = (iso, o) => new Date(iso).toLocaleString('fr-FR', { timeZone: TZ, ...o });
 const hhmm = (iso) => fmt(iso, { hour: '2-digit', minute: '2-digit' });
 const dayLabel = (iso) => {
@@ -289,6 +297,8 @@ function viewLive() {
       </div>
     </section>
 
+    ${store.get('l1-push', null) ? '' : notifCard()}
+
     ${d.pollsOpen ? `<a class="card" href="#/votes" style="display:flex;gap:14px;align-items:center;margin-top:14px;color:inherit;border-color:rgba(10,132,255,0.5)"><div style="font-size:28px">🗳️</div><div class="grow"><b>${d.pollsOpen} vote${d.pollsOpen > 1 ? 's' : ''} anonyme${d.pollsOpen > 1 ? 's' : ''} en cours</b><div class="muted small">Un tap, aucune trace. Donne ton avis.</div></div><span class="chev">${icon('chev', 18)}</span></a>` : ''}
 
     ${d.flashes.length ? `<h2 class="section">⚡ Flash infos</h2>${d.flashes.slice(0, 4).map((f) => `
@@ -325,13 +335,9 @@ function viewLive() {
         <div class="chips" style="margin-top:10px">${lastReport.flashs.slice(0, 3).map((f) => `<span class="pill ${f.type === 'alerte' ? 'red' : 'blue'}">${FLASH_ICO[f.type]} ${esc(f.titre)}</span>`).join('')}</div>
       </a>` : ''}
 
+    ${store.get('l1-push', null) ? notifCard() : ''}
     ${appCardHtml()}
-    ${tgCard()}
-    <a class="card" href="#/alertes" style="display:flex;gap:14px;align-items:center;margin-top:14px;color:inherit;border-color:rgba(255,69,58,0.4)">
-      <div style="font-size:30px">🔔</div>
-      <div class="grow"><b>Sois prévenu·e dès qu’un bâtiment est bloqué</b><div class="muted small">Notification sur ton téléphone (gratuit, sans compte) ou email.</div></div>
-      <span class="chev">${icon('chev', 18)}</span>
-    </a>`;
+    ${tgLink()}`;
   const f = $('#feed');
   if (f) f.scrollTop = 0;
 }
@@ -794,7 +800,8 @@ function viewContacts() {
       : '<div class="card muted">Les syndicats et collectifs ajouteront leurs contacts ici.</div>'}
     <h2 class="section">🕶️ Parler anonymement</h2>
     <a class="card" href="#/chat" style="display:block;color:inherit">Le <b>chat anonyme</b> est ouvert à tou·tes, sans compte. Salon <b>#Entraide</b> pour les cours, partiels, logement, soutien.</a>
-    ${tgCard()}
+    ${notifCard()}
+    ${tgLink('Les alertes sont aussi sur la chaîne Telegram')}
     <h2 class="section">🆘 Urgences & écoute</h2>
     <div class="list">
       <a class="row" href="tel:112" style="color:inherit"><div class="grow"><div class="title">112</div><div class="sub">Urgences (police, pompiers, SAMU)</div></div><span class="pill red">Appeler</span></a>
@@ -831,7 +838,6 @@ async function viewAlerts() {
       <p class="faint small">Aucune donnée perso : ton téléphone reçoit les alertes, c’est tout. Tu peux les couper ici ou dans les réglages.</p>`}
     </div>
     ${appCardHtml()}
-    ${tgCard('Chaque bâtiment bloqué, chaque AG, chaque alerte : postés automatiquement')}
     <h2 class="section">✉️ Ou par email : le récap du matin</h2>
     <div class="card">
       ${d.mailEnabled && d.emailSpots <= 0 ? '<p class="muted" style="margin:0">📭 La liste email est <b>complète</b> (places limitées par la version gratuite). Active les notifications ci-dessus ou rejoins la chaîne Telegram : c’est gratuit et sans limite.</p>' : d.mailEnabled ? `<p class="muted small" style="margin:0 0 10px">${d.emailMode === 'digest' ? `Un seul email chaque matin vers ${d.digestHour} h : bâtiments bloqués, AG et manifs du jour, alertes de la veille.` : 'Un email à chaque changement.'} <b>${d.emailSpots} place${d.emailSpots > 1 ? 's' : ''} restante${d.emailSpots > 1 ? 's' : ''}.</b></p><form class="form" id="sub">
@@ -844,6 +850,7 @@ async function viewAlerts() {
         <p class="faint small">Ton email sert uniquement à ces alertes. Il n’est jamais affiché ni transmis. Tu recevras un email de confirmation. Les emails gratuits sont limités par jour : les notifications restent le moyen le plus sûr.</p>
       </form>` : '<p class="muted" style="margin:0">Les alertes par email ne sont pas encore activées. Active les notifications ci-dessus : c’est plus rapide.</p>'}
     </div>
+    ${tgLink('Pas de notifs possibles sur ton téléphone ? Les alertes sont aussi sur Telegram')}
     `;
   const pick = (n) => $$(`input[name=${n}]:checked`).map((x) => x.value);
   if ($('#pushOn')) $('#pushOn').onclick = async (e) => {
@@ -879,7 +886,8 @@ function viewPlus() {
   const sub = { votes: 'Donne ton avis, anonymement', blog: 'Articles et tribunes', temoignages: 'Violences : témoigner', frise: 'La mobilisation jour par jour', entraide: 'Je propose / je cherche', droits: 'Absences, examens, interpellation', cr: 'Les AG en flash infos', revendications: 'Soutiens les revendications', contacts: 'Syndicats, écoute, urgences', alertes: 'Notifs quand un bâtiment est bloqué', modo: 'Accès syndicats' };
   view().innerHTML = `<h1 class="large-title">Plus</h1><p class="subtitle">Tout ce qu’il faut savoir sur la mobilisation.</p>
     <div class="menu-grid">${items.map((n) => `<a href="#/${n.id}">${icon(n.icon)}<span>${n.label}<br><small>${sub[n.id] || ''}</small></span></a>`).join('')}</div>
-    ${tgCard()}`;
+    ${notifCard()}
+    ${tgLink('Les alertes sont aussi sur la chaîne Telegram')}`;
 }
 
 // ---------- Feuille modale ----------
@@ -1310,7 +1318,7 @@ function storyFrame(ctx, W, H, accent) {
   ctx.fillText(new Date().toLocaleString('fr-FR', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }), 80, 300);
   // pied
   ctx.fillStyle = 'rgba(255,255,255,0.08)'; rrect(ctx, 80, H - 250, W - 160, 130, 30); ctx.fill();
-  ctx.fillStyle = '#5ec2f2'; ctx.font = `800 36px ${MONO}`; ctx.fillText((state.data?.telegramUrl || 'https://t.me/ladoualyon1').replace(/^https?:\/\//, 'Telegram · '), 120, H - 172);
+  ctx.fillStyle = '#ff453a'; ctx.font = `800 36px ${MONO}`; ctx.fillText('🔔 ACTIVE LES NOTIFS', 120, H - 172);
   ctx.fillStyle = '#d1d1d6'; ctx.font = `500 30px ${SF}`; ctx.fillText(`Infos en direct : ${location.host}`, 120, H - 130);
 }
 function pill(ctx, x, y, text, bg, fg) {
@@ -2465,8 +2473,8 @@ async function modTestimonies(el) {
 async function refresh() {
   state.raw = await api('/api/state');
   applyScope();
-  const tg = document.getElementById('tg-side');
-  if (tg && state.raw.telegramUrl) { tg.href = state.raw.telegramUrl; tg.hidden = false; }
+  const tg = document.getElementById('tg-mini');
+  if (tg && state.raw.telegramUrl) tg.href = state.raw.telegramUrl;
   setOnline(state.raw.online);
 }
 let refreshTimer = null;
