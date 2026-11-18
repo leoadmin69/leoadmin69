@@ -307,7 +307,7 @@ function viewLive() {
       <div class="kicker">${d.scope === ALL ? 'Lyon 1 · tous les sites' : esc(siteFull(d.scope))}</div>
       <div class="state" data-glitch="${esc(BLOCUS[blocusNow(b)])}">${esc(BLOCUS[blocusNow(b)])}</div>
       ${b.message ? `<div class="msg">${esc(b.message)}</div>` : '<div class="msg muted">Les infos sont mises à jour en direct par les étudiant·es syndiqué·es.</div>'}
-      <div class="meta">MAJ ${esc(ago(b.updatedAt))}${b.by ? ' · ' + esc(b.by) : ''}</div>
+      <div class="meta">${esc(heroMeta(d))}</div>
       <div class="stats">
         <a class="stat red" href="#/batiments"><b>${blocked.length}</b><span>bloqué${blocked.length > 1 ? 's' : ''}</span></a>
         <a class="stat orange" href="#/batiments"><b>${partial.length}</b><span>partiel${partial.length > 1 ? 's' : ''}</span></a>
@@ -374,6 +374,16 @@ function typeFeedLine(f) {
   let i = 0;
   const step = () => { x.textContent = f.text.slice(0, ++i); if (i < f.text.length) setTimeout(step, 14); else x.classList.remove('typing'); };
   step();
+}
+
+// Ligne « MAJ » de l'accueil : en automatique, le titre suit les bâtiments, donc on montre leur dernière mise à jour
+function heroMeta(d) {
+  const b = d.blocus || {};
+  if (b.auto) {
+    const last = (d.buildings || []).filter((x) => x.updatedAt).sort((x, y) => y.updatedAt.localeCompare(x.updatedAt))[0];
+    return last ? `MAJ ${ago(last.updatedAt)} · ${last.name}${last.by ? ' · ' + last.by : ''}` : 'MAJ : pas encore de bâtiment renseigné';
+  }
+  return `MAJ ${ago(b.updatedAt)}${b.by ? ' · ' + b.by : ''}`;
 }
 
 // ===== Bâtiments =====
@@ -2884,7 +2894,7 @@ async function welcomePopup() {
   setTimeout(welcomePopup, 1800);
   // audience anonyme : une visite par ouverture (navigateur ou app installée)
   if (!sess.get('l1-hit')) { sess.set('l1-hit'); api('/api/hit', { method: 'POST', body: { mode: isStandalone() ? 'app' : 'browser' } }).catch(() => {}); }
-  setInterval(() => { if (route() === '' && !document.hidden) { const m = $('.hero .meta'); if (m && state.data) m.textContent = `MAJ ${ago(state.data.blocus.updatedAt)}${state.data.blocus.by ? ' · ' + state.data.blocus.by : ''}`; } }, 30000);
+  setInterval(() => { if (route() === '' && !document.hidden) { const m = $('.hero .meta'); if (m && state.data) m.textContent = heroMeta(state.data); } }, 30000);
 })();
 
 // =====================================================================
@@ -3173,7 +3183,7 @@ async function modDroits(el) {
     </div>
     ${p.canEdit ? `<form class="form card" id="dform" style="margin-top:12px">
       <div class="field"><label>Titre</label><input type="text" name="title" maxlength="120" value="${esc(p.title)}"></div>
-      <div class="field"><label>Texte · « ## » titre, « - » puce, « > » encadré, **gras**</label><textarea name="body" style="min-height:420px;font-family:ui-monospace,Menlo,monospace;font-size:13px">${esc(p.body)}</textarea></div>
+      <div class="field"><label>Texte · « ## » titre, « - » puce, « > » encadré, **gras**</label><textarea name="body" style="min-height:420px;font-family:ui-monospace,Menlo,monospace">${esc(p.body)}</textarea></div>
       <div class="btn-row"><button class="btn" data-pub="0">Enregistrer en brouillon</button><button class="btn green" data-pub="1">${p.published ? 'Mettre à jour (publié)' : 'Publier'}</button>${p.published ? '<button class="btn ghost" data-pub="-1">Dépublier</button>' : ''}</div>
     </form>` : ''}
     <h2 class="section">Aperçu</h2><article class="card prose droits">${p.html}</article>`;
