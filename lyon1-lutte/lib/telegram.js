@@ -23,10 +23,12 @@ export function normalizeChat(v) {
 const MAIN_CHAT = () => normalizeChat(process.env.TELEGRAM_CHAT_ID);
 
 export const telegramEnabled = () => !!(TOKEN() && MAIN_CHAT());
+// Chaîne officielle de la mobilisation (lien affiché sur le site si rien d'autre n'est configuré)
+export const DEFAULT_TELEGRAM_URL = 'https://t.me/ladoualyon1';
 export const telegramUrl = () => {
   if (process.env.TELEGRAM_URL) return process.env.TELEGRAM_URL;
   const id = MAIN_CHAT();
-  return id.startsWith('@') ? `https://t.me/${id.slice(1)}` : '';
+  return id.startsWith('@') ? `https://t.me/${id.slice(1)}` : DEFAULT_TELEGRAM_URL;
 };
 export const tgEsc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
@@ -108,7 +110,7 @@ export async function telegramCheck(chats = []) {
   try { me = await call('getMe'); } catch (e) { out.problem = explain(e.message); return out; }
   if (!me.ok) { out.problem = explain(me.description, me.status); return out; }
   out.bot = { username: me.result.username, name: me.result.first_name };
-  if (!MAIN_CHAT()) out.problem = 'TELEGRAM_CHAT_ID n’est pas renseigné (Render → Environment) : mets @nom_de_ta_chaine.';
+  if (!MAIN_CHAT()) out.problem = 'TELEGRAM_CHAT_ID n’est pas renseigné (Render → Environment) : mets @ladoualyon1.';
   const list = [...new Set([MAIN_CHAT(), ...chats.map(normalizeChat)].filter(Boolean))];
   for (const chat of list) {
     const c = { chat, ok: false };

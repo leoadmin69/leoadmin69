@@ -127,7 +127,7 @@ L'adresse du site est détectée automatiquement (pas besoin de `SITE_URL`). Le 
 1. Dans Telegram : crée une **chaîne** (ex. « La Doua en lutte »), publique avec un lien `t.me/…`.
 2. Ouvre **@BotFather** → `/newbot` → choisis un nom → il te donne un **jeton** (`123456:ABC…`) → `TELEGRAM_BOT_TOKEN`.
 3. Dans la chaîne : Administrateurs → Ajouter → ton bot (droit « Publier des messages »).
-4. `TELEGRAM_CHAT_ID` = `@nom_de_la_chaine` ; `TELEGRAM_URL` = `https://t.me/nom_de_la_chaine`.
+4. `TELEGRAM_CHAT_ID` = `@ladoualyon1` ; `TELEGRAM_URL` = `https://t.me/ladoualyon1` (chaîne officielle : https://t.me/ladoualyon1, déjà mise par défaut).
 5. Dans l'espace modo (admin) → onglet **📍 Sites**, l'encadré **📣 Chaîne Telegram** vérifie tout (jeton, chaîne, bot administrateur avec « Publier des messages »), affiche la dernière erreur en clair et propose **« Envoyer un test »**.
 
 Ce qui part sur Telegram : changements de bâtiments, **tous les flash** (alerte, info, bonne nouvelle), **toutes les nouvelles AG/manifs** et **tous les comptes rendus publiés** (la case « Alerter » ne règle plus que les notifications et emails), votes et résultats, rappels 1 h avant.
