@@ -6,7 +6,7 @@ import { SECRET, parseCookies } from './auth.js';
 import { DEFAULT_SITE, site, siteName, siteOf, canSite, isAdmin, wantsSite, telegramChats } from './sites.js';
 import { renderRich } from './community.js';
 import express from 'express';
-import { saveSnap, readSnap, deleteSnap, stripJpeg, isJpeg } from './snaps.js';
+import { saveSnap, readSnap, deleteSnap, stripJpeg, isJpeg, sweepSnaps } from './snaps.js';
 import { isSystemNick } from '../public/nicks.js';
 
 const SIGHT_WINDOW = 45 * 60e3;                                   // un signalement compte 45 min
@@ -18,7 +18,15 @@ const DEVICE = 'l1_dev';
 const parisDay = (d = new Date()) => new Intl.DateTimeFormat('fr-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 
 // Numéros de téléphone et emails refusés dans l'entraide (protection des personnes)
-const CONTACT_RE = /(\+?\d[\d .-]{7,}\d)|([^\s@]+@[^\s@]+\.[a-z]{2,})/i;
+// Numéros de téléphone et emails refusés, même déguisés (espaces insécables, / _ , chiffres pleine chasse, (at), ＠…)
+function hasContact(raw) {
+  const t = String(raw || '').normalize('NFKC');
+  if (/[@＠]|\((?:at|arobase)\)|\[(?:at|arobase)\]|\s(?:at|arobase)\s+\S+\s*(?:\.|dot|point)\s*\w{2,}/i.test(t) && /\w\s*(?:[@＠]|\(at\)|\[at\]|\sat\s|arobase)\s*[\w-]+\s*(?:\.|\(dot\)|\[dot\]|dot|point)\s*[a-z]{2,}/i.test(t)) return true;
+  // on retire les dates (18.11.2026, 18/11/2026) puis on cherche 9 chiffres ou plus séparés seulement par des signes
+  const noDates = t.replace(/\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/g, ' ');
+  return /(?:\+?\d[\s ./_,()-]{0,3}){9,}/.test(noDates);
+}
+const CONTACT_RE = { test: hasContact };
 
 // Historique de la mobilisation reconstitué à partir de la presse (chaque ligne cite sa source).
 // Les modos peuvent corriger, compléter ou supprimer ces lignes depuis la page Frise.
@@ -106,6 +114,9 @@ export function registerExtras(app, mod, ctx) {
   // ================= Frise : journal des journées =================
   // Appelé à chaque changement de bâtiment : on retient, par jour et par site, les bâtiments bloqués.
   function onBuilding(b) {
+    // un·e modo a tranché (bloqué, partiel, ouvert…) : les signalements en cours sont soldés, la relance repart de zéro
+    dropSightings((s) => s.b !== b.id);
+    for (const k of Object.keys(db.sightNotified || {})) if (k.startsWith(`${b.id}|`)) delete db.sightNotified[k];
     if (b.status !== 'bloque' && b.status !== 'partiel') return;
     const day = parisDay();
     const sid = siteOf(b);
@@ -246,9 +257,13 @@ export function registerExtras(app, mod, ctx) {
     if (limited(`sightph:${dev}`, 6, 3600e3)) return bad(res, 'Trop de photos envoyées, réessaie plus tard (ou signale sans photo).', 429);
     const clean = stripJpeg(req.body);
     if (!clean) return bad(res, 'Photo illisible.');
+    const b = db.buildings.find((x) => x.id === String(req.query.building || ''));
+    if (!b) return bad(res, 'Bâtiment inconnu.', 404);
+    if (!['bloque', 'partiel', 'ouvert'].includes(String(req.query.status))) return bad(res, 'État invalide.');
+    if (limited(`sightpre:${visitor(req)}`, 30, 3600e3)) return bad(res, 'Trop de signalements depuis ce réseau, réessaie plus tard.', 429);
     const pid = `sight-${newId()}${newId()}`;
-    await saveSnap(pid, clean);
-    addSighting(req, res, String(req.query.building || ''), String(req.query.status || ''), pid);
+    try { await saveSnap(pid, clean); } catch (e) { console.error('[photo]', e.message); return bad(res, 'Enregistrement impossible, réessaie.', 500); }
+    addSighting(req, res, b.id, String(req.query.status), pid);
   });
   function addSighting(req, res, buildingId, rawStatus, photo) {
     const b = db.buildings.find((x) => x.id === buildingId);
@@ -305,6 +320,7 @@ export function registerExtras(app, mod, ctx) {
   mod.post('/sightings/remind', async (req, res) => {
     const b = req.body.building ? db.buildings.find((x) => x.id === req.body.building) : null;
     if (req.body.building && !b) return bad(res, 'Introuvable', 404);
+    if (!b && req.mod.role === 'terrain') return bad(res, 'Choisis un bâtiment.', 400);
     if (b && !needSite(req, res, siteOf(b))) return;
     if (limited(`remind:${req.mod.id}`, 10, 600e3)) return bad(res, 'Déjà relancé plusieurs fois, attends quelques minutes.', 429);
     const r = await remindSightings({ building: b?.id });
@@ -409,7 +425,8 @@ export function registerExtras(app, mod, ctx) {
   app.post('/api/entraide/:id/report', (req, res) => {
     const a = db.entraide.find((x) => x.id === req.params.id);
     if (!a) return bad(res, 'Introuvable', 404);
-    const v = visitor(req);
+    if (limited(`entrep:${visitor(req)}`, 30, 3600e3)) return bad(res, 'Trop de signalements depuis ce réseau.', 429);
+    const v = mark('entrep', a.id, device(req, res));
     const target = req.body.reply ? a.replies.find((r) => r.id === req.body.reply) : a;
     if (!target) return bad(res, 'Introuvable', 404);
     if (!target.reports.includes(v)) target.reports.push(v);

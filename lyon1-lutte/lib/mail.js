@@ -5,6 +5,7 @@
 //  - sinon simple journal dans la console.
 // Les notifications sur téléphone (lib/push.js) restent le canal principal : gratuites et illimitées.
 import nodemailer from 'nodemailer';
+import { db, save } from './store.js';
 
 const brevoReady = () => !!(process.env.BREVO_API_KEY && process.env.MAIL_FROM_EMAIL);
 const resendReady = () => !!process.env.RESEND_API_KEY;
@@ -20,11 +21,14 @@ export const SITE_URL = () => (process.env.SITE_URL || process.env.RENDER_EXTERN
 
 // Plafond quotidien pour ne pas dépasser la formule gratuite (Brevo : 300/jour).
 const DAILY_LIMIT = () => Number(process.env.MAIL_DAILY_LIMIT || (brevoReady() ? 290 : resendReady() ? 95 : 1000));
-const counter = { day: '', n: 0 };
+// compteur gardé dans la base (un redémarrage du serveur ne le remet pas à zéro) ; jour de Paris
+const counter = () => (db.settings.mailCounter ||= { day: '', n: 0 });
+const parisToday = () => new Intl.DateTimeFormat('fr-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 export function mailQuota() {
-  const day = new Date().toISOString().slice(0, 10);
-  if (counter.day !== day) { counter.day = day; counter.n = 0; }
-  return { used: counter.n, limit: DAILY_LIMIT(), left: Math.max(0, DAILY_LIMIT() - counter.n) };
+  const day = parisToday();
+  const c = counter();
+  if (c.day !== day) { c.day = day; c.n = 0; }
+  return { used: c.n, limit: DAILY_LIMIT(), left: Math.max(0, DAILY_LIMIT() - c.n) };
 }
 
 let smtp = null;
@@ -87,7 +91,7 @@ export async function sendMany(messages) {
       catch (e) { console.error('[mail] SMTP', m.to, e.message); }
     }
   }
-  counter.n += sent;
+  counter().n += sent; save();
   return { sent };
 }
 

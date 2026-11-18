@@ -87,12 +87,16 @@ async function pushRemote() {
 }
 
 let timer = null;
+let firstPending = 0;
 export function save() {
+  // anti-rafale : on regroupe, mais on écrit au plus tard 2 s après la première modification (même sous fort trafic)
+  if (!firstPending) firstPending = Date.now();
   clearTimeout(timer);
-  timer = setTimeout(flush, 250);
+  timer = setTimeout(flush, Date.now() - firstPending > 2000 ? 0 : 250);
 }
 export function flush() {
   clearTimeout(timer);
+  firstPending = 0;
   writeLocal();
   if (remoteEnabled()) {
     clearTimeout(remoteTimer);

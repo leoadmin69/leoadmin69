@@ -11,6 +11,15 @@ const store = {
 
 const state = { raw: null, data: null, site: store.get('l1-site', null), modSite: null, me: null, chatChannel: store.get('l1-channel', 'general'), chatMsgs: [], dirty: false, modTab: 'situation', campus: 'Tous', demandCat: 'Toutes', ctxOpen: false };
 
+// Le serveur demande parfois de réessayer (428) le temps de poser le cookie anonyme de l'appareil : on réessaie une fois, sans que la personne le voie.
+{
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = async (u, o) => {
+    const r = await nativeFetch(u, o);
+    if (r.status === 428 && String(u).startsWith('/api/')) return nativeFetch(u, o);
+    return r;
+  };
+}
 async function api(path, { method = 'GET', body, raw } = {}) {
   const opt = { method, headers: {}, credentials: 'same-origin' };
   // Chaque action d'un modo s'applique au site qu'il a choisi en haut de l'espace modo ;

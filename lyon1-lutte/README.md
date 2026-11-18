@@ -162,4 +162,4 @@ Ce qui part sur Telegram : changements de bâtiments, **tous les flash** (alerte
 
 ### Ailleurs
 
-Le `Dockerfile` marche aussi sur un VPS, Railway, Fly.io… Avec un disque permanent monté sur `/app/data`, Supabase n'est pas nécessaire. Mets `TRUST_PROXY=true` derrière un hébergeur.
+Le `Dockerfile` marche aussi sur un VPS, Railway, Fly.io… Avec un disque permanent monté sur `/app/data`, Supabase n'est pas nécessaire. Mets `TRUST_PROXY=1` derrière un hébergeur.

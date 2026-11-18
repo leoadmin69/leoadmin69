@@ -1,6 +1,16 @@
 // Lyon 1 · La Doua en lutte : plateforme d'information étudiante pendant la mobilisation.
 // API JSON + flux temps réel (SSE) + site statique (public/).
 import express from 'express';
+import { createRequire } from 'node:module';
+// Express 4 n'attrape pas les erreurs des routes « async » : on les renvoie au gestionnaire d'erreurs (réponse 500 propre)
+{
+  const Layer = createRequire(import.meta.url)('express/lib/router/layer.js');
+  const handle = Layer.prototype.handle_request;
+  Layer.prototype.handle_request = function (req, res, next) {
+    if (this.handle.length > 3) return handle.call(this, req, res, next);
+    try { const r = this.handle(req, res, next); if (r && typeof r.catch === 'function') r.catch(next); } catch (e) { next(e); }
+  };
+}
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -14,7 +24,7 @@ import { aiEnabled, aiProviders, analyzePdf } from './lib/ai.js';
 import { registerCommunity, MAX_VIDEO_MB } from './lib/community.js';
 import { registerExtras } from './lib/extras.js';
 import { recordVisit, recordInstall, audienceSummary } from './lib/audience.js';
-import { saveSnap, readSnap, deleteSnap, purgeSnaps, stripJpeg, isJpeg, SNAP_TTL } from './lib/snaps.js';
+import { saveSnap, readSnap, deleteSnap, purgeSnaps, sweepSnaps, stripJpeg, isJpeg, SNAP_TTL } from './lib/snaps.js';
 import { isSystemNick } from './public/nicks.js';
 import { EMOTES } from './public/emotes.js';
 const EMOTE_SET = new Set(EMOTES.map((e) => e.code));
@@ -42,8 +52,11 @@ migrateSites();
 
 const app = express();
 let extras = null; // options (lib/extras.js), branché plus bas
+process.on('unhandledRejection', (e) => console.error('[erreur async]', e?.message || e));
+process.on('uncaughtException', (e) => console.error('[erreur]', e?.stack || e));
 app.disable('x-powered-by');
-if (process.env.TRUST_PROXY) app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? true : process.env.TRUST_PROXY);
+// « true » ferait confiance à n'importe quel X-Forwarded-For écrit par le client : on ne garde que le dernier proxy (l'hébergeur).
+if (process.env.TRUST_PROXY) app.set('trust proxy', /^(true|yes|on)$/i.test(process.env.TRUST_PROXY) ? 1 : /^\d+$/.test(process.env.TRUST_PROXY) ? Number(process.env.TRUST_PROXY) : process.env.TRUST_PROXY);
 
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -53,6 +66,11 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.json({ limit: '200kb' }));
+app.use((req, res, next) => {
+  if (!DEVICE_ROUTES.test(`${req.method} ${req.path}`) || hasDevice(req)) return next();
+  deviceKey(req, res); // pose le cookie
+  res.status(428).json({ error: 'Recharge la page et réessaie.', retry: true });
+});
 // Requête illisible (JSON cassé, trop gros) : réponse claire, sans trace d'erreur dans les journaux
 app.use((err, req, res, next) => {
   if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'Requête illisible.' });
@@ -76,6 +94,12 @@ function deviceKey(req, res, stable = false) {
   }
   return crypto.createHmac('sha256', SECRET).update(`${stable ? 'stable' : new Date().toISOString().slice(0, 10)}|dev|${d}`).digest('hex').slice(0, 16);
 }
+
+// Ce qui est compté « une fois par appareil » (signalement, vue d'une photo, réaction, vote, soutien…) exige un cookie
+// d'appareil déjà présent : sinon chaque requête sans cookie compterait comme un nouvel appareil.
+// Le site pose ce cookie dès l'ouverture (/api/hit) ; s'il manque, on le pose et l'app réessaie toute seule (428).
+const hasDevice = (req) => /^[A-Za-z0-9_-]{20,64}$/.test(parseCookies(req.headers.cookie).l1_dev || '');
+const DEVICE_ROUTES = /^(POST \/api\/hit|POST \/api\/chat(\/photo|\/[\w-]+\/(report|react))?|GET \/api\/chat\/photo\/[\w-]+|POST \/api\/sightings(\/photo)?|POST \/api\/events\/[\w-]+\/going|POST \/api\/polls\/[\w-]+\/vote|POST \/api\/demands\/[\w-]+\/support|POST \/api\/entraide(\/[\w-]+\/(report|reply))?)$/;
 
 // Limiteur simple en mémoire.
 const buckets = new Map();
@@ -118,7 +142,7 @@ function audit(mod, action, detail = '', siteId = '') {
 
 // ---------- Session modo ----------
 function currentMod(req) { return readToken(parseCookies(req.headers.cookie)[COOKIE]); }
-const TERRAIN_OK = [/^PUT \/buildings-batch$/, /^PUT \/buildings\/[\w-]+$/, /^GET \/sightings$/, /^POST \/sightings\/(ignore|remind)$/, /^GET \/sightings\/photo\/[\w-]+$/, /^(GET|POST) \/push\//, /^GET \/presence$/, /^GET \/guide\.pdf$/];
+const TERRAIN_OK = [/^PUT \/buildings-batch$/, /^PUT \/buildings\/[\w-]+$/, /^GET \/sightings$/, /^POST \/sightings\/(ignore|remind)$/, /^GET \/sightings\/photo\/[\w-]+$/, /^POST \/push\/(subscribe|unsubscribe|status)$/, /^GET \/presence$/, /^GET \/guide\.pdf$/];
 function requireMod(req, res, next) {
   const mod = currentMod(req);
   if (!mod) return bad(res, 'Connexion modo requise.', 401);
@@ -285,7 +309,7 @@ app.post('/api/chat/photo', express.raw({ type: 'image/jpeg', limit: '2mb' }), a
   await saveSnap(id, clean);
   const m = {
     id: newId(), channel, nick, text: '', at: now(), v, reports: [], mod: modNow ? modNow.org : null, reply: null,
-    photo: { id, thumb: /^data:image\/jpeg;base64,[A-Za-z0-9+/=]{20,4000}$/.test(thumb) ? thumb : '', w: Math.min(4000, Number(req.query.w) || 0), h: Math.min(4000, Number(req.query.h) || 0), views: [deviceKey(req, res, true)] },
+    photo: { id, thumb: /^data:image\/jpeg;base64,[A-Za-z0-9+/=]{20,4000}$/.test(thumb) ? thumb : '', w: Math.max(0, Math.min(4000, Math.round(Number(req.query.w)) || 0)), h: Math.max(0, Math.min(4000, Math.round(Number(req.query.h)) || 0)), views: [deviceKey(req, res, true)] },
   };
   pushMessage(m);
   broadcast('chat', publicMsg(m));
@@ -309,6 +333,12 @@ app.get('/api/chat/photo/:id', async (req, res) => {
   res.type('image/jpeg').send(buf);
 });
 setInterval(purgeSnaps, 10 * 60e3).unref();
+// fichiers photo orphelins (envoi interrompu, plantage) : effacés au bout de 10 min
+setInterval(() => {
+  const used = new Set([...db.messages.filter((m) => m.photo && !m.photo.gone).map((m) => m.photo.id), ...(db.sightings || []).filter((s) => s.photo).map((s) => s.photo)]);
+  const n = sweepSnaps((id) => used.has(id));
+  if (n) console.log(`[photo] ${n} fichier(s) orphelin(s) effacé(s)`);
+}, 15 * 60e3).unref();
 setTimeout(purgeSnaps, 20e3).unref();
 app.post('/api/chat/:id/report', (req, res) => {
   const m = db.messages.find((x) => x.id === req.params.id);
@@ -317,7 +347,7 @@ app.post('/api/chat/:id/report', (req, res) => {
   if (limited(`chatrep:${visitor(req)}`, 60, 3600e3)) return bad(res, 'Trop de signalements depuis ce réseau.', 429);
   if (!m.reports.includes(v)) m.reports.push(v);
   // Masqué automatiquement après 3 signalements ; un modo peut le rétablir.
-  if (m.reports.length >= 3 && !m.hidden) { m.hidden = true; broadcast('chat-del', { id: m.id }); }
+  if (m.reports.length >= 3 && !m.hidden && !m.mod) { m.hidden = true; broadcast('chat-del', { id: m.id }); }
   save();
   res.json({ ok: true });
 });
@@ -349,7 +379,8 @@ app.post('/api/chat/:id/react', (req, res) => {
 app.post('/api/demands/:id/support', (req, res) => {
   const d = db.demands.find((x) => x.id === req.params.id);
   if (!d) return bad(res, 'Introuvable', 404);
-  const v = crypto.createHmac('sha256', SECRET).update(`support|${req.ip}`).digest('hex').slice(0, 16);
+  if (limited(`support:${visitor(req)}`, 200, 3600e3)) return bad(res, 'Trop de soutiens depuis ce réseau, réessaie plus tard.', 429);
+  const v = crypto.createHmac('sha256', SECRET).update(`support|${deviceKey(req, res, true)}`).digest('hex').slice(0, 16);
   const list = (db.supports[d.id] ||= []);
   if (!list.includes(v)) list.push(v);
   save();
@@ -376,6 +407,15 @@ app.post('/api/subscribe', async (req, res) => {
   let s = db.subscribers.find((x) => x.email === email);
   if (!s && emailSpots() <= 0) return bad(res, 'La liste email est complète (places limitées par la version gratuite). Active plutôt les notifications de l’app ou rejoins la chaîne Telegram : c’est gratuit et sans limite.', 409);
   if (!s) { s = { id: newId(), email, token: crypto.randomBytes(18).toString('base64url'), confirmed: false, createdAt: now() }; db.subscribers.push(s); }
+  if (s.confirmed && mailEnabled()) {
+    // adresse déjà confirmée : les nouveaux choix ne s'appliquent qu'après un clic dans l'email (preuve que c'est bien la sienne)
+    s.pending = { alerts: alerts.length ? alerts : ALERTS, sites: sitesWanted, at: now() };
+    save();
+    const link = `${SITE_URL()}/api/confirm?token=${encodeURIComponent(s.token)}&apply=1`;
+    const { html, text } = renderEmail({ tone: 'blue', kicker: 'LYON 1 · LA DOUA EN LUTTE', title: 'Modifier tes alertes', body: `Clique sur le bouton pour appliquer tes nouveaux choix d'alertes.\n\nLien direct : ${link}`, cta: 'Appliquer', token: s.token });
+    sendMany([{ to: email, subject: 'Modifier tes alertes · La Doua en lutte', html: html.replace(SITE_URL() + '"', link + '"'), text }]).catch(() => {});
+    return res.json({ ok: true, message: 'Vérifie ta boîte mail pour confirmer (pense aux spams).' });
+  }
   s.alerts = alerts.length ? alerts : ALERTS;
   s.sites = sitesWanted;
   if (!mailEnabled()) {
@@ -391,12 +431,13 @@ app.post('/api/subscribe', async (req, res) => {
     await sendMany([{ to: email, subject: 'Confirme tes alertes Lyon 1 · La Doua en lutte', html: html.replace(SITE_URL() + '"', link + '"'), text }]);
     return res.json({ ok: true, message: 'Vérifie ta boîte mail pour confirmer (pense aux spams).' });
   }
-  res.json({ ok: true, message: 'Préférences mises à jour.' });
+  res.json({ ok: true, message: 'Vérifie ta boîte mail pour confirmer (pense aux spams).' });
 });
 const page = (title, msg) => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#000;color:#f2f2f7;font:17px -apple-system,Segoe UI,Roboto,sans-serif;padding:16px"><div style="max-width:420px;text-align:center"><h1 style="font-size:28px">${title}</h1><p style="color:#a1a1aa">${msg}</p><a href="/" style="color:#30D158">Retour au site →</a><p style="color:#6e6e73;font-size:13px;margin-top:24px">Lyon 1 · La Doua en lutte</p></div>`;
 app.get('/api/confirm', (req, res) => {
   const s = db.subscribers.find((x) => x.token === req.query.token);
   if (!s) return res.status(404).send(page('Lien invalide', 'Ce lien ne correspond à aucune inscription.'));
+  if (req.query.apply && s.pending) { s.alerts = s.pending.alerts; s.sites = s.pending.sites; delete s.pending; s.confirmed = true; save(); return res.send(page('C’est à jour ✅', 'Tes nouveaux choix d’alertes sont enregistrés.')); }
   s.confirmed = true; save();
   res.send(page('C’est bon ✅', EMAIL_MODE === 'digest' ? `Tu recevras le récapitulatif chaque matin vers ${DIGEST_HOUR} h. Pour être prévenu·e tout de suite, active aussi les notifications de l’app.` : 'Tu recevras les alertes par email. Tu peux te désinscrire à tout moment depuis chaque email.'));
 });
@@ -409,10 +450,14 @@ app.get('/api/unsubscribe', (req, res) => {
 // Alertes bâtiments regroupées : si un modo met à jour 10 bâtiments, un seul email part.
 let pendingBuildings = new Map();
 let alertTimer = null;
+let alertFirstAt = 0;
 function queueBuildingAlert(b) {
   pendingBuildings.set(b.id, b);
+  if (!alertFirstAt) alertFirstAt = Date.now();
   clearTimeout(alertTimer);
-  alertTimer = setTimeout(flushBuildingAlert, ALERT_DELAY_MS);
+  // on regroupe les changements rapprochés, mais on n'attend jamais plus de 3 min après le premier
+  const wait = Math.max(0, Math.min(ALERT_DELAY_MS, alertFirstAt + Math.max(ALERT_DELAY_MS, 180e3) - Date.now()));
+  alertTimer = setTimeout(() => { alertFirstAt = 0; flushBuildingAlert(); }, wait);
 }
 async function flushBuildingAlert() {
   const changedAll = [...pendingBuildings.values()];
@@ -447,6 +492,20 @@ async function flushBuildingAlert() {
     console.log(`[alertes] bâtiments : ${messages.length} email(s), ${r.sent} envoyé(s)`);
   }
 }
+// Date + heure lues à l'heure de Paris (« 18:00 », « 18h », « 9h30 ») → Date, ou null si illisible
+function parisDate(date, heure) {
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(date || ''));
+  if (!d) return null;
+  const t = /^(\d{1,2})\s*[h:]\s*(\d{2})?/i.exec(String(heure || '12:00').trim()) || [0, 12, 0];
+  const [y, mo, da, h, mi] = [+d[1], +d[2], +d[3], +t[1], +(t[2] || 0)];
+  if (h > 23 || mi > 59) return null;
+  const guess = Date.UTC(y, mo - 1, da, h, mi);
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Paris', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(guess)).map((x) => [x.type, x.value]));
+  const offset = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute) - guess;
+  const out = new Date(guess - offset);
+  return Number.isNaN(out.getTime()) ? null : out;
+}
+
 // ---------- Flash infos : durée de vie ----------
 // 1 h, 6 h, 24 h (par défaut), 72 h, ou 0 = jusqu'à suppression. Expiré = retiré de l'accueil, gardé dans l'historique des modos.
 const FLASH_TTLS = [1, 6, 24, 72, 0];
@@ -456,8 +515,8 @@ const liveFlashes = () => db.flashes.filter(flashLive);
 // Anciens flash (avant cette fonction) : ils expirent 24 h après leur publication
 if (!db.settings.flashTtlV1) { for (const f of db.flashes) if (f.expiresAt === undefined) f.expiresAt = new Date(new Date(f.at).getTime() + 24 * 3600e3).toISOString(); db.settings.flashTtlV1 = true; save(); }
 // Toutes les minutes : si un flash vient d'expirer, les écrans se mettent à jour
-let liveFlashCount = liveFlashes().length;
-setInterval(() => { const n = liveFlashes().length; if (n !== liveFlashCount) { liveFlashCount = n; broadcast('flashes', {}); } }, 60e3).unref();
+let liveFlashIds = liveFlashes().map((f) => f.id).join(',');
+setInterval(() => { const ids = liveFlashes().map((f) => f.id).join(','); if (ids !== liveFlashIds) { liveFlashIds = ids; broadcast('flashes', {}); } }, 60e3).unref();
 
 // ---------- Chaque soir à 22 h : les statuts de la journée passent « à reconfirmer » ----------
 // Les blocages se refont chaque jour : à 22 h (DAY_RESET_HOUR, « off » pour désactiver), chaque bâtiment repasse
@@ -466,15 +525,23 @@ setInterval(() => { const n = liveFlashes().length; if (n !== liveFlashCount) { 
 const RESET_HOUR = () => process.env.DAY_RESET_HOUR ?? '22';
 function dayReset() {
   const hourCfg = RESET_HOUR();
-  if (hourCfg === 'off') return;
+  const H = Number(hourCfg);
+  if (hourCfg === 'off' || !Number.isInteger(H) || H < 0 || H > 23) return;
   const { day, hour } = parisNow();
-  if (hour < Number(hourCfg) || db.settings.lastDayReset === day) return;
-  db.settings.lastDayReset = day;
+  const yesterday = new Intl.DateTimeFormat('fr-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(Date.now() - 864e5));
+  let target = null;
+  if (hour >= H && db.settings.lastDayReset !== day) target = day;
+  // le site dormait à l'heure prévue : rattrapage dans la nuit (avant 6 h) pour la veille
+  else if (H >= 6 && hour < 6 && db.settings.lastDayReset && db.settings.lastDayReset < yesterday) target = yesterday;
+  if (!target) return;
+  db.settings.lastDayReset = target;
   let n = 0;
   for (const b of db.buildings) if (b.status !== 'inconnu') { b.yesterday = b.status; b.status = 'inconnu'; b.resetAt = now(); n++; }
   // le titre de chaque site revient en automatique (il suit les bâtiments) ; on garde l'ancien réglage au cas où
-  for (const st of Object.values(db.siteStatus || {})) if (st.state && st.state !== 'auto') { st.beforeReset = st.state; st.state = 'auto'; st.updatedAt = now(); }
+  let titles = 0;
+  for (const st of Object.values(db.siteStatus || {})) if (st.state && st.state !== 'auto') { st.beforeReset = st.state; st.state = 'auto'; st.updatedAt = now(); titles++; }
   save();
+  if (titles && !n) broadcast('blocus', {});
   if (n) { feed(`🌙 Fin de journée : ${n} bâtiment(s) à reconfirmer demain matin par les modos sur place`, 'info'); broadcast('buildings', {}); broadcast('blocus', {}); }
 }
 // Réparation : la première version (5 h) s'est déclenchée au démarrage en pleine journée et a effacé les statuts du jour.
@@ -573,9 +640,12 @@ app.post('/api/push/unsubscribe', (req, res) => { pushUnsubscribe(String(req.bod
 // ---------- Connexion modo ----------
 app.post('/api/auth/login', (req, res) => {
   const username = clip(req.body.username, 40).toLowerCase();
-  if (limited(`login:${req.ip}`, 8, 15 * 60e3)) return bad(res, 'Trop de tentatives. Réessaie dans 15 minutes.', 429);
+  // Seuls les échecs comptent : par identifiant (force brute sur un compte) et, plus large, par réseau (wifi partagé)
+  const failKey = `loginfail:${username}`, netKey = `loginnet:${visitor(req)}`;
+  const recent = (k, w) => (buckets.get(k) || []).filter((x) => Date.now() - x < w).length;
+  if (recent(failKey, 15 * 60e3) >= 8 || recent(netKey, 15 * 60e3) >= 60) return bad(res, 'Trop de tentatives. Réessaie dans 15 minutes.', 429);
   const mod = db.mods.find((m) => m.username === username && !m.disabled);
-  if (!mod || !verifyPassword(req.body.password || '', mod)) return bad(res, 'Identifiants incorrects.', 401);
+  if (!mod || !verifyPassword(req.body.password || '', mod)) { limited(failKey, 1e9, 15 * 60e3); limited(netKey, 1e9, 15 * 60e3); return bad(res, 'Identifiants incorrects.', 401); }
   res.setHeader('Set-Cookie', cookieHeader(createToken(mod), 14 * 86400));
   res.json(publicMod(mod));
 });
@@ -586,7 +656,7 @@ app.post('/api/auth/terrain', (req, res) => {
   const t = String(req.body.token || '');
   const m = t.length >= 20 && db.mods.find((x) => x.role === 'terrain' && !x.disabled && x.linkHash && x.linkHash === hashLink(t));
   if (!m) return bad(res, 'Lien invalide ou désactivé. Demande un nouveau lien à l’admin.', 401);
-  res.setHeader('Set-Cookie', cookieHeader(createToken(m), 30 * 86400));
+  res.setHeader('Set-Cookie', cookieHeader(createToken(m, 30), 30 * 86400));
   audit(m, 'connexion terrain', '');
   res.json(publicMod(m));
 });
@@ -627,8 +697,11 @@ mod.post('/telegram/test', requireAdmin, async (req, res) => {
 mod.get('/chat-banned', (req, res) => res.json({ base: BANNED_BASE.length, extra: db.settings.chatBanned || [] }));
 mod.put('/chat-banned', (req, res) => {
   const list = (Array.isArray(req.body.words) ? req.body.words : String(req.body.words || '').split(/[,\n]/)).map((w) => clip(w, 60).toLowerCase()).filter((w) => normalizeWord(w).length >= 2);
+  const before = new Set(db.settings.chatBanned || []);
   db.settings.chatBanned = [...new Set(list)].slice(0, 500);
-  save(); audit(req.mod, 'liste noire du chat', `${db.settings.chatBanned.length} mot(s) ajouté(s)`);
+  const after = new Set(db.settings.chatBanned);
+  const added = [...after].filter((w) => !before.has(w)), removed = [...before].filter((w) => !after.has(w));
+  save(); audit(req.mod, 'liste noire du chat', `${added.length ? '+ ' + added.join(', ') : ''}${removed.length ? ' − ' + removed.join(', ') : ''}`.trim() || 'sans changement');
   res.json({ extra: db.settings.chatBanned });
 });
 // Guide des modos (PDF) : réservé aux modos connecté·es, document interne
@@ -717,7 +790,7 @@ mod.put('/buildings/:id', (req, res) => {
 // - les bâtiments des sites où le modo n'a pas de droits sont ignorés.
 // - undo:true = annulation juste après une erreur : l'alerte email en attente est retirée au lieu d'être renvoyée.
 mod.put('/buildings-batch', (req, res) => {
-  const changes = Array.isArray(req.body.changes) ? req.body.changes.slice(0, 200) : [];
+  const changes = Array.isArray(req.body.changes) ? req.body.changes.filter((c) => c && typeof c === 'object' && typeof c.id === 'string').slice(0, 200) : [];
   const undo = !!req.body.undo;
   const previous = [];
   const conflicts = [];
@@ -730,9 +803,9 @@ mod.put('/buildings-batch', (req, res) => {
     if (!canSite(req.mod, siteOf(b))) { forbidden.push(b.name); continue; }
     if (!undo && c.from !== undefined && c.from !== b.status) { conflicts.push({ id: b.id, name: b.name, status: b.status, by: b.by, at: b.updatedAt }); continue; }
     const status = oneOf(c.status, STATUS, b.status);
-    if (c.note !== undefined) b.note = clip(c.note, 240);
     if (status === b.status && c.note === undefined) continue;
     previous.push({ id: b.id, status: b.status, note: b.note });
+    if (c.note !== undefined) b.note = clip(c.note, 240);
     const changed = status !== b.status;
     b.status = status;
     if (!undo) { delete b.yesterday; delete b.resetAt; }
@@ -946,6 +1019,7 @@ mod.post('/chat/:id/restore', (req, res) => {
   const m = db.messages.find((x) => x.id === req.params.id);
   if (!m) return bad(res, 'Introuvable', 404);
   m.hidden = false; m.reports = []; save(); broadcast('chat', publicMsg(m));
+  audit(req.mod, 'message rétabli', (m.text || '📸 photo').slice(0, 80));
   res.json({ ok: true });
 });
 
@@ -980,7 +1054,7 @@ mod.post('/reports/analyze', express.raw({ type: 'application/pdf', limit: '25mb
   res.end();
 });
 function sanitizeReport(d = {}) {
-  const arr = (a, n) => (Array.isArray(a) ? a.slice(0, n) : []);
+  const arr = (a, n) => (Array.isArray(a) ? a.filter((y) => y && typeof y === 'object').slice(0, n) : []);
   return {
     titre: clip(d.titre, 140) || "Compte rendu d'AG",
     date: clip(d.date, 10),
@@ -1010,9 +1084,10 @@ mod.put('/reports/:id', (req, res) => {
     feed(`${siteName(siteOf(r))} · Compte rendu publié : ${r.titre}${r.flashs[0] ? ' · ' + r.flashs[0].titre : ''}`, 'info');
     // Import optionnel dans l'agenda et les revendications.
     if (req.body.importEvents) {
+      r.skippedEvents = [];
       for (const e of r.rdv) {
-        const start = new Date(`${e.date}T${e.heure || '12:00'}:00`);
-        if (!e.date || Number.isNaN(start.getTime())) continue;
+        const start = parisDate(e.date, e.heure);
+        if (!start) { r.skippedEvents.push(e.titre || e.date || '?'); continue; }
         db.events.push({ id: newId(), site: siteOf(r), type: e.type, title: e.titre, start: start.toISOString(), place: e.lieu, address: '', description: `Annoncé dans : ${r.titre}`, org: req.mod.org, createdAt: now() });
       }
       broadcast('events', {});
@@ -1135,7 +1210,7 @@ mod.post('/sites', requireAdmin, (req, res) => {
   const short = clip(req.body.short, 30) || name;
   if (!name) return bad(res, 'Nom requis.');
   let id = short.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || newId();
-  if (site(id)) id = `${id}-${newId().slice(0, 4)}`;
+  if (site(id) || id === ALL_SITES) id = `${id}-${newId().slice(0, 4)}`;
   db.sites.push({ id, name, short });
   db.siteStatus[id] = { state: 'auto', message: '', updatedAt: null, by: '' };
   save(); audit(req.mod, 'site créé', name, id); broadcast('buildings', {});
@@ -1154,7 +1229,7 @@ mod.put('/sites/:id', requireAdmin, (req, res) => {
 mod.delete('/sites/:id', requireAdmin, (req, res) => {
   const id = req.params.id;
   if (id === DEFAULT_SITE) return bad(res, 'Le site principal ne peut pas être supprimé.');
-  const used = ['buildings', 'events', 'demands', 'polls', 'reports', 'posts', 'flashes', 'contacts'].some((k) => (db[k] || []).some((x) => siteOf(x) === id));
+  const used = ['buildings', 'events', 'demands', 'polls', 'reports', 'posts', 'flashes', 'contacts', 'testimonies', 'entraide'].some((k) => (db[k] || []).some((x) => siteOf(x) === id));
   if (used) return bad(res, 'Ce site a encore du contenu : supprime-le ou déplace-le d’abord.');
   db.sites = db.sites.filter((x) => x.id !== id);
   for (const m of db.mods) if (m.sites) m.sites = m.sites.filter((x) => x !== id);

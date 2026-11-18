@@ -27,15 +27,16 @@ export function verifyPassword(pw, mod) {
 }
 
 const sign = (s) => crypto.createHmac('sha256', SECRET).update(s).digest('base64url');
-export function createToken(mod) {
-  const payload = Buffer.from(JSON.stringify({ uid: mod.id, v: mod.version || 1, exp: Date.now() + SESSION_DAYS * 864e5 })).toString('base64url');
+export function createToken(mod, days = SESSION_DAYS) {
+  const payload = Buffer.from(JSON.stringify({ uid: mod.id, v: mod.version || 1, exp: Date.now() + days * 864e5 })).toString('base64url');
   return `${payload}.${sign(payload)}`;
 }
 export function readToken(token) {
   if (!token || !token.includes('.')) return null;
   const [payload, sig] = token.split('.');
   const good = sign(payload);
-  if (sig.length !== good.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(good))) return null;
+  const a = Buffer.from(String(sig)), b = Buffer.from(good);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
   try {
     const p = JSON.parse(Buffer.from(payload, 'base64url').toString());
     if (p.exp < Date.now()) return null;
@@ -54,7 +55,9 @@ export function parseCookies(header = '') {
   const out = {};
   for (const part of header.split(';')) {
     const i = part.indexOf('=');
-    if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+    if (i <= 0) continue;
+    const v = part.slice(i + 1).trim();
+    try { out[part.slice(0, i).trim()] = decodeURIComponent(v); } catch { out[part.slice(0, i).trim()] = v; }
   }
   return out;
 }

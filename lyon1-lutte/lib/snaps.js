@@ -15,15 +15,25 @@ const DIR = path.join(DATA_DIR, 'snaps');
 fs.mkdirSync(DIR, { recursive: true });
 const file = (id) => path.join(DIR, `${id}.jpg`);
 
-// Retire les blocs APPn (EXIF, XMP…) et les commentaires d'un JPEG.
+// Retire les blocs APPn (EXIF, XMP…) et les commentaires d'un JPEG, et coupe tout ce qui suit la fin de l'image
+// (vidéo des « photos animées », fichier caché…). Renvoie null si ce n'est pas un vrai JPEG.
 export function stripJpeg(buf) {
   const out = [buf.subarray(0, 2)];
-  let i = 2;
+  let i = 2, sof = false;
   while (i < buf.length - 4) {
     if (buf[i] !== 0xff) return null;
     const marker = buf[i + 1];
-    if (marker === 0xda) { out.push(buf.subarray(i)); return Buffer.concat(out); }
+    if (marker === 0xda) {
+      if (!sof) return null;
+      // données compressées : la fin d'image est le premier FF D9 (FF 00 et FF D0-D7 font partie des données)
+      for (let k = i + 2; k < buf.length - 1; k++) {
+        if (buf[k] === 0xff && buf[k + 1] === 0xd9) { out.push(buf.subarray(i, k + 2)); return Buffer.concat(out); }
+      }
+      return null;
+    }
     const len = buf.readUInt16BE(i + 2);
+    if (len < 2) return null;
+    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) sof = true;
     if (!((marker >= 0xe1 && marker <= 0xef) || marker === 0xfe)) out.push(buf.subarray(i, i + 2 + len));
     i += 2 + len;
   }
@@ -57,5 +67,19 @@ export function purgeSnaps() {
     if (Date.now() - new Date(m.at).getTime() > SNAP_TTL) { deleteSnap(m.photo.id); m.photo.gone = true; m.photo.thumb = ''; n++; }
   }
   if (n) save();
+  return n;
+}
+
+// Ménage : fichiers du dossier qui ne correspondent à aucune photo en cours (envoi interrompu, plantage…)
+export function sweepSnaps(isUsed) {
+  let n = 0;
+  for (const f of fs.readdirSync(DIR)) {
+    const id = f.replace(/\.jpg$/, '');
+    try {
+      if (isUsed(id)) continue;
+      if (Date.now() - fs.statSync(path.join(DIR, f)).mtimeMs < 10 * 60e3) continue; // en cours d'envoi
+      fs.unlinkSync(path.join(DIR, f)); n++;
+    } catch {}
+  }
   return n;
 }

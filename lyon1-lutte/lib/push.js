@@ -14,11 +14,18 @@ function vapid() {
   webpush.setVapidDetails(subject, db.settings.vapid.publicKey, db.settings.vapid.privateKey);
   return db.settings.vapid;
 }
-export const publicKey = () => { const k = vapid(); save(); return k.publicKey; };
+export const publicKey = () => { const isNew = !db.settings.vapid; const k = vapid(); if (isNew) save(); return k.publicKey; };
+// Seuls les vrais services de notification des navigateurs sont acceptés (pas n'importe quelle adresse https)
+const PUSH_HOSTS = /(^|\.)(fcm\.googleapis\.com|android\.googleapis\.com|push\.services\.mozilla\.com|push\.apple\.com|notify\.windows\.com)$/i;
+export function validEndpoint(endpoint) {
+  if (!/^https:\/\//.test(endpoint || '')) return false;
+  if (process.env.PUSH_ALLOW_ANY_HOST === '1') return true; // tests locaux
+  try { return PUSH_HOSTS.test(new URL(endpoint).hostname); } catch { return false; }
+}
 export const pushCount = () => (db.pushSubs || []).length;
 
 export function subscribe({ subscription, kinds, sites }) {
-  if (!subscription?.endpoint || !/^https:\/\//.test(subscription.endpoint) || !subscription.keys?.p256dh || !subscription.keys?.auth) throw new Error('Abonnement invalide.');
+  if (!subscription?.endpoint || !validEndpoint(subscription.endpoint) || !subscription.keys?.p256dh || !subscription.keys?.auth) throw new Error('Abonnement invalide.');
   db.pushSubs ||= [];
   let s = db.pushSubs.find((x) => x.endpoint === subscription.endpoint);
   if (!s) { s = { id: newId(), endpoint: subscription.endpoint, createdAt: now() }; db.pushSubs.push(s); }
@@ -47,10 +54,11 @@ export async function sendPushAll(payload) {
 
 // ---------- Alertes réservées aux modos (liées à leur compte, pas aux abonnements publics) ----------
 export function modSubscribe(modId, subscription) {
-  if (!subscription?.endpoint || !/^https:\/\//.test(subscription.endpoint) || !subscription.keys?.p256dh || !subscription.keys?.auth) throw new Error('Abonnement invalide.');
+  if (!subscription?.endpoint || !validEndpoint(subscription.endpoint) || !subscription.keys?.p256dh || !subscription.keys?.auth) throw new Error('Abonnement invalide.');
   db.modPushSubs ||= [];
   let s = db.modPushSubs.find((x) => x.endpoint === subscription.endpoint);
-  if (!s) { s = { id: newId(), endpoint: subscription.endpoint, createdAt: now() }; db.modPushSubs.push(s); }
+  if (s) db.modPushSubs = db.modPushSubs.filter((x) => x !== s).concat(s);
+  else { s = { id: newId(), endpoint: subscription.endpoint, createdAt: now() }; db.modPushSubs.push(s); }
   s.modId = modId;
   s.at = now();
   s.keys = { p256dh: String(subscription.keys.p256dh).slice(0, 200), auth: String(subscription.keys.auth).slice(0, 100) };
@@ -79,13 +87,15 @@ async function deliver(subs, kind, { title, body, url = '/', tag }, listName) {
   let sent = 0;
   // 20 envois en parallèle maximum
   for (let i = 0; i < subs.length; i += 20) {
-    await Promise.all(subs.slice(i, i + 20).map(async (s) => {
+    await Promise.allSettled(subs.slice(i, i + 20).map(async (s) => {
       try {
-        await webpush.sendNotification({ endpoint: s.endpoint, keys: s.keys }, payload, { TTL: 6 * 3600, urgency: kind === 'reports' ? 'normal' : 'high', topic: (tag || kind).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32) });
+        await webpush.sendNotification({ endpoint: s.endpoint, keys: s.keys }, payload, { TTL: 6 * 3600, timeout: 10000, urgency: kind === 'reports' ? 'normal' : 'high', topic: (tag || kind).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32) });
         sent++;
+        s.fails = 0;
       } catch (e) {
-        // 404/410 : le téléphone s'est désabonné ou l'app a été supprimée
-        if (e.statusCode === 404 || e.statusCode === 410) dead.add(s.endpoint);
+        // 404/410 : le téléphone s'est désabonné ou l'app a été supprimée ; 5 échecs d'affilée : abonnement abandonné
+        s.fails = (s.fails || 0) + 1;
+        if (e.statusCode === 404 || e.statusCode === 410 || s.fails >= 5) dead.add(s.endpoint);
         else console.error('[push]', e.statusCode || '', e.body || e.message);
       }
     }));

@@ -14,7 +14,7 @@ const TOKEN = () => (process.env.TELEGRAM_BOT_TOKEN || '').trim();
 export function normalizeChat(v) {
   let id = String(v || '').trim();
   if (!id) return '';
-  const m = id.match(/^(?:https?:\/\/)?(?:www\.)?t(?:elegram)?\.me\/(?:s\/)?([A-Za-z0-9_]{4,})\/?$/);
+  const m = id.match(/^(?:https?:\/\/)?(?:www\.)?t(?:elegram)?\.me\/(?:s\/)?([A-Za-z0-9_]{4,})\/?(?:[?#].*)?$/);
   if (m) return `@${m[1]}`;
   if (/^-?\d+$/.test(id)) return id;
   if (!id.startsWith('@') && /^[A-Za-z][A-Za-z0-9_]{3,}$/.test(id)) return `@${id}`;
@@ -104,6 +104,7 @@ export function postTelegram(html, path = '/', chatId = null) {
   const site = SITE_URL();
   // Telegram refuse les boutons vers des adresses locales (http://localhost) : on n'en met que si le site est en https.
   const url = site.startsWith('https://') ? `${site}${path}` : null;
+  if (queue.length >= 300) { console.error('[telegram] file pleine, message abandonné'); return; }
   queue.push({ html: String(html).slice(0, 4000), url, chat: normalizeChat(chatId) || MAIN_CHAT(), tries: 0 });
   run();
 }

@@ -7,12 +7,14 @@ import { db, save } from './store.js';
 const KEEP_DAYS = 120;
 const parisDay = (d = new Date()) => new Intl.DateTimeFormat('fr-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 
+let lastPrune = '';
 function day(d = parisDay()) {
   db.audience ||= { days: {} };
+  if (lastPrune !== d) { lastPrune = d; pruneAudience(); }
   return (db.audience.days[d] ||= { visits: { browser: 0, app: 0 }, devices: { browser: [], app: [] }, installs: 0 });
 }
 let saveTimer = null;
-const later = () => { clearTimeout(saveTimer); saveTimer = setTimeout(save, 5000); };
+const later = () => { if (!saveTimer) saveTimer = setTimeout(() => { saveTimer = null; save(); }, 5000); };
 
 // Une visite = une ouverture du site (une fois par session d'onglet ou d'app)
 export function recordVisit(dev, mode) {
