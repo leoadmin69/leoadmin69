@@ -937,7 +937,11 @@ mod.get('/presence', (req, res) => {
 });
 
 // Admin : comptes modos (un compte par organisation / personne)
-mod.get('/mods', requireAdmin, (req, res) => res.json(db.mods.map(publicMod)));
+// L'admin voit qui a activé les alertes modo sur son téléphone (nombre d'appareils, dernière activation)
+mod.get('/mods', requireAdmin, (req, res) => res.json(db.mods.map((m) => {
+  const subs = (db.modPushSubs || []).filter((x) => x.modId === m.id);
+  return { ...publicMod(m), modPush: subs.length, modPushAt: subs.map((x) => x.at || x.createdAt).sort().at(-1) || null };
+})));
 mod.post('/mods', requireAdmin, (req, res) => {
   const username = clip(req.body.username, 40).toLowerCase();
   if (!/^[a-z0-9._-]{3,40}$/.test(username)) return bad(res, 'Identifiant : 3 à 40 caractères (lettres, chiffres, . _ -).');

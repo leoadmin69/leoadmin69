@@ -1975,7 +1975,8 @@ async function modAccounts(el) {
       <div class="chips" id="msitesNew">${siteList().map((x) => `<label class="check" style="padding:2px 8px 2px 0"><input type="checkbox" name="ns" value="${esc(x.id)}" ${x.id === state.modSite ? 'checked' : ''}> ${esc(x.short)}</label>`).join('')}</div>
       <label class="check"><input type="checkbox" id="ma"> Admin : tous les sites, comptes et réglages</label>
       <button class="btn">Créer et générer le mot de passe</button></form></div>
-    <div class="list" style="margin-top:14px">${mods.map((m) => `<div class="row"><div class="grow"><div class="title">${esc(m.username)} ${m.role === 'admin' ? '<span class="pill purple">admin</span>' : ''} ${m.disabled ? '<span class="pill grey">désactivé</span>' : ''}</div><div class="sub">${esc(m.org)} · ${m.role === 'admin' ? 'tous les sites' : esc((m.sites || []).map(siteShort).join(', ') || 'aucun site')}</div></div>
+    ${modPushSummary(mods)}
+    <div class="list" style="margin-top:14px">${mods.map((m) => `<div class="row"><div class="grow"><div class="title">${esc(m.username)} ${m.role === 'admin' ? '<span class="pill purple">admin</span>' : ''} ${m.disabled ? '<span class="pill grey">désactivé</span>' : m.modPush ? `<span class="pill green" title="Dernière activation ${esc(ago(m.modPushAt))}">🔔 alertes · ${m.modPush} tél.</span>` : '<span class="pill orange">🔕 alertes non activées</span>'}</div><div class="sub">${esc(m.org)} · ${m.role === 'admin' ? 'tous les sites' : esc((m.sites || []).map(siteShort).join(', ') || 'aucun site')}</div></div>
       ${m.id === state.me.id ? '' : `<button class="btn small ghost" data-edit="${esc(m.id)}">Modifier</button>`}<button class="btn small ghost" data-reset="${esc(m.id)}">Nouveau mdp</button>${m.disabled || m.id === state.me.id ? '' : `<button class="btn small red" data-off="${esc(m.id)}">Désactiver</button>`}</div>`).join('')}</div>`;
   const showPw = (m) => sheet(`<h3>Accès pour ${esc(m.username)}</h3><p class="muted">Transmets-le en main propre ou par messagerie chiffrée (Signal). Il ne sera plus affiché.</p><div class="secret">${esc(m.password)}</div><p class="faint small">La personne pourra le changer dans « Mon compte ».</p>`);
   $('#mf').onsubmit = async (e) => { e.preventDefault(); const m = await act(() => api('/api/mod/mods', { method: 'POST', body: { username: $('#mu').value, org: $('#mo').value, role: $('#ma').checked ? 'admin' : 'mod', sites: $$('input[name=ns]:checked').map((x) => x.value) } })); showPw(m); await modAccounts(el); };
@@ -3101,4 +3102,20 @@ async function openCamera() {
     } catch { toast('Envoi impossible, vérifie ta connexion.'); }
   };
   start();
+}
+
+// Admin : qui reçoit les alertes modo (signalements à vérifier), et quels sites ne sont couverts par personne
+function modPushSummary(mods) {
+  const active = mods.filter((m) => !m.disabled);
+  const on = active.filter((m) => m.modPush);
+  const covers = (m, id) => m.role === 'admin' || (m.sites || []).includes(id);
+  const rows = siteList().map((x) => {
+    const team = active.filter((m) => m.role !== 'admin' && covers(m, x.id));
+    const ok = team.filter((m) => m.modPush);
+    return `<div class="mp-site ${team.length && !ok.length ? 'warn' : ''}"><b>${esc(x.short)}</b><span>${team.length ? `${ok.length}/${team.length} modo${team.length > 1 ? 's' : ''} ${ok.length ? '🔔' : '🔕'}` : '<i>aucun modo</i>'}</span>${team.length ? `<small>${team.map((m) => `${m.modPush ? '🔔' : '🔕'} ${esc(m.org)}`).join(' · ')}</small>` : ''}</div>`;
+  }).join('');
+  const missing = siteList().filter((x) => { const t = active.filter((m) => m.role !== 'admin' && covers(m, x.id)); return t.length && !t.some((m) => m.modPush); });
+  return `<div class="card" style="margin-top:14px"><div class="kicker">🔔 Alertes modo sur téléphone · ${on.length}/${active.length} compte${active.length > 1 ? 's' : ''} actif${active.length > 1 ? 's' : ''}</div>
+    <p class="muted small" style="margin:6px 0 10px">Un modo reçoit une notification quand 3 étudiant·es signalent un bâtiment de ses sites, seulement s’il a touché « Activer » dans l’espace modo sur son téléphone.${missing.length ? ` <b style="color:var(--orange)">Personne n’est prévenu pour : ${missing.map((x) => esc(x.short)).join(', ')}.</b> Relance ces modos.` : ''}</p>
+    <div class="mp-grid">${rows}</div></div>`;
 }

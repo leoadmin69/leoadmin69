@@ -47,6 +47,7 @@ export function modSubscribe(modId, subscription) {
   let s = db.modPushSubs.find((x) => x.endpoint === subscription.endpoint);
   if (!s) { s = { id: newId(), endpoint: subscription.endpoint, createdAt: now() }; db.modPushSubs.push(s); }
   s.modId = modId;
+  s.at = now();
   s.keys = { p256dh: String(subscription.keys.p256dh).slice(0, 200), auth: String(subscription.keys.auth).slice(0, 100) };
   // au plus 5 téléphones par modo
   const mine = db.modPushSubs.filter((x) => x.modId === modId);
