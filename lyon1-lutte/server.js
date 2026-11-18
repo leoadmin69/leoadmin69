@@ -142,7 +142,7 @@ function audit(mod, action, detail = '', siteId = '') {
 
 // ---------- Session modo ----------
 function currentMod(req) { return readToken(parseCookies(req.headers.cookie)[COOKIE]); }
-const TERRAIN_OK = [/^PUT \/buildings-batch$/, /^PUT \/buildings\/[\w-]+$/, /^POST \/terrain\/building\/[\w-]+\/photo$/, /^GET \/sightings$/, /^POST \/sightings\/(ignore|remind)$/, /^GET \/sightings\/photo\/[\w-]+$/, /^POST \/push\/(subscribe|unsubscribe|status)$/, /^GET \/presence$/, /^GET \/guide\.pdf$/];
+const TERRAIN_OK = [/^GET \/terrain\/buildings$/, /^PUT \/buildings-batch$/, /^PUT \/buildings\/[\w-]+$/, /^POST \/terrain\/building\/[\w-]+\/photo$/, /^GET \/sightings$/, /^POST \/sightings\/(ignore|remind)$/, /^GET \/sightings\/photo\/[\w-]+$/, /^POST \/push\/(subscribe|unsubscribe|status)$/, /^GET \/presence$/, /^GET \/guide\.pdf$/];
 function requireMod(req, res, next) {
   const mod = currentMod(req);
   if (!mod) return bad(res, 'Connexion modo requise.', 401);
@@ -759,6 +759,15 @@ mod.put('/blocus', (req, res) => {
 });
 
 // Bâtiments
+mod.get('/terrain/buildings', (req, res) => {
+  if (req.mod.role !== 'terrain') return bad(res, 'Réservé aux comptes piquet.', 403);
+  const buildings = db.buildings
+    .filter((b) => canSite(req.mod, siteOf(b)))
+    .sort((a, b) => a.campus.localeCompare(b.campus) || a.name.localeCompare(b.name))
+    .map(({ terrainProof, ...b }) => b);
+  res.json({ buildings, sites: modSites(req.mod).map((id) => ({ id, name: siteName(id) })) });
+});
+
 mod.post('/buildings', (req, res) => {
   const name = clip(req.body.name, 80);
   const sid = targetSite(req);

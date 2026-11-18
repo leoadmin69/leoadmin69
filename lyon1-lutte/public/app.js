@@ -1013,13 +1013,25 @@ const act = async (fn, ok) => { try { const r = await fn(); if (ok) toast(ok); r
 
 // Compte piquet : interface minimale, identique à la page publique des bâtiments.
 // Chaque mise à jour commence par une photo prise sur place ; sans photo, aucun statut ne part.
-function modTerrainSituation(el) {
-  const inSite = (b) => b.site === state.modSite;
+async function modTerrainSituation(el) {
+  el.innerHTML = '<div class="empty mono typing">Chargement des bâtiments…</div>';
+  let terrainBuildings = [];
+  try {
+    const r = await api('/api/mod/terrain/buildings');
+    terrainBuildings = r.buildings || [];
+  } catch (e) {
+    el.innerHTML = `<div class="card empty">${esc(e.message)}</div>`;
+    return;
+  }
+  if (!terrainBuildings.length) {
+    el.innerHTML = '<div class="card empty"><div class="big">📍</div>Aucun bâtiment n’est assigné à ce compte piquet.<br><small class="muted">Demande à l’admin de rattacher les bâtiments au site de ce compte.</small></div>';
+    return;
+  }
   let campus = 'Tous';
   let query = '';
 
   const renderGrid = () => {
-    const list = state.data.buildings.filter(inSite).filter((b) => {
+    const list = terrainBuildings.filter((b) => {
       const campusOk = campus === 'Tous' || b.campus === campus;
       const words = normSearch(query).split(' ').filter(Boolean);
       return campusOk && words.every((w) => normSearch(`${b.name} ${b.note || ''} ${b.campus}`).includes(w));
@@ -1038,7 +1050,7 @@ function modTerrainSituation(el) {
       </div>`).join('') || '<div class="empty">Aucun bâtiment trouvé.</div>';
   };
 
-  const allBuildings = state.data.buildings.filter(inSite);
+  const allBuildings = terrainBuildings;
   const campuses = ['Tous', ...new Set(allBuildings.map((b) => b.campus))];
   el.innerHTML = `
     <p class="subtitle">Touche un bâtiment, prends une photo de l’entrée, puis choisis son état.</p>
@@ -1064,7 +1076,7 @@ function modTerrainSituation(el) {
   };
 
   function openTerrainBuilding(id) {
-    const b = state.data.buildings.find((x) => x.id === id);
+    const b = terrainBuildings.find((x) => x.id === id);
     if (!b) return;
     sheet(`<h2 style="margin:0 0 4px">📍 ${esc(b.name)}</h2>
       <p class="muted small" style="margin:0 0 14px">1. Prends une photo de l’entrée : obligatoire.</p>
@@ -2662,7 +2674,7 @@ function scheduleRefresh() {
     try { await refresh(); } catch { return; }
     const r = route().split('/')[0];
     if (r === 'chat') { renderNav(); renderAlertBar(); return; }
-    if (r === 'modo' && state.me) { renderNav(); renderAlertBar(); if (state.modTab === 'situation') { window.drawTiles?.(); const h = $('#bhint'); if (h && state.data.blocus.auto) h.textContent = `Automatique : le titre suit les bâtiments (actuellement « ${BLOCUS[blocusNow(state.data.blocus)]} »).`; } return; }
+    if (r === 'modo' && state.me) { renderNav(); renderAlertBar(); if (state.me.role === 'terrain') { render(true); return; } if (state.modTab === 'situation') { window.drawTiles?.(); const h = $('#bhint'); if (h && state.data.blocus.auto) h.textContent = `Automatique : le titre suit les bâtiments (actuellement « ${BLOCUS[blocusNow(state.data.blocus)]} »).`; } return; }
     render();
   }, 250);
 }
