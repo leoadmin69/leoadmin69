@@ -19,21 +19,51 @@ dans le même commit que le code.
 7. Copilot (agent cloud) travaille dans une PR dont la **base est la branche de travail** ; la PR est fusionnée
    dans cette branche (jamais dans la branche par défaut du dépôt, qui est celle d'un autre projet).
 
-## Passation (état au 2026-11-18, mis à jour par Claude)
-- **Fait** : audit complet (failles médias inter-sites et droits du compte piquet dans le chat corrigées, liste noire,
-  annulation sans écrasement, limite signalements wifi campus, photo du piquet visible par les modos, chat plein écran
-  iPhone, barre latérale bureau, fautes et textes, guide PDF). PR #2 de Copilot fusionnée. Rouge foncé sous texte blanc.
-- **En ligne** : le site de production est **https://leoadmin69.onrender.com** (service Render « Lyon1-ladoua-en-lutte »,
-  `srv-dbu3je68bjmc73a7vt1g`, runtime Node, dossier `lyon1-lutte`, Supabase + Telegram + IA branchés, déploiement auto
-  à chaque push). `node tools/ops.mjs status` / `health` le visent par défaut.
-- **Adresse définitive (décision admin du 18/11)** : on garde https://leoadmin69.onrender.com, pas de changement d'adresse.
-  Le doublon « ladoua-en-lutte » a été supprimé. `lyon1-lutte/redirect.js` (redirection + pont des notifications) est prêt
-  mais NON utilisé : ne servirait que si un jour on change d'adresse (l'ancien service devrait alors rester en redirection).
-- **Attention Blueprint** : un Blueprint Render « Lyon1 » (auto-sync sur `render.yaml`) a créé le doublon. Ne pas modifier
-  `render.yaml` sans raison : une synchro pourrait recréer un service vide « ladoua-en-lutte ». L'admin peut le déconnecter
-  dans Render → Blueprints → Lyon1.
-- **À faire** : bouton « Pause Telegram » dans l'admin proposé, pas encore demandé.
-- **Décidé** : affichage « selon les personnes sur place » à partir de 3 signalements non validés en 5 min (confirmé par l'admin).
+## Passation (2026-11-18, fin de session Claude → relais à Copilot)
+**Dernier commit de Claude : voir `git log -15`.** Tout est poussé, rien en cours de modification.
+
+### En ligne
+- Production : **https://leoadmin69.onrender.com** (Render « Lyon1-ladoua-en-lutte », `srv-dbu3je68bjmc73a7vt1g`,
+  runtime Node, `rootDir` = `lyon1-lutte`, build `npm ci`, start `npm start`, déploiement auto à chaque push).
+  C'est l'adresse définitive (décision admin) : ne pas changer d'adresse, ne pas créer d'autre service.
+- Base : Supabase Storage (bucket privé, fichier `db.json` + médias), branchée sur Render via `SUPABASE_URL` /
+  `SUPABASE_SERVICE_KEY`. Au 18/11 : 44 bâtiments, 144 téléphones abonnés, 11 comptes modo, 7 sites.
+- Telegram (bot + chaîne @ladoualyon1) et IA (Gemini, Groq) branchés.
+
+### Fait pendant cette session
+- Audit complet par 3 agents + PR #2 Copilot (fusionnée) : failles corrigées (médias inter-sites, droits du compte
+  piquet dans le chat), liste noire, annulation sans écrasement, signalements en caméra seule, limite wifi campus,
+  photo du piquet visible par les modos (fiche bâtiment → « 📷 Voir la photo du piquet »), chat plein écran iPhone,
+  barre latérale bureau, fautes et textes (« compte piquet », « selon les personnes sur place »), guide PDF, rouge foncé
+  sous texte blanc.
+- Compte piquet : écran calqué sur la page publique Bâtiments, caméra directe, aucun import.
+- Doublon Render « ladoua-en-lutte » supprimé. `redirect.js` prêt mais NON utilisé (seulement si changement d'adresse un jour).
+- `tools/ops.mjs` (health, status, deploy, env, setenv, backup, restore) + `.github/workflows/copilot-setup-steps.yml`.
+
+### Bloqué / en attente de l'admin
+- **Accès Copilot à la production** : l'admin doit ajouter dans GitHub → Settings → Environments → `copilot` les
+  secrets `RENDER_API_KEY`, `RENDER_SERVICE_ID` (= `srv-dbu3je68bjmc73a7vt1g`), `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`,
+  puis autoriser `api.render.com`, `*.supabase.co`, `leoadmin69.onrender.com` dans le pare-feu de Copilot
+  (Settings → Copilot → Coding agent). Sans ça, `tools/ops.mjs` répond « variable manquante » : le dire à l'admin, ne pas contourner.
+- **Supabase pour Claude** : en attente d'une clé dédiée (nouvelle clé `sb_secret_…`, pas celle du site) et de
+  l'adresse du projet. Ne jamais lire les clés du site depuis Render pour s'en servir ailleurs.
+- **Blueprint Render « Lyon1 »** (auto-sync sur `render.yaml`) : c'est lui qui a créé le doublon. Ne pas modifier
+  `render.yaml` ; conseiller à l'admin de le déconnecter (Render → Blueprints → Lyon1, en gardant le service).
+- **Clé Render** : si l'admin a réutilisé une clé déjà collée dans un chat, elle doit être révoquée et recréée.
+
+### Idées proposées, pas encore demandées
+- Bouton « Pause Telegram » dans l'admin.
+- Vérifier régulièrement l'espace Supabase utilisé (plan gratuit) une fois l'accès en place.
+
+### Décidé
+- Affichage « selon les personnes sur place » à partir de 3 signalements non validés en 5 min.
+- On garde l'adresse leoadmin69.onrender.com.
+
+### Pour bien démarrer (Copilot)
+1. Lire ce fichier en entier, puis `git log -15`.
+2. Base de la PR = `claude/lyon1-student-info-platform-ohzn3d` (jamais la branche par défaut du dépôt).
+3. Vérifier avant de pousser (règle 2), monter `VERSION` de `public/sw.js` si `public/` change.
+4. En fin de tâche : mettre à jour cette section « Passation ».
 
 ## Accès production (serveur, base, hébergeur)
 Tout se pilote avec `node tools/ops.mjs` (dans `lyon1-lutte/`) : `health`, `status`, `deploy`, `env`, `setenv NOM=valeur`,
