@@ -336,7 +336,7 @@ export function registerCommunity(app, mod, ctx) {
     // suspect = appareil tout neuf (moins de 30 min) ET déjà 10 votes ou plus de ce réseau en 5 min sur ce vote
     const fresh = Date.now() - (req.devBorn || Date.now()) < 30 * 60e3, burst = netBurst(p.id, visitor(req));
     if (fresh && burst >= 10) { p.suspect ||= {}; p.suspect[b] = 1; }
-    if (fresh) liveBot(p, visitor(req), b, choice);
+    if (fresh) { p.fresh ||= {}; p.fresh[b] = 1; liveBot(p, visitor(req), b, choice); }
     p.ballots[b] = choice;
     p.times ||= {}; p.times[b] = Math.floor(Date.now() / 60e3); // minute du vote, sans rien sur la personne
     save();
@@ -364,12 +364,13 @@ export function registerCommunity(app, mod, ctx) {
   const PACK = 100;
   // ---- Suppression AUTOMATIQUE des votes de robot (annulable par un·e modo) ----
   // Les votes retirés sont mis de côté dans p.bot (pas effacés) : « Annuler » les remet en une touche.
+  const botPushAt = new Map();
   function removeAsBot(p, keys, why) {
     let n = 0;
     p.bot ||= {};
     for (const k of keys) {
       if (p.ballots[k] === undefined) continue;
-      p.bot[k] = p.ballots[k]; delete p.ballots[k];
+      p.bot[k] = p.ballots[k]; delete p.ballots[k]; if (p.fresh) delete p.fresh[k];
       if (p.suspect) delete p.suspect[k];
       n++;
     }
@@ -380,6 +381,8 @@ export function registerCommunity(app, mod, ctx) {
     save();
     audit({ username: 'robot-detecteur', org: 'Détection automatique' }, 'votes de robot retirés automatiquement', `${n} · ${p.question} · ${why}`, siteOf(p));
     broadcast('poll', { id: p.id });
+    if (Date.now() - (botPushAt.get(p.id) || 0) < 30 * 60e3) return n;
+    botPushAt.set(p.id, Date.now());
     const ids = db.mods.filter((m) => !m.disabled && canSite(m, siteOf(p))).map((m) => m.id);
     sendModPush?.(ids, { title: `🤖 ${n} votes de robot retirés`, body: `« ${p.question.slice(0, 80)} » : ${why}. Vérifie dans l’espace modo (bouton Annuler si c’est une erreur).`, url: '/#/modo', tag: `bot-${p.id}` }).catch(() => {});
     return n;
@@ -418,9 +421,28 @@ export function registerCommunity(app, mod, ctx) {
     }
     for (const [i, j, c] of out.reverse()) removeAsBot(p, keys.slice(i * PACK, (j + 1) * PACK), `bloc de ${(j - i + 1) * PACK} votes d’affilée à 95 % « ${p.options[c]} »`);
   }
+  // 3. Robot lent (un vote de temps en temps, sous les radars des rafales) : sur les 3 dernières heures, les votes des
+  // téléphones tout neufs (créés juste avant de voter) vont à 90 % ou plus vers un choix, alors que ceux des téléphones
+  // déjà connus du site le choisissent au moins 30 points de moins. Seuls les votes neufs de ce choix sont retirés.
+  function slowBot(p) {
+    if (!p.times || !p.fresh) return;
+    const since = Math.floor(Date.now() / 60e3) - 180;
+    const fresh = [], old = [];
+    for (const [k, c] of Object.entries(p.ballots)) {
+      const m = p.times[k];
+      if (m === undefined || m < since) continue;
+      (p.fresh[k] ? fresh : old).push([k, c]);
+    }
+    if (fresh.length < 50 || old.length < 20) return;
+    const share = (list, i) => list.filter(([, c]) => c === i).length / list.length;
+    const top = p.options.map((_, i) => share(fresh, i));
+    const best = top.indexOf(Math.max(...top));
+    if (top[best] < 0.9 || top[best] - share(old, best) < 0.3) return;
+    removeAsBot(p, fresh.filter(([, c]) => c === best).map(([k]) => k), `robot lent : ${fresh.length} votes de téléphones tout neufs en 3 h, ${Math.round(top[best] * 100)} % « ${p.options[best]} » (contre ${Math.round(share(old, best) * 100)} % chez les téléphones connus)`);
+  }
   const AUTO_BOT = () => !/^(0|false|non|off)$/i.test(process.env.VOTE_AUTO_BOT || '1');
-  setInterval(() => { if (AUTO_BOT()) for (const p of db.polls) if (!p.hidden && Object.keys(p.ballots).length >= 1000) orderBot(p); }, 5 * 60e3).unref();
-  setTimeout(() => { if (AUTO_BOT()) for (const p of db.polls) if (!p.hidden && Object.keys(p.ballots).length >= 1000) orderBot(p); }, 30e3).unref();
+  setInterval(() => { if (!AUTO_BOT()) return; for (const p of db.polls) { if (p.hidden) continue; if (Object.keys(p.ballots).length >= 1000) orderBot(p); if (isOpen(p)) slowBot(p); } }, 5 * 60e3).unref();
+  setTimeout(() => { if (!AUTO_BOT()) return; for (const p of db.polls) { if (p.hidden) continue; if (Object.keys(p.ballots).length >= 1000) orderBot(p); if (isOpen(p)) slowBot(p); } }, 30e3).unref();
   // Annuler : remet les votes retirés automatiquement
   mod.post('/polls/:id/restore-bot', (req, res) => {
     const p = db.polls.find((x) => x.id === req.params.id);
