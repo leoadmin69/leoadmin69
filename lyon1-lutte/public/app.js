@@ -2432,6 +2432,20 @@ function remaining(iso) {
   if (s < 86400) return `${Math.floor(s / 3600)} h ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}`;
   return `${Math.floor(s / 86400)} j ${Math.floor((s % 86400) / 3600)} h`;
 }
+// Graphique des votes par tranche de 10 min (côté modo) : un pic anormal = bourrage probable, à retirer en 2 taps
+function pollTimeline(p) {
+  const t = p.timeline;
+  if (!t || !t.slots.length) return t?.undated ? `<p class="faint small">${t.undated} vote(s) d’avant le suivi horaire (non datés).</p>` : '';
+  const max = Math.max(...t.slots.map((x) => x[1]));
+  const sorted = t.slots.map((x) => x[1]).sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)] || 1;
+  const hm = (m) => new Date(m * 60e3).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' });
+  return `<div class="tl"><div class="faint small">Votes par tranche de 10 min${t.undated ? ` · ${t.undated} non datés (avant le suivi)` : ''}${p.purged ? ` · ${p.purged} déjà retirés` : ''} · touche une barre pour la sélectionner</div>
+    <div class="tl-bars">${t.slots.map(([m, n]) => `<button type="button" class="tl-bar ${n >= 50 && n > median * 5 ? 'peak' : ''}" data-a="slot" data-slot="${m}" data-n="${n}" title="${hm(m)} : ${n} vote(s)" style="height:${Math.max(4, Math.round((n / max) * 60))}px"></button>`).join('')}</div>
+    <div class="tl-axis faint small"><span>${hm(t.slots[0][0])}</span><span>${hm(t.slots[t.slots.length - 1][0] + t.slot)}</span></div>
+    ${t.slots.some(([, n]) => n >= 50 && n > median * 5) ? '<div class="small" style="color:var(--orange)">⚠ Pic anormal en orange : bourrage probable.</div>' : ''}
+    <button type="button" class="btn small red ghost" data-a="purgeslots" hidden></button></div>`;
+}
 const POLL_RESULTS = [['live', 'Visibles par tout le monde pendant le vote'], ['voted', 'Visibles seulement après avoir voté'], ['after', 'Cachés jusqu’à la clôture']];
 function pollHtml(p) {
   const voted = p.myVote !== null;
@@ -2707,6 +2721,7 @@ async function modPolls(el) {
       <div class="faint small" style="margin-top:6px">${esc(p.ag || '')} · ${esc(p.org)}</div>
       <b style="display:block;margin:4px 0 8px">${esc(p.question)}</b>
       ${p.options.map((o, i) => `<div class="kv"><span>${esc(o)}</span><b class="mono">${p.counts[i]}${p.suspectCounts?.[i] ? ` <span class="faint">(dont ${p.suspectCounts[i]} suspects)</span>` : ''}</b></div>`).join('')}
+      ${pollTimeline(p)}
       ${p.suspect ? `<div class="card" style="background:rgba(255,159,10,.12);margin-top:8px">⚠ <b>${p.suspect} vote(s) suspect(s)</b> : téléphones tout neufs arrivés en rafale depuis un même réseau (bourrage possible). <button class="btn small ghost" data-a="purge">Retirer les votes suspects</button></div>` : ''}
       <div class="btn-row" style="margin-top:8px"><button class="btn small ghost" data-a="link">🔗 Lien</button>${p.open ? '<button class="btn small ghost" data-a="story">📸 Story du vote</button>' : ''}${p.total ? '<button class="btn small ghost" data-a="res">📊 Story résultats</button>' : ''}${p.open ? '<button class="btn small red" data-a="close">Clore maintenant</button>' : ''}<button class="btn small ghost" data-a="extend">+24 h</button><button class="btn small ghost" data-a="hide">${p.hidden ? 'Afficher' : 'Masquer'}</button><button class="btn small ghost" data-a="del">Supprimer</button></div>
       <div class="field" style="margin-top:8px"><label>Résultats</label><select data-a="results">${POLL_RESULTS.map(([k, l]) => `<option value="${k}" ${k === (p.results || 'live') ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
@@ -2734,6 +2749,13 @@ async function modPolls(el) {
     if (a === 'res') return openStory(`res:${id}`);
     if (a === 'close' && confirm('Clore ce vote maintenant ?')) await act(() => api(`/api/mod/polls/${id}`, { method: 'PUT', body: { close: true } }), 'Clos.');
     if (a === 'extend') await act(() => api(`/api/mod/polls/${id}`, { method: 'PUT', body: { extendHours: 24 } }), 'Prolongé de 24 h.');
+    if (a === 'slot') { e.target.classList.toggle('sel'); const sel = $$('.tl-bar.sel', card); const n = sel.reduce((s, x) => s + Number(x.dataset.n), 0); const btn = $('[data-a="purgeslots"]', card); btn.hidden = !sel.length; btn.textContent = `Retirer les ${n} vote(s) de ${sel.length} tranche(s)`; return; }
+    if (a === 'purgeslots') {
+      const slots = $$('.tl-bar.sel', card).map((x) => Number(x.dataset.slot));
+      if (!slots.length || !confirm('Retirer tous les votes de ces tranches horaires ? (vrais et faux : à utiliser sur un pic de bourrage)')) return;
+      const r = await act(() => api(`/api/mod/polls/${id}/purge-window`, { method: 'POST', body: { slots } }));
+      toast(`${r.n} vote(s) retiré(s).`);
+    }
     if (a === 'purge' && confirm('Retirer les votes suspects de ce vote ? Les vrais votes restent.')) { const r = await act(() => api(`/api/mod/polls/${id}/purge-suspects`, { method: 'POST' })); toast(`${r.n} vote(s) suspect(s) retiré(s).`); }
     if (a === 'hide') await act(() => api(`/api/mod/polls/${id}`, { method: 'PUT', body: { hidden: !p.hidden } }), 'OK.');
     if (a === 'del' && confirm('Supprimer ce vote et ses résultats ?')) await act(() => api(`/api/mod/polls/${id}`, { method: 'DELETE' }), 'Supprimé.');

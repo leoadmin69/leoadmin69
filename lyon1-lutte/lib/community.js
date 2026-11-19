@@ -337,13 +337,43 @@ export function registerCommunity(app, mod, ctx) {
     const fresh = Date.now() - (req.devBorn || Date.now()) < 30 * 60e3, burst = netBurst(p.id, visitor(req));
     if (fresh && burst >= 10) { p.suspect ||= {}; p.suspect[b] = 1; }
     p.ballots[b] = choice;
+    p.times ||= {}; p.times[b] = Math.floor(Date.now() / 60e3); // minute du vote, sans rien sur la personne
     save();
     pollPing(p.id);
     res.json(publicPoll(p, dev));
   });
 
   const DURATIONS = { '1h': 1, '3h': 3, '6h': 6, '12h': 12, '24h': 24, '48h': 48, '72h': 72, '7j': 168 };
-  mod.get('/polls', (req, res) => res.json(db.polls.filter((p) => visible(req, p)).map((p) => ({ ...publicPoll(p), counts: p.options.map((_, i) => Object.values(p.ballots).filter((b) => b === i).length), suspect: Object.keys(p.suspect || {}).filter((k) => p.ballots[k] !== undefined).length, suspectCounts: p.options.map((_, i) => Object.keys(p.suspect || {}).filter((k) => p.ballots[k] === i).length), hidden: !!p.hidden, closed: !!p.closed }))));
+  mod.get('/polls', (req, res) => res.json(db.polls.filter((p) => visible(req, p)).map((p) => ({ ...publicPoll(p), counts: p.options.map((_, i) => Object.values(p.ballots).filter((b) => b === i).length), timeline: timeline(p), purged: p.purged || 0, suspect: Object.keys(p.suspect || {}).filter((k) => p.ballots[k] !== undefined).length, suspectCounts: p.options.map((_, i) => Object.keys(p.suspect || {}).filter((k) => p.ballots[k] === i).length), hidden: !!p.hidden, closed: !!p.closed }))));
+  // Votes par tranche de 10 min (pour repérer un pic de bourrage) ; les votes d'avant ce suivi ne sont pas datés
+  const SLOT = 10;
+  function timeline(p) {
+    const slots = {};
+    let undated = 0;
+    for (const k of Object.keys(p.ballots)) {
+      const m = p.times?.[k];
+      if (m === undefined) { undated++; continue; }
+      const s = Math.floor(m / SLOT) * SLOT;
+      slots[s] = (slots[s] || 0) + 1;
+    }
+    return { slot: SLOT, undated, slots: Object.entries(slots).map(([m, n]) => [Number(m), n]).sort((a, b) => a[0] - b[0]) };
+  }
+  // Retirer les votes d'une ou plusieurs tranches de 10 min (pic de bourrage)
+  mod.post('/polls/:id/purge-window', (req, res) => {
+    const p = db.polls.find((x) => x.id === req.params.id);
+    if (!p) return bad(res, 'Introuvable', 404);
+    if (!needSite(req, res, siteOf(p))) return;
+    const starts = new Set((Array.isArray(req.body.slots) ? req.body.slots : []).map(Number).filter(Number.isInteger).slice(0, 500));
+    if (!starts.size) return bad(res, 'Choisis au moins une tranche horaire.');
+    let n = 0;
+    for (const k of Object.keys(p.ballots)) {
+      const m = p.times?.[k];
+      if (m !== undefined && starts.has(Math.floor(m / SLOT) * SLOT)) { delete p.ballots[k]; delete p.times[k]; if (p.suspect) delete p.suspect[k]; n++; }
+    }
+    p.purged = (p.purged || 0) + n;
+    save(); audit(req.mod, 'votes retirés (pic horaire)', `${n} · ${p.question}`, siteOf(p)); broadcast('poll', { id: p.id });
+    res.json({ ok: true, n });
+  });
   mod.post('/polls/:id/purge-suspects', (req, res) => {
     const p = db.polls.find((x) => x.id === req.params.id);
     if (!p) return bad(res, 'Introuvable', 404);

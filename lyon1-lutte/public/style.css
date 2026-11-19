@@ -781,3 +781,11 @@ html.no-select * { -webkit-tap-highlight-color: transparent; }
 /* Vote : pendant le petit calcul anti-bourrage */
 .opt.voting { opacity: .7; }
 .opt.voting::after { content: ' ⏳'; }
+
+/* Votes côté modo : graphique des votes par tranche de 10 min */
+.tl { margin-top: 10px; display: grid; gap: 6px; }
+.tl-bars { display: flex; align-items: flex-end; gap: 2px; height: 64px; overflow-x: auto; padding-bottom: 2px; }
+.tl-bar { flex: 0 0 8px; min-width: 8px; border: 0; padding: 0; border-radius: 3px 3px 0 0; background: var(--blue); cursor: pointer; }
+.tl-bar.peak { background: var(--orange, #ff9f0a); }
+.tl-bar.sel { background: var(--red-strong); outline: 2px solid #fff; }
+.tl-axis { display: flex; justify-content: space-between; }
