@@ -8,13 +8,34 @@
 import Anthropic from '@anthropic-ai/sdk';
 
 const has = {
+  openrouter: () => !!process.env.OPENROUTER_API_KEY,
   gemini: () => !!process.env.GEMINI_API_KEY,
   groq: () => !!process.env.GROQ_API_KEY,
   anthropic: () => !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN),
 };
-const order = () => (process.env.AI_PROVIDERS || 'gemini,groq,anthropic').split(',').map((s) => s.trim()).filter((p) => has[p]?.());
+// OpenRouter (si sa clé est là) passe en premier ; les autres restent en secours, dans l'ordre d'AI_PROVIDERS
+const order = () => {
+  const list = (process.env.AI_PROVIDERS || 'openrouter,gemini,groq,anthropic').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  if (!list.includes('openrouter')) list.unshift('openrouter');
+  return [...new Set(list)].filter((p) => has[p]?.());
+};
 export const aiEnabled = () => order().length > 0;
-export const aiProviders = () => order().map((p) => ({ gemini: 'Gemini (gratuit)', groq: 'Groq (gratuit)', anthropic: 'Claude' }[p]));
+export const aiProviders = () => order().map((p) => ({ openrouter: `OpenRouter (${OPENROUTER_MODEL()})`, gemini: 'Gemini (gratuit)', groq: 'Groq (gratuit)', anthropic: 'Claude' }[p]));
+// OpenRouter : une seule clé pour de nombreux modèles (OPENROUTER_MODEL, ex. google/gemini-2.5-flash ou un modèle « :free »)
+const OPENROUTER_BASE = () => (process.env.OPENROUTER_BASE || 'https://openrouter.ai/api/v1').replace(/\/$/, '');
+const OPENROUTER_MODEL = () => (process.env.OPENROUTER_MODEL || 'openrouter/auto').trim();
+async function openRouterChat(messages, { maxTokens = 6000, json = true } = {}) {
+  const res = await fetch(`${OPENROUTER_BASE()}/chat/completions`, {
+    method: 'POST',
+    signal: AbortSignal.timeout(120000),
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, 'X-Title': 'Lyon 1 · La Doua au courant' },
+    body: JSON.stringify({ model: OPENROUTER_MODEL(), temperature: 0.1, max_tokens: maxTokens, messages, ...(json ? { response_format: { type: 'json_object' } } : {}) }),
+  });
+  if (!res.ok) throw await httpError(res, 'OpenRouter');
+  const j = await res.json();
+  if (j.error) { const e = new Error(`OpenRouter : ${j.error.message || 'erreur'}`); e.status = j.error.code; throw e; }
+  return j.choices?.[0]?.message?.content || '';
+}
 const MODEL = () => process.env.ANTHROPIC_MODEL || 'claude-opus-5-5';
 
 const str = { type: 'string' };
@@ -353,10 +374,18 @@ async function instagramLocally(text) {
   return data;
 }
 
+async function instagramWithOpenRouter(text, context = '') {
+  const out = await openRouterChat([
+    { role: 'system', content: `${INSTAGRAM_SYSTEM}\n\nSchéma JSON exact :\n${JSON.stringify(INSTAGRAM_SCHEMA)}` },
+    { role: 'user', content: `${context || `Date courante : ${new Date().toISOString()}.`}\n${text.slice(0, 30000)}` },
+  ]);
+  return parseJson(out);
+}
+
 export async function analyzeInstagramText(text, context = '') {
   for (const p of order()) {
     try {
-      const data = p === 'gemini' ? await instagramWithGemini(text, context) : p === 'groq' ? await instagramWithGroq(text, context) : null;
+      const data = p === 'openrouter' ? await instagramWithOpenRouter(text, context) : p === 'gemini' ? await instagramWithGemini(text, context) : p === 'groq' ? await instagramWithGroq(text, context) : null;
       if (data) return { data, source: p };
     } catch (e) {
       console.error(`[ia] Instagram ${p}:`, e.message);
@@ -366,7 +395,7 @@ export async function analyzeInstagramText(text, context = '') {
 }
 
 export async function analyzeInstagramStoryImage(imageUrl, context = '') {
-  if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY est nécessaire pour lire une story par vision.');
+  if (!process.env.GEMINI_API_KEY && !process.env.OPENROUTER_API_KEY) throw new Error('Une clé IA qui lit les images (OpenRouter ou Gemini) est nécessaire.');
   const ir = await fetch(imageUrl, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36',
@@ -384,7 +413,22 @@ export async function analyzeInstagramStoryImage(imageUrl, context = '') {
 
 // Image déjà en main (capture d'écran envoyée par un·e admin, ou story téléchargée)
 export async function analyzeInstagramImageBytes(bytes, mime, context = '') {
-  if (!process.env.GEMINI_API_KEY) throw new Error('Une clé Gemini est nécessaire pour lire une image.');
+  if (process.env.OPENROUTER_API_KEY) {
+    try {
+      const out = await openRouterChat([
+        { role: 'system', content: `${INSTAGRAM_SYSTEM}\n\nSchéma JSON exact :\n${JSON.stringify(INSTAGRAM_SCHEMA)}` },
+        { role: 'user', content: [
+          { type: 'text', text: `${context}\nRegarde cette image (story ou capture Instagram) : déduis l'état des bâtiments (chaînes, barricades, piquets, affiches…), les AG, manifs, rassemblements, actions, horaires, lieux et infos urgentes. Pour chaque élément, donne confidence et evidence. Réponds en JSON.` },
+          { type: 'image_url', image_url: { url: `data:${mime};base64,${bytes.toString('base64')}` } },
+        ] },
+      ]);
+      return parseJson(out);
+    } catch (e) {
+      console.error('[ia] OpenRouter image :', e.message);
+      if (!process.env.GEMINI_API_KEY) throw new Error(`OpenRouter n’a pas pu lire l’image (${e.message.slice(0, 120)}). Choisis un modèle qui lit les images dans OPENROUTER_MODEL.`);
+    }
+  }
+  if (!process.env.GEMINI_API_KEY) throw new Error('Une clé IA qui lit les images (OpenRouter ou Gemini) est nécessaire.');
   if (bytes.length > 12e6) throw new Error('Story trop volumineuse.');
   const model = await geminiModel();
   const res = await fetch(`${GEMINI_BASE()}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
@@ -406,8 +450,21 @@ export async function analyzeInstagramImageBytes(bytes, mime, context = '') {
 }
 
 // Essaie chaque IA disponible dans l'ordre ; renvoie { data, source }.
+async function analyzeWithOpenRouter(pdf, onEvent) {
+  const lines = await extractPdfText(pdf);
+  if (lines.join('').length < 80) throw new Error('PDF sans texte (scan) : OpenRouter lit le texte du PDF, pas les scans.');
+  const text = lines.join('\n').slice(0, Number(process.env.OPENROUTER_MAX_CHARS || 60000));
+  onEvent({ t: 'log', m: `IA : ${OPENROUTER_MODEL()} via OpenRouter, ${lines.length} lignes…` });
+  const out = await openRouterChat([
+    { role: 'system', content: `${SYSTEM}\n\nRéponds UNIQUEMENT avec un objet JSON qui respecte exactement ce schéma JSON :\n${JSON.stringify(SCHEMA)}` },
+    { role: 'user', content: `Compte rendu :\n\"\"\"\n${text}\n\"\"\"` },
+  ], { maxTokens: 8000 });
+  onEvent({ t: 'delta', d: out });
+  return parseJson(out);
+}
+
 export async function analyzePdf(pdf, onEvent) {
-  const run = { gemini: analyzeWithGemini, groq: analyzeWithGroq, anthropic: analyzeWithClaude };
+  const run = { openrouter: analyzeWithOpenRouter, gemini: analyzeWithGemini, groq: analyzeWithGroq, anthropic: analyzeWithClaude };
   for (const p of order()) {
     try {
       const data = await run[p](pdf, onEvent);

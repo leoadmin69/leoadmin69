@@ -213,7 +213,7 @@ export function applyItem(kind, item, siteId, ctx, label) {
 export async function analyzeManual({ text, image, mime }, ctx = {}) {
   const siteId = site(db.settings.instagram?.site) ? db.settings.instagram.site : DEFAULT_SITE;
   let data, source;
-  if (image) { data = await analyzeInstagramImageBytes(image, mime, aiContext(siteId)); source = 'gemini'; }
+  if (image) { data = await analyzeInstagramImageBytes(image, mime, aiContext(siteId)); source = process.env.OPENROUTER_API_KEY ? 'openrouter' : 'gemini'; }
   else {
     const r = await analyzeInstagramText(String(text || '').slice(0, 8000), aiContext(siteId));
     if (r.source === 'local') throw new Error('Clé IA (Gemini ou Groq) requise.');
