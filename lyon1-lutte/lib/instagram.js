@@ -53,6 +53,16 @@ export async function fetchInstagramChannel() {
 const accountUrl = () => String(db.settings.instagram?.accountUrl || process.env.INSTAGRAM_ACCOUNT_URL || DEFAULT_ACCOUNT).trim();
 const accountUsername = () => accountUrl().match(/instagram\.com\/([^/?#]+)/i)?.[1]?.replace(/\/$/, '') || 'lyon1_ladoua.enlutte';
 
+// Cookie Instagram tel que collé sur Render : accepte « nom=valeur; … », un export JSON ([{name, value}]),
+// « Cookie: » devant, ou une valeur sur plusieurs lignes ; renvoie « nom=valeur; nom=valeur »
+export function igCookie() {
+  let raw = String(process.env.INSTAGRAM_STORIES_COOKIES || process.env.INSTAGRAM_CHANNEL_COOKIES || '').trim().replace(/^cookie:\s*/i, '');
+  if (raw.startsWith('[') || raw.startsWith('{')) {
+    try { const j = JSON.parse(raw); const list = Array.isArray(j) ? j : Object.entries(j).map(([name, value]) => ({ name, value })); raw = list.filter((c) => c?.name).map((c) => `${c.name}=${c.value}`).join('; '); } catch {}
+  }
+  return raw.split(/[;\n]+/).map((x) => x.trim()).filter((x) => /^[\w.-]+=/.test(x)).join('; ');
+}
+
 function instagramHeaders(extra = {}) {
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36',
@@ -64,7 +74,7 @@ function instagramHeaders(extra = {}) {
     Referer: accountUrl(),
     ...extra,
   };
-  const cookies = process.env.INSTAGRAM_STORIES_COOKIES || process.env.INSTAGRAM_CHANNEL_COOKIES || '';
+  const cookies = igCookie();
   if (cookies) headers.Cookie = cookies;
   const csrf = cookies.match(/(?:^|;\s*)csrftoken=([^;]+)/)?.[1];
   if (csrf) headers['X-CSRFToken'] = decodeURIComponent(csrf);
@@ -104,13 +114,25 @@ export async function fetchInstagramStories() {
   let reel = null;
   for (const [how, host, extra] of [['web', 'www.instagram.com', {}], ['app', 'i.instagram.com', { 'User-Agent': 'Instagram 309.1.0.41.113 Android (33/13; 420dpi; 1080x2340; samsung; SM-S911B; dm1q; qcom; fr_FR; 541635890)', 'X-IG-App-ID': '567067343352427' }]]) {
     const r = await fetch(`https://${host}/api/v1/feed/reels_media/?reel_ids=${encodeURIComponent(userId)}&media_type=all`, { headers: instagramHeaders(extra), redirect: 'manual', signal: AbortSignal.timeout(30000) }).catch((e) => ({ ok: false, status: e.message }));
-    if (r.ok) { reel = r; break; }
+    if (r.ok) {
+      // Instagram renvoie parfois sa page de connexion (HTML) avec un code 200 : ce n'est pas une réponse valable
+      const raw = await r.text();
+      try { reel = JSON.parse(raw); break; } catch {
+        tries.push(`stories ${how} : page de connexion d’Instagram au lieu des stories (${/login|connexion|Log in/i.test(raw) ? 'non connecté' : 'réponse HTML'})`);
+        continue;
+      }
+    }
     let detail = '';
     try { if (r.text) detail = (await r.text()).replace(/\s+/g, ' ').slice(0, 120); } catch {}
     tries.push(`stories ${how} : ${r.status >= 300 && r.status < 400 ? `redirigé vers ${(r.headers?.get?.('location') || 'la connexion').slice(0, 60)} (cookie expiré ?)` : `HTTP ${r.status}${detail ? ' ' + detail : ''}`}`);
   }
-  if (!reel) throw new Error(`Stories illisibles pour l’ID ${userId} (${tries.join(' · ')}).`);
-  const reelJson = await reel.json();
+  if (!reel) {
+    // quels éléments du cookie sont présents (noms seulement, jamais les valeurs)
+    const names = new Set(igCookie().split(';').map((x) => x.split('=')[0].trim()).filter(Boolean));
+    const need = ['sessionid', 'csrftoken', 'ds_user_id'].filter((n) => !names.has(n));
+    throw new Error(`Instagram ne reconnaît pas la connexion depuis le serveur pour l’ID ${userId} (${tries.join(' · ')}). ${need.length ? `Le cookie ne contient pas : ${need.join(', ')}. ` : 'Le cookie contient bien sessionid, csrftoken et ds_user_id : il a sans doute expiré, ou Instagram refuse les connexions venant de l’hébergeur. '}`);
+  }
+  const reelJson = reel;
   const groups = reelJson?.reels ? Object.values(reelJson.reels) : reelJson?.reels_media || reelJson?.tray || [];
   const items = groups.flatMap((group) => group?.items || group?.media || (group?.item ? [group.item] : [])).filter(Boolean);
   const stories = items.map((item) => {
