@@ -19,7 +19,7 @@ dans le même commit que le code.
 7. Copilot (agent cloud) travaille dans une PR dont la **base est la branche de travail** ; la PR est fusionnée
    dans cette branche (jamais dans la branche par défaut du dépôt, qui est celle d'un autre projet).
 
-## Passation (2026-11-18, fin de session Claude → relais à Copilot)
+## Passation (2026-11-19, mise à jour par Claude)
 **Dernier commit de Claude : voir `git log -15`.** Tout est poussé, rien en cours de modification.
 
 ### En ligne
@@ -27,18 +27,22 @@ dans le même commit que le code.
   runtime Node, `rootDir` = `lyon1-lutte`, build `npm ci`, start `npm start`, déploiement auto à chaque push).
   C'est l'adresse définitive (décision admin) : ne pas changer d'adresse, ne pas créer d'autre service.
 - Base : Supabase Storage (bucket privé, fichier `db.json` + médias), branchée sur Render via `SUPABASE_URL` /
-  `SUPABASE_SERVICE_KEY`. Au 18/11 : 44 bâtiments, 144 téléphones abonnés, 11 comptes modo, 7 sites.
-- Telegram (bot + chaîne @ladoualyon1) et IA (Gemini, Groq) branchés.
+  `SUPABASE_SERVICE_KEY`. Telegram (bot + chaîne @ladoualyon1) et IA (Gemini, Groq) branchés.
 
-### Fait pendant cette session
-- Audit complet par 3 agents + PR #2 Copilot (fusionnée) : failles corrigées (médias inter-sites, droits du compte
-  piquet dans le chat), liste noire, annulation sans écrasement, signalements en caméra seule, limite wifi campus,
-  photo du piquet visible par les modos (fiche bâtiment → « 📷 Voir la photo du piquet »), chat plein écran iPhone,
-  barre latérale bureau, fautes et textes (« compte piquet », « selon les personnes sur place »), guide PDF, rouge foncé
-  sous texte blanc.
-- Compte piquet : écran calqué sur la page publique Bâtiments, caméra directe, aucun import.
-- Doublon Render « ladoua-en-lutte » supprimé. `redirect.js` prêt mais NON utilisé (seulement si changement d'adresse un jour).
-- `tools/ops.mjs` (health, status, deploy, env, setenv, backup, restore) + `.github/workflows/copilot-setup-steps.yml`.
+### Fait le 19/11
+- Votes : bourrage constaté (~10 000 faux votes sur « maintien des blocus » entre 12 h et 14 h) puis corrigé :
+  cookies d'appareil signés (lib/device.js), calcul anti-bourrage (pow-worker.js), limites par réseau, votes suspects,
+  minute de chaque vote + graphique, outil « 🤖 Chercher des votes de robot », suppression automatique annulable
+  (rafale, bloc d'affilée, robot lent), réglage des résultats (live / après avoir voté / à la clôture), « avis indicatif ».
+- Compte piquet : liens partagés publics (limites par téléphone, blocage), caméra « un geste » + notes prêtes,
+  téléphone neuf (< 1 h) ne peut pas défaire une info confirmée du jour.
+- Audit anti-spam et sécurité complet (voir Journal des décisions), stories Instagram de Copilot corrigées.
+
+### En attente / à surveiller
+- L'admin doit vérifier dans 🗳️ Votes le cadre « 🤖 votes retirés automatiquement » du vote « maintien des blocus »
+  (Annuler si erreur) ; les votes d'avant le suivi horaire ne sont pas datés.
+- Détecteurs de robot réglés prudemment pour des votes d'avis ouverts à tout le campus : ne pas les durcir sans
+  l'accord de l'admin (risque de retirer de vrais votes).
 
 ### Bloqué / en attente de l'admin
 - **Accès Copilot à la production** : l'admin doit ajouter dans GitHub → Settings → Environments → `copilot` les
