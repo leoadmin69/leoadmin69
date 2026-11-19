@@ -281,6 +281,7 @@ Extrais uniquement les informations factuelles et vérifiables destinées aux é
 Autorisé : état d'un bâtiment, AG, manifestation, rassemblement, action, horaire, lieu, flash urgent.
 Interdit : rumeur, date ou lieu absent, nom complet de personne, humiliation, appel à la violence, donnée personnelle.
 Si une information est incertaine, utilise une chaîne vide, un tableau vide ou "inconnu".
+Quand le message dit « aujourd'hui », utilise la date courante donnée dans le prompt.
 Dates au format ISO AAAA-MM-JJTHH:mm:ss.000Z si l'heure est connue. Sinon garde AAAA-MM-JJ.
 Tout en français. Ne publie rien d'autre que le JSON demandé.`;
 
@@ -292,7 +293,7 @@ async function instagramWithGemini(text) {
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: INSTAGRAM_SYSTEM }] },
-      contents: [{ role: 'user', parts: [{ text: `Messages récents du canal officiel :\n"""\n${text.slice(0, 30000)}\n"""` }] }],
+      contents: [{ role: 'user', parts: [{ text: `Date courante : ${new Date().toISOString()}.\nMessages récents du canal officiel :\n"""\n${text.slice(0, 30000)}\n"""` }] }],
       generationConfig: { responseMimeType: 'application/json', responseSchema: geminiSchema(INSTAGRAM_SCHEMA), temperature: 0.1, maxOutputTokens: 12000 },
     }),
   });
@@ -314,7 +315,7 @@ async function instagramWithGroq(text) {
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: `${INSTAGRAM_SYSTEM}\n\nSchéma JSON exact :\n${JSON.stringify(INSTAGRAM_SCHEMA)}` },
-        { role: 'user', content: text.slice(0, 30000) },
+        { role: 'user', content: `Date courante : ${new Date().toISOString()}.\n${text.slice(0, 30000)}` },
       ],
     }),
   });

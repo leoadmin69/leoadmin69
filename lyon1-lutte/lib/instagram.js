@@ -120,6 +120,14 @@ function parisToDate(y, mo, d, h, mi) {
 const parisIso = (value) => {
   if (!value) return '';
   const clean = String(value).trim();
+  const lower = clean.toLowerCase();
+  if (/aujourd'hui|aujourdhui/.test(lower)) {
+    const time = lower.match(/(\d{1,2})\s*(?:h|:)\s*(\d{2})?/);
+    const paris = new Intl.DateTimeFormat('fr-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    const [y, mo, da] = paris.split('-').map(Number);
+    const d = parisToDate(y, mo, da, time ? Number(time[1]) : 12, time ? Number(time[2] || 0) : 0);
+    return d ? d.toISOString() : '';
+  }
   const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(clean);
   if (day) { const d = parisToDate(+day[1], +day[2], +day[3], 12, 0); return d ? d.toISOString() : ''; }
   const local = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$/.exec(clean);
@@ -207,6 +215,7 @@ export async function syncInstagram(ctx = {}) {
     });
     ctx.audit?.(IG, 'événement Instagram', title, siteId);
     ctx.broadcast?.('events', {});
+    ctx.notifyEvent?.({ site: siteId, title, start, place: item.place || '' });
     applied.events.push({ title, start });
   }
 
@@ -222,6 +231,7 @@ export async function syncInstagram(ctx = {}) {
     db.flashes = db.flashes.slice(0, 100);
     ctx.audit?.(IG, 'flash Instagram', title, siteId);
     ctx.broadcast?.('flashes', {});
+    ctx.notifyFlash?.({ site: siteId, title, text, tone: item.tone });
     applied.flashes.push({ title, text });
   }
 
