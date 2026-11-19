@@ -205,7 +205,7 @@ function ago(iso) {
   const s = Math.max(0, (Date.now() - new Date(iso)) / 1000);
   if (s < 60) return "à l'instant";
   if (s < 3600) return `il y a ${Math.floor(s / 60)} min`;
-  if (s < 86400) return `il y a ${Math.floor(s / 3600)} h`;
+  if (s < 86400) return `il y a ${Math.max(1, Math.round(s / 3600))} h`;
   return fmt(iso, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 const isoDate = (s) => (s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? fmt(`${s}T12:00:00Z`, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : s);
@@ -466,8 +466,8 @@ function viewAgenda() {
     ${evs.length ? Object.entries(groups).map(([day, list]) => `
       <div class="day">${esc(day)}</div>
       ${list.map((e) => `
-        <div class="card event">
-          <div class="time"><b>${esc(hhmm(e.start))}</b><span>${esc(fmt(e.start, { day: 'numeric', month: 'short' }))}</span></div>
+        <div class="card event ${Date.now() - new Date(e.start) > 2 * 3600e3 ? 'past' : ''}">
+          <div class="time"><b>${esc(hhmm(e.start))}</b>${Date.now() - new Date(e.start) > 2 * 3600e3 ? '<span class="pill">passé</span>' : ''}<span>${esc(fmt(e.start, { day: 'numeric', month: 'short' }))}</span></div>
           <div class="grow" style="flex:1;min-width:0">
             <span class="pill ${EVENT_TYPE[e.type][1]}">${EVENT_TYPE[e.type][0]}</span> ${siteTag(e)}
             <div class="title" style="margin-top:6px">${esc(e.title)}</div>
@@ -962,7 +962,8 @@ function sheet(html, setup) {
   root.innerHTML = `<div class="sheet-backdrop"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${html}</div></div>`;
   const openedAt = Date.now();
   function k(e) { if (e.key === 'Escape') close(); }
-  const close = () => { root.innerHTML = ''; document.removeEventListener('keydown', k); };
+  const close = () => { root.innerHTML = ''; document.removeEventListener('keydown', k); window.removeEventListener('hashchange', close); };
+  window.addEventListener('hashchange', close);
   $('.sheet-backdrop', root).onclick = (e) => { if (e.target.classList.contains('sheet-backdrop') && Date.now() - openedAt > 500) close(); };
   document.addEventListener('keydown', k);
   setup?.($('.sheet', root), close);

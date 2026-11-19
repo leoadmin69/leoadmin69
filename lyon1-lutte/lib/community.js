@@ -330,7 +330,7 @@ export function registerCommunity(app, mod, ctx) {
 
   // ================= Blog & tribunes =================
   const publicPost = (p, full = false) => ({
-    id: p.id, site: siteOf(p), title: p.title, excerpt: clip(p.body.replace(/\s+/g, ' '), 220), html: full ? renderRich(p.body) : undefined,
+    id: p.id, site: siteOf(p), title: p.title, excerpt: clip(p.body.replace(/^#+\s*|#+$|\*\*|__|^[>-]\s+/gm, '').replace(/#{2,}/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\s+/g, ' ').trim(), 220), html: full ? renderRich(p.body) : undefined,
     author: p.author, kind: p.kind, cover: mediaInfo(p.cover ? [p.cover] : [])[0]?.url || null, publishedAt: p.publishedAt, tags: p.tags || [],
   });
   app.get('/api/blog', (req, res) => res.json(db.posts.filter((p) => p.status === 'published').sort((a, b) => b.publishedAt.localeCompare(a.publishedAt)).map((p) => publicPost(p))));

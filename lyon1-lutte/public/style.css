@@ -771,3 +771,6 @@ html.no-select * { -webkit-tap-highlight-color: transparent; }
 .qst .orange { background: #c25e00; }
 .qst .green { background: #1e7d34; }
 .cam.sending .qst { opacity: .5; pointer-events: none; }
+
+/* Agenda : événement déjà passé (plus de 2 h) */
+.card.event.past { opacity: .55; }
