@@ -63,6 +63,8 @@ export function igCookie() {
   return raw.split(/[;\n]+/).map((x) => x.trim()).filter((x) => /^[\w.-]+=/.test(x)).join('; ');
 }
 
+const APP_HEADERS = { 'User-Agent': 'Instagram 309.1.0.41.113 Android (33/13; 420dpi; 1080x2340; samsung; SM-S911B; dm1q; qcom; fr_FR; 541635890)', 'X-IG-App-ID': '567067343352427' };
+
 function instagramHeaders(extra = {}) {
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36',
@@ -132,9 +134,34 @@ export async function fetchInstagramStories() {
     const need = ['sessionid', 'csrftoken', 'ds_user_id'].filter((n) => !names.has(n));
     throw new Error(`Instagram ne reconnaît pas la connexion depuis le serveur pour l’ID ${userId} (${tries.join(' · ')}). ${need.length ? `Le cookie ne contient pas : ${need.join(', ')}. ` : 'Le cookie contient bien sessionid, csrftoken et ds_user_id : il a sans doute expiré, ou Instagram refuse les connexions venant de l’hébergeur. '}`);
   }
-  const reelJson = reel;
-  const groups = reelJson?.reels ? Object.values(reelJson.reels) : reelJson?.reels_media || reelJson?.tray || [];
-  const items = groups.flatMap((group) => group?.items || group?.media || (group?.item ? [group.item] : [])).filter(Boolean);
+  const pick = (j) => {
+    const groups = j?.reels && Object.keys(j.reels).length ? Object.values(j.reels) : j?.reels_media?.length ? j.reels_media : j?.reel ? [j.reel] : j?.tray || [];
+    return groups.flatMap((group) => group?.items || group?.media || (group?.item ? [group.item] : [])).filter(Boolean);
+  };
+  // ce que la réponse contient (jamais de données personnelles : seulement des noms de champs et le statut)
+  const describe = (j) => `réponse ${j?.status || '?'}${j?.message ? ` « ${String(j.message).slice(0, 60)} »` : ''} [${Object.keys(j || {}).slice(0, 6).join(', ')}]`;
+  let items = pick(reel);
+  const notes = [`reels_media : ${items.length} élément(s), ${describe(reel)}`];
+  // 0 story : 2e façon de demander (fil de stories du compte)
+  if (!items.length) {
+    for (const [how, host, extra] of [['web', 'www.instagram.com', {}], ['app', 'i.instagram.com', APP_HEADERS]]) {
+      try {
+        const r = await fetch(`https://${host}/api/v1/feed/user/${encodeURIComponent(userId)}/story/`, { headers: instagramHeaders(extra), redirect: 'manual', signal: AbortSignal.timeout(30000) });
+        const raw = await r.text();
+        let j; try { j = JSON.parse(raw); } catch { notes.push(`story ${how} : HTTP ${r.status} (pas du JSON)`); continue; }
+        const got = pick(j);
+        notes.push(`story ${how} : ${got.length} élément(s), ${describe(j)}`);
+        if (got.length) { items = got; break; }
+      } catch (e) { notes.push(`story ${how} : ${e.message}`); }
+    }
+  }
+  // erreur fréquente : l'ID mis est celui du compte dont viennent les cookies (ds_user_id), pas celui du compte à lire
+  const own = igCookie().match(/(?:^|;\s*)ds_user_id=(\d+)/)?.[1];
+  const sameAsCookie = !!own && own === String(userId);
+  console.log(`[instagram stories] ID ${userId}${sameAsCookie ? ' (= compte des cookies !)' : ''} · ${notes.join(' · ')}`);
+  if (!items.length && sameAsCookie) {
+    throw new Error(`L’ID ${userId} est celui du compte connecté avec les cookies, pas celui du compte dont il faut lire les stories. Mets l’ID du compte qui publie les stories (ou vide le champ pour qu’il soit cherché avec le nom du compte).`);
+  }
   const stories = items.map((item) => {
     const candidates = item.image_versions2?.candidates || [];
     const image = candidates.slice().sort((a, b) => (b.width || 0) - (a.width || 0))[0]?.url;
@@ -146,7 +173,7 @@ export async function fetchInstagramStories() {
       caption: item.caption?.text || '',
     };
   }).filter(Boolean);
-  return { username, userId, stories };
+  return { username, userId, stories, rawCount: items.length, notes };
 }
 
 const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
@@ -317,6 +344,7 @@ export async function syncInstagram(ctx = {}) {
 export async function syncInstagramStories(ctx = {}) {
   const reel = await fetchInstagramStories();
   db.settings.instagram ||= {};
+  db.settings.instagram.lastStoryNote = (reel.notes || []).join(' · ').slice(0, 400);
   db.settings.instagramStorySeen ||= [];
   db.settings.instagramStorySeen = db.settings.instagramStorySeen.slice(-500);
   const seen = new Set(db.settings.instagramStorySeen);
