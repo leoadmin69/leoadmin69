@@ -31,7 +31,7 @@ const EMOTE_SET = new Set(EMOTES.map((e) => e.code));
 import { bannedList, findBanned, normalize as normalizeWord, BANNED_BASE } from './lib/moderation.js';
 import { telegramEnabled, telegramUrl, postTelegram, tgEsc, telegramCheck, telegramTest, telegramStatus, normalizeChat } from './lib/telegram.js';
 import { DEFAULT_SITE, site, siteName, modSites, canSite, siteOf, migrateSites, effectiveBlocus, wantsSite, isAdmin, ALL_SITES, telegramChats } from './lib/sites.js';
-import { syncInstagram, startInstagramSync, instagramEnabled, intervalMinutes as instagramInterval } from './lib/instagram.js';
+import { syncInstagram, syncInstagramStories, startInstagramSync, instagramEnabled, intervalMinutes as instagramInterval } from './lib/instagram.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -1221,6 +1221,7 @@ mod.delete('/reports/:id', (req, res) => {
 mod.get('/instagram', requireAdmin, (req, res) => res.json({
  enabled: instagramEnabled(),
  url: db.settings.instagram?.url || process.env.INSTAGRAM_CHANNEL_URL || 'https://www.instagram.com/channel/UFc6KiIvKuUCSwgk/',
+ accountUrl: db.settings.instagram?.accountUrl || process.env.INSTAGRAM_ACCOUNT_URL || 'https://www.instagram.com/lyon1_ladoua.enlutte/',
  interval: instagramInterval(),
  site: db.settings.instagram?.site || DEFAULT_SITE,
  status: db.settings.instagram || {},
@@ -1232,6 +1233,7 @@ mod.put('/instagram', requireAdmin, (req, res) => {
     if (!/^https:\/\/(www\.)?instagram\.com\//i.test(u)) return bad(res, 'Lien Instagram attendu (https://www.instagram.com/…).');
     db.settings.instagram.url = u;
   }
+ if (req.body.accountUrl !== undefined) db.settings.instagram.accountUrl = String(req.body.accountUrl).trim().slice(0, 500);
  if (req.body.site !== undefined && site(req.body.site)) db.settings.instagram.site = req.body.site;
  if (req.body.enabled !== undefined) db.settings.instagram.enabled = !!req.body.enabled;
  if (req.body.interval !== undefined) db.settings.instagram.interval = Math.min(1440, Math.max(5, Number(req.body.interval) || 15));
@@ -1239,14 +1241,24 @@ mod.put('/instagram', requireAdmin, (req, res) => {
  res.json({ ok: true, enabled: db.settings.instagram.enabled, site: db.settings.instagram.site });
 });
 mod.post('/instagram/sync', requireAdmin, async (req, res) => {
- let out;
- try { out = await syncInstagram({ broadcast, feed, audit, queueBuildingAlert, onBuilding: (b) => extras?.onBuilding(b) }); } catch (e) {
-   db.settings.instagram ||= {}; db.settings.instagram.lastError = e.message; db.settings.instagram.lastErrorAt = now(); save();
-   return bad(res, e.message, 502);
+ const ctx = {
+   broadcast, feed, queueBuildingAlert,
+   notifyEvent: ({ site: sid, title, start, place }) => notify('events', {
+     subject: `📅 ${title}`, kicker: 'INSTAGRAM · LYON 1',
+     title, body: place ? `Lieu : ${place}` : '', url: '/#/agenda', tone: 'blue', site: sid,
+   }),
+   notifyFlash: ({ site: sid, title, text, tone }) => {
+     sendPushAll({ title, body: text, url: '/', tag: `instagram-flash-${Date.now()}` }).catch((e) => console.error('[instagram push]', e.message));
+     for (const chat of telegramChats(sid)) postTelegram(`📷 <b>Story Instagram · ${tgEsc(title)}</b>\n${tgEsc(text)}`, '/', chat);
+   },
+ };
+ const channel = await syncInstagram(ctx);
+ let stories = null;
+ if (process.env.INSTAGRAM_STORIES_COOKIES || process.env.INSTAGRAM_CHANNEL_COOKIES) {
+   stories = await syncInstagramStories(ctx);
  }
- if (db.settings.instagram?.lastError) { delete db.settings.instagram.lastError; save(); }
- audit(req.mod, 'canal Instagram synchronisé', out.source, db.settings.instagram?.site || DEFAULT_SITE);
- res.json(out);
+ audit(req.mod, 'Instagram synchronisé', channel.source + (stories ? ` · ${stories.storyCount} stories` : ''), db.settings.instagram?.site || DEFAULT_SITE);
+ res.json({ channel, stories });
 });
 
 mod.get('/stats', (req, res) => res.json({
@@ -1392,7 +1404,19 @@ app.use((err, req, res, next) => {
 });
 app.get('*', (req, res) => res.sendFile(path.join(ROOT, 'public', 'index.html')));
 
-startInstagramSync({ broadcast, feed, audit, queueBuildingAlert, onBuilding: (b) => extras?.onBuilding(b) });
+startInstagramSync({
+  broadcast,
+  feed,
+  queueBuildingAlert,
+  notifyEvent: ({ site: sid, title, start, place }) => notify('events', {
+    subject: `📅 ${title}`, kicker: 'INSTAGRAM · LYON 1',
+    title, body: place ? `Lieu : ${place}` : '', url: '/#/agenda', tone: 'blue', site: sid,
+  }),
+  notifyFlash: ({ site: sid, title, text }) => {
+    sendPushAll({ title, body: text, url: '/', tag: `instagram-flash-${Date.now()}` }).catch((e) => console.error('[instagram push]', e.message));
+    for (const chat of telegramChats(sid)) postTelegram(`📷 <b>Story Instagram · ${tgEsc(title)}</b>\n${tgEsc(text)}`, '/', chat);
+  },
+});
 
 app.listen(PORT, () => {
   console.log(`${SITE_NAME} → ${SITE_URL()} (port ${PORT})`);

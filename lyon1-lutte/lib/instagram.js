@@ -1,9 +1,10 @@
 import crypto from 'node:crypto';
 import { db, save, newId, now } from './store.js';
-import { analyzeInstagramText } from './ai.js';
+import { analyzeInstagramText, analyzeInstagramStoryImage } from './ai.js';
 import { DEFAULT_SITE, site, siteName } from './sites.js';
 
 const DEFAULT_CHANNEL = 'https://www.instagram.com/channel/UFc6KiIvKuUCSwgk/';
+const DEFAULT_ACCOUNT = 'https://www.instagram.com/lyon1_ladoua.enlutte/';
 const channelUrl = () => String(db.settings.instagram?.url || process.env.INSTAGRAM_CHANNEL_URL || DEFAULT_CHANNEL).trim();
 export const instagramEnabled = () => (typeof db.settings.instagram?.enabled === 'boolean'
   ? db.settings.instagram.enabled
@@ -45,6 +46,65 @@ export async function fetchInstagramChannel() {
   const messages = stripHtml(html);
   if (!messages.length) throw new Error('Aucun message exploitable : Instagram a demandé une connexion ou bloque la lecture automatique.');
   return { url, messages };
+}
+
+const accountUrl = () => String(db.settings.instagram?.accountUrl || process.env.INSTAGRAM_ACCOUNT_URL || DEFAULT_ACCOUNT).trim();
+const accountUsername = () => accountUrl().match(/instagram\.com\/([^/?#]+)/i)?.[1]?.replace(/\/$/, '') || 'lyon1_ladoua.enlutte';
+
+function instagramHeaders(extra = {}) {
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36',
+    Accept: 'application/json,text/plain,*/*',
+    'Accept-Language': 'fr-FR,fr;q=0.9',
+    'X-IG-App-ID': '936619743392459',
+    'X-ASBD-ID': '198387',
+    'X-Requested-With': 'XMLHttpRequest',
+    Referer: accountUrl(),
+    ...extra,
+  };
+  const cookies = process.env.INSTAGRAM_STORIES_COOKIES || process.env.INSTAGRAM_CHANNEL_COOKIES || '';
+  if (cookies) headers.Cookie = cookies;
+  const csrf = cookies.match(/(?:^|;\s*)csrftoken=([^;]+)/)?.[1];
+  if (csrf) headers['X-CSRFToken'] = decodeURIComponent(csrf);
+  return headers;
+}
+
+export async function fetchInstagramStories() {
+  if (!(process.env.INSTAGRAM_STORIES_COOKIES || process.env.INSTAGRAM_CHANNEL_COOKIES)) {
+    throw new Error('INSTAGRAM_STORIES_COOKIES est requis pour lire les stories du compte.');
+  }
+  const username = accountUsername();
+  const profile = await fetch(`https://www.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(username)}`, {
+    headers: instagramHeaders(),
+    redirect: 'follow',
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!profile.ok) throw new Error(`Profil Instagram HTTP ${profile.status}`);
+  const profileJson = await profile.json();
+  const userId = profileJson?.data?.user?.id || profileJson?.user?.pk;
+  if (!userId) throw new Error('Identifiant Instagram du compte introuvable.');
+
+  const reel = await fetch(`https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=${encodeURIComponent(userId)}&media_type=all`, {
+    headers: instagramHeaders(),
+    redirect: 'follow',
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!reel.ok) throw new Error(`Stories Instagram HTTP ${reel.status}`);
+  const reelJson = await reel.json();
+  const groups = reelJson?.reels ? Object.values(reelJson.reels) : reelJson?.reels_media || reelJson?.tray || [];
+  const items = groups.flatMap((group) => group?.items || group?.media || (group?.item ? [group.item] : [])).filter(Boolean);
+  const stories = items.map((item) => {
+    const candidates = item.image_versions2?.candidates || [];
+    const image = candidates.slice().sort((a, b) => (b.width || 0) - (a.width || 0))[0]?.url;
+    if (!image) return null;
+    return {
+      id: String(item.pk || item.id || item.code || image),
+      takenAt: item.taken_at ? new Date(Number(item.taken_at) * 1000).toISOString() : '',
+      imageUrl: image,
+      caption: item.caption?.text || '',
+    };
+  }).filter(Boolean);
+  return { username, userId, stories };
 }
 
 const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
@@ -174,6 +234,102 @@ export async function syncInstagram(ctx = {}) {
   return { source: channel.url, sourceCount: channel.messages.length, aiSource: result.source, applied };
 }
 
+export async function syncInstagramStories(ctx = {}) {
+  const reel = await fetchInstagramStories();
+  db.settings.instagram ||= {};
+  db.settings.instagramStorySeen ||= [];
+  db.settings.instagramStorySeen = db.settings.instagramStorySeen.slice(-500);
+  const seen = new Set(db.settings.instagramStorySeen);
+  const applied = { buildings: [], events: [], flashes: [] };
+  const siteId = db.settings.instagram?.site || DEFAULT_SITE;
+  if (!site(siteId)) db.settings.instagram.site = DEFAULT_SITE;
+
+  for (const story of reel.stories) {
+    if (seen.has(story.id)) continue;
+    let result;
+    try {
+      result = await analyzeInstagramStoryImage(story.imageUrl);
+    } catch (e) {
+      db.settings.instagram.lastStoryError = e.message;
+      db.settings.instagram.lastStoryErrorAt = now();
+      continue;
+    }
+    seen.add(story.id);
+
+    for (const item of result.buildings || []) {
+      const needle = norm(item.name);
+      if (!needle) continue;
+      const b = db.buildings.find((x) => {
+        const sameSite = String(x.site || DEFAULT_SITE) === siteId;
+        const name = norm(x.name);
+        return sameSite && (name === needle || name.includes(needle) || needle.includes(name));
+      });
+      if (!b) continue;
+      const status = ['bloque', 'partiel', 'ouvert'].includes(item.status) ? item.status : null;
+      if (!status || b.status === status) continue;
+      b.status = status;
+      b.note = String(item.note || '').slice(0, 240);
+      b.updatedAt = now();
+      b.by = 'Story Instagram';
+      delete b.yesterday;
+      delete b.resetAt;
+      db.audit.push({ id: newId(), at: now(), by: 'Instagram', org: reel.username, action: 'story bâtiment Instagram', detail: `${b.name} → ${status}`, site: siteId });
+      db.feed.unshift({ at: now(), level: status === 'bloque' ? 'alert' : status === 'partiel' ? 'warn' : 'ok', text: `${siteName(siteId)} · ${b.name} → ${status === 'bloque' ? 'bloqué' : status === 'partiel' ? 'partiel' : 'rouvert'}${b.note ? ' · ' + b.note : ''} · Story Instagram` });
+      db.feed = db.feed.slice(0, 40);
+      ctx.queueBuildingAlert?.(b);
+      ctx.broadcast?.('buildings', { id: b.id });
+      applied.buildings.push({ name: b.name, status });
+    }
+
+    for (const item of result.events || []) {
+      const start = parisIso(item.date);
+      const title = String(item.title || '').trim().slice(0, 120);
+      if (!start || !title) continue;
+      if (db.events.some((e) => e.title === title && e.start === start && (e.site || DEFAULT_SITE) === siteId)) continue;
+      db.events.push({
+        id: newId(), site: siteId,
+        type: ['AG', 'manif', 'rassemblement', 'action', 'autre'].includes(item.type) ? item.type : 'autre',
+        title, start, place: String(item.place || '').slice(0, 140), address: '',
+        description: String(item.description || '').slice(0, 1500),
+        org: 'Story Instagram', createdAt: now(),
+      });
+      db.audit.push({ id: newId(), at: now(), by: 'Instagram', org: reel.username, action: 'story événement Instagram', detail: title, site: siteId });
+      ctx.notifyEvent?.({ site: siteId, title, start, place: item.place || '' });
+      ctx.broadcast?.('events', {});
+      applied.events.push({ title, start });
+    }
+
+    for (const item of result.flashes || []) {
+      const title = String(item.title || '').trim().slice(0, 120);
+      const text = String(item.text || '').trim().slice(0, 500);
+      if (!title || !text) continue;
+      const expiresAt = new Date(Date.now() + 24 * 3600e3).toISOString();
+      db.flashes.push({
+        id: newId(), site: siteId, title, text,
+        type: ['info', 'warn', 'alert', 'ok'].includes(item.tone) ? item.tone : 'info',
+        at: now(), expiresAt, org: 'Story Instagram',
+      });
+      db.feed.unshift({ at: now(), level: item.tone === 'alert' ? 'alert' : item.tone === 'warn' ? 'warn' : item.tone === 'ok' ? 'ok' : 'info', text: `${title} · ${text} · Story Instagram` });
+      db.feed = db.feed.slice(0, 40);
+      db.audit.push({ id: newId(), at: now(), by: 'Instagram', org: reel.username, action: 'story flash Instagram', detail: title, site: siteId });
+      ctx.notifyFlash?.({ site: siteId, title, text, tone: item.tone });
+      ctx.broadcast?.('flashes', {});
+      applied.flashes.push({ title, text });
+    }
+  }
+
+  db.settings.instagramStorySeen = [...seen].slice(-500);
+  db.settings.instagram.lastStoryCheck = now();
+  db.settings.instagram.lastStoryCount = reel.stories.length;
+  db.settings.instagram.lastStoryAccount = reel.username;
+  db.settings.instagram.lastStoryApplied = now();
+  db.settings.instagram.lastStoryResult = applied;
+  save();
+  ctx.broadcast?.('buildings', {});
+  ctx.broadcast?.('blocus', {});
+  return { username: reel.username, storyCount: reel.stories.length, applied };
+}
+
 export function startInstagramSync(ctx = {}) {
   db.settings.instagram ||= {};
   let running = false, lastRun = 0;
@@ -182,7 +338,11 @@ export function startInstagramSync(ctx = {}) {
     running = true; lastRun = Date.now();
     try {
       const r = await syncInstagram(ctx);
-      console.log(`[instagram] canal lu : ${r.sourceCount} message(s), ${r.applied.buildings.length} bâtiment(s), ${r.applied.events.length} événement(s), ${r.applied.flashes.length} flash(s)`);
+      let stories = null;
+      if (process.env.INSTAGRAM_STORIES_COOKIES || process.env.INSTAGRAM_CHANNEL_COOKIES) {
+        try { stories = await syncInstagramStories(ctx); } catch (e) { console.error('[instagram stories]', e.message); }
+      }
+      console.log(`[instagram] canal lu : ${r.sourceCount} message(s), ${r.applied.buildings.length} bâtiment(s), ${r.applied.events.length} événement(s), ${r.applied.flashes.length} flash(s)${stories ? ` · stories : ${stories.storyCount}` : ''}`);
     } catch (e) {
       db.settings.instagram ||= {};
       db.settings.instagram.lastError = e.message;

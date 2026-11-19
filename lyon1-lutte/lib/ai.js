@@ -350,6 +350,40 @@ export async function analyzeInstagramText(text) {
   return { data: await instagramLocally(text), source: 'local' };
 }
 
+export async function analyzeInstagramStoryImage(imageUrl) {
+  if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY est nécessaire pour lire une story par vision.');
+  const ir = await fetch(imageUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36',
+      ...(process.env.INSTAGRAM_STORIES_COOKIES ? { Cookie: process.env.INSTAGRAM_STORIES_COOKIES } : {}),
+    },
+    redirect: 'follow',
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!ir.ok) throw new Error(`Image Instagram HTTP ${ir.status}`);
+  const mime = ir.headers.get('content-type')?.split(';')[0] || 'image/jpeg';
+  if (!/^image\/(jpeg|png|webp)$/.test(mime)) throw new Error(`Format de story non pris en charge : ${mime}`);
+  const bytes = Buffer.from(await ir.arrayBuffer());
+  if (bytes.length > 12e6) throw new Error('Story trop volumineuse.');
+  const model = await geminiModel();
+  const res = await fetch(`${GEMINI_BASE()}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    method: 'POST',
+    signal: AbortSignal.timeout(120000),
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: INSTAGRAM_SYSTEM }] },
+      contents: [{ role: 'user', parts: [
+        { inlineData: { mimeType: mime, data: bytes.toString('base64') } },
+        { text: 'Lis cette story Instagram officielle. Extrais uniquement les bâtiments bloqués/partiels/ouverts, les AG, manifestations, rassemblements, actions, horaires, lieux et flashs factuels. Réponds en JSON.' },
+      ] }],
+      generationConfig: { responseMimeType: 'application/json', responseSchema: geminiSchema(INSTAGRAM_SCHEMA), temperature: 0.1, maxOutputTokens: 12000 },
+    }),
+  });
+  if (!res.ok) throw await httpError(res, 'Gemini Story');
+  const j = await res.json();
+  return parseJson((j.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join(''));
+}
+
 // Essaie chaque IA disponible dans l'ordre ; renvoie { data, source }.
 export async function analyzePdf(pdf, onEvent) {
   const run = { gemini: analyzeWithGemini, groq: analyzeWithGroq, anthropic: analyzeWithClaude };

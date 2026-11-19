@@ -2286,6 +2286,7 @@ async function modInstagram(el) {
       <p class="muted small">Le canal est lu périodiquement et analysé par l’IA (clé Gemini ou Groq obligatoire). Seuls les bâtiments au nom exact, les AG/manifs datées et les flashs sont publiés, sans doublon. ⚠ Instagram bloque souvent la lecture sans connexion : si une erreur s’affiche, ça ne marchera pas sans cookie de session.</p>
       <form class="form" id="instagram-config">
         <div class="field"><label>URL du canal</label><input type="url" id="instagram-url" value="${esc(cfg.url)}" required></div>
+        <div class="field"><label>Compte Instagram des stories</label><input type="url" id="instagram-account-url" value="${esc(cfg.accountUrl)}" required></div>
         <div class="grid cols-2">
           <div class="field"><label>Site ciblé</label><select id="instagram-site">${siteList().map((x) => `<option value="${esc(x.id)}" ${x.id === cfg.site ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
           <div class="field"><label>Lecture toutes les (minutes)</label><input type="number" id="instagram-interval" min="5" max="1440" value="${esc(cfg.interval)}"></div>
@@ -2297,13 +2298,16 @@ async function modInstagram(el) {
     </div>`;
   $('#instagram-config', el).onsubmit = async (e) => {
     e.preventDefault();
-    await act(() => api('/api/mod/instagram', { method: 'PUT', body: { url: $('#instagram-url', el).value, site: $('#instagram-site', el).value, interval: Number($('#instagram-interval', el).value), enabled: $('#instagram-enabled', el).checked } }), 'Canal Instagram enregistré.');
+    await act(() => api('/api/mod/instagram', { method: 'PUT', body: { url: $('#instagram-url', el).value, accountUrl: $('#instagram-account-url', el).value, site: $('#instagram-site', el).value, interval: Number($('#instagram-interval', el).value), enabled: $('#instagram-enabled', el).checked } }), 'Instagram enregistré.');
   };
   $('#instagram-sync', el).onclick = async () => {
     $('#instagram-status', el).innerHTML = '<div class="body">Lecture du canal…</div>';
     try {
       const r = await act(() => api('/api/mod/instagram/sync', { method: 'POST' }));
-      $('#instagram-status', el).innerHTML = `<div class="body">Lu avec ${esc(r.aiSource)} : ${r.applied.buildings.length} bâtiment(s), ${r.applied.events.length} événement(s), ${r.applied.flashes.length} flash(s).<pre>${esc(JSON.stringify(r.applied, null, 2))}</pre></div>`;
+      const ca = r.channel?.applied || {};
+      const sa = r.stories?.applied || {};
+      const storyCount = r.stories?.storyCount || 0;
+      $('#instagram-status', el).innerHTML = `<div class="body">Canal : ${(ca.buildings || []).length} bâtiment(s), ${(ca.events || []).length} événement(s), ${(ca.flashes || []).length} flash(s).<br>Stories : ${storyCount} lue(s), ${(sa.buildings || []).length} bâtiment(s), ${(sa.events || []).length} événement(s), ${(sa.flashes || []).length} flash(s).<pre>${esc(JSON.stringify({ channel: ca, stories: sa }, null, 2))}</pre></div>`;
     } catch (e) { $('#instagram-status', el).innerHTML = `<div class="body" style="color:var(--red)">⚠ ${esc(e.message)}</div>`; }
   };
 }
