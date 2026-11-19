@@ -1312,8 +1312,8 @@ mod.post('/instagram/sync', requireAdmin, async (req, res) => {
  let channel = null, stories = null;
  // stories d'abord (prioritaires)
  if (process.env.INSTAGRAM_STORIES_COOKIES || process.env.INSTAGRAM_CHANNEL_COOKIES) {
-   try { stories = await syncInstagramStories(instagramCtx()); delete db.settings.instagram.lastStoryError; }
-   catch (e) { stories = { error: e.message, applied: {}, storyCount: 0 }; db.settings.instagram.lastStoryError = e.message; db.settings.instagram.lastStoryErrorAt = now(); }
+   try { stories = await syncInstagramStories(instagramCtx()); delete db.settings.instagram.lastStoryError; console.log(`[instagram stories] synchro manuelle : ${stories.storyCount} story(s) lue(s) (ID ${db.settings.instagram.accountId || db.settings.instagram.resolvedId || '?'})`); }
+   catch (e) { stories = { error: e.message, applied: {}, storyCount: 0 }; db.settings.instagram.lastStoryError = e.message; db.settings.instagram.lastStoryErrorAt = now(); console.error(`[instagram stories] synchro manuelle (ID ${db.settings.instagram.accountId || '—'}) :`, e.message); }
  } else stories = { error: 'Aucun cookie Instagram sur Render (INSTAGRAM_STORIES_COOKIES).', applied: {}, storyCount: 0 };
  // canal : ignoré si c'est un canal de diffusion (illisible hors de l'appli)
  const url = db.settings.instagram.url || process.env.INSTAGRAM_CHANNEL_URL || '';

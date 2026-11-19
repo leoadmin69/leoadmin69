@@ -105,9 +105,11 @@ export async function fetchInstagramStories() {
   for (const [how, host, extra] of [['web', 'www.instagram.com', {}], ['app', 'i.instagram.com', { 'User-Agent': 'Instagram 309.1.0.41.113 Android (33/13; 420dpi; 1080x2340; samsung; SM-S911B; dm1q; qcom; fr_FR; 541635890)', 'X-IG-App-ID': '567067343352427' }]]) {
     const r = await fetch(`https://${host}/api/v1/feed/reels_media/?reel_ids=${encodeURIComponent(userId)}&media_type=all`, { headers: instagramHeaders(extra), redirect: 'manual', signal: AbortSignal.timeout(30000) }).catch((e) => ({ ok: false, status: e.message }));
     if (r.ok) { reel = r; break; }
-    tries.push(`stories ${how} : ${r.status >= 300 && r.status < 400 ? 'redirigé vers la connexion (cookie expiré ?)' : `HTTP ${r.status}`}`);
+    let detail = '';
+    try { if (r.text) detail = (await r.text()).replace(/\s+/g, ' ').slice(0, 120); } catch {}
+    tries.push(`stories ${how} : ${r.status >= 300 && r.status < 400 ? `redirigé vers ${(r.headers?.get?.('location') || 'la connexion').slice(0, 60)} (cookie expiré ?)` : `HTTP ${r.status}${detail ? ' ' + detail : ''}`}`);
   }
-  if (!reel) throw new Error(`Stories illisibles (${tries.join(' · ')}).`);
+  if (!reel) throw new Error(`Stories illisibles pour l’ID ${userId} (${tries.join(' · ')}).`);
   const reelJson = await reel.json();
   const groups = reelJson?.reels ? Object.values(reelJson.reels) : reelJson?.reels_media || reelJson?.tray || [];
   const items = groups.flatMap((group) => group?.items || group?.media || (group?.item ? [group.item] : [])).filter(Boolean);
