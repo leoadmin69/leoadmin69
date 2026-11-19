@@ -1233,31 +1233,31 @@ mod.put('/instagram', requireAdmin, (req, res) => {
     if (!/^https:\/\/(www\.)?instagram\.com\//i.test(u)) return bad(res, 'Lien Instagram attendu (https://www.instagram.com/…).');
     db.settings.instagram.url = u;
   }
- if (req.body.accountUrl !== undefined) db.settings.instagram.accountUrl = String(req.body.accountUrl).trim().slice(0, 500);
+ if (req.body.accountUrl !== undefined) {
+   const u = String(req.body.accountUrl).trim().slice(0, 500);
+   if (u && !/^https:\/\/(www\.)?instagram\.com\/[\w.]+\/?$/i.test(u)) return bad(res, 'Lien de compte Instagram attendu (https://www.instagram.com/nom_du_compte/).');
+   db.settings.instagram.accountUrl = u;
+ }
  if (req.body.site !== undefined && site(req.body.site)) db.settings.instagram.site = req.body.site;
  if (req.body.enabled !== undefined) db.settings.instagram.enabled = !!req.body.enabled;
  if (req.body.interval !== undefined) db.settings.instagram.interval = Math.min(1440, Math.max(5, Number(req.body.interval) || 15));
  save();
  res.json({ ok: true, enabled: db.settings.instagram.enabled, site: db.settings.instagram.site });
 });
+// Contenu lu par l'IA sur Instagram : publié sur le site, mais SANS notification à tout le monde ni Telegram
+// (une erreur de lecture ne doit pas partir sur 150 téléphones). Les modos relaient s'ils le jugent utile.
+const instagramCtx = () => ({ broadcast, feed, audit, queueBuildingAlert, onBuilding: (b) => extras?.onBuilding(b) });
 mod.post('/instagram/sync', requireAdmin, async (req, res) => {
- const ctx = {
-   broadcast, feed, queueBuildingAlert,
-   notifyEvent: ({ site: sid, title, start, place }) => notify('events', {
-     subject: `📅 ${title}`, kicker: 'INSTAGRAM · LYON 1',
-     title, body: place ? `Lieu : ${place}` : '', url: '/#/agenda', tone: 'blue', site: sid,
-   }),
-   notifyFlash: ({ site: sid, title, text, tone }) => {
-     sendPushAll({ title, body: text, url: '/', tag: `instagram-flash-${Date.now()}` }).catch((e) => console.error('[instagram push]', e.message));
-     for (const chat of telegramChats(sid)) postTelegram(`📷 <b>Story Instagram · ${tgEsc(title)}</b>\n${tgEsc(text)}`, '/', chat);
-   },
- };
- const channel = await syncInstagram(ctx);
- let stories = null;
- if (process.env.INSTAGRAM_STORIES_COOKIES || process.env.INSTAGRAM_CHANNEL_COOKIES) {
-   stories = await syncInstagramStories(ctx);
+ let channel = null, stories = null;
+ try { channel = await syncInstagram(instagramCtx()); } catch (e) {
+   db.settings.instagram ||= {}; db.settings.instagram.lastError = e.message; db.settings.instagram.lastErrorAt = now(); save();
+   channel = { error: e.message, applied: {} };
  }
- audit(req.mod, 'Instagram synchronisé', channel.source + (stories ? ` · ${stories.storyCount} stories` : ''), db.settings.instagram?.site || DEFAULT_SITE);
+ if (process.env.INSTAGRAM_STORIES_COOKIES || process.env.INSTAGRAM_CHANNEL_COOKIES) {
+   try { stories = await syncInstagramStories(instagramCtx()); } catch (e) { stories = { error: e.message, applied: {}, storyCount: 0 }; }
+ }
+ if (channel.error && (!stories || stories.error)) return bad(res, [channel.error, stories?.error].filter(Boolean).join(' · '), 502);
+ audit(req.mod, 'Instagram synchronisé', `${channel.source || 'canal : erreur'}${stories ? ` · ${stories.storyCount} stories` : ''}`, db.settings.instagram?.site || DEFAULT_SITE);
  res.json({ channel, stories });
 });
 
@@ -1404,19 +1404,7 @@ app.use((err, req, res, next) => {
 });
 app.get('*', (req, res) => res.sendFile(path.join(ROOT, 'public', 'index.html')));
 
-startInstagramSync({
-  broadcast,
-  feed,
-  queueBuildingAlert,
-  notifyEvent: ({ site: sid, title, start, place }) => notify('events', {
-    subject: `📅 ${title}`, kicker: 'INSTAGRAM · LYON 1',
-    title, body: place ? `Lieu : ${place}` : '', url: '/#/agenda', tone: 'blue', site: sid,
-  }),
-  notifyFlash: ({ site: sid, title, text }) => {
-    sendPushAll({ title, body: text, url: '/', tag: `instagram-flash-${Date.now()}` }).catch((e) => console.error('[instagram push]', e.message));
-    for (const chat of telegramChats(sid)) postTelegram(`📷 <b>Story Instagram · ${tgEsc(title)}</b>\n${tgEsc(text)}`, '/', chat);
-  },
-});
+startInstagramSync(instagramCtx());
 
 app.listen(PORT, () => {
   console.log(`${SITE_NAME} → ${SITE_URL()} (port ${PORT})`);

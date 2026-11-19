@@ -2305,6 +2305,7 @@ async function modInstagram(el) {
     $('#instagram-status', el).innerHTML = '<div class="body">Lecture du canal…</div>';
     try {
       const r = await act(() => api('/api/mod/instagram/sync', { method: 'POST' }));
+      if (r.channel?.error) toast(`Canal : ${r.channel.error}`);
       const ca = r.channel?.applied || {};
       const sa = r.stories?.applied || {};
       const storyCount = r.stories?.storyCount || 0;

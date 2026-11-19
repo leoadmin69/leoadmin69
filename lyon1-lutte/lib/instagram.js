@@ -269,11 +269,8 @@ export async function syncInstagramStories(ctx = {}) {
     for (const item of result.buildings || []) {
       const needle = norm(item.name);
       if (!needle) continue;
-      const b = db.buildings.find((x) => {
-        const sameSite = String(x.site || DEFAULT_SITE) === siteId;
-        const name = norm(x.name);
-        return sameSite && (name === needle || name.includes(needle) || needle.includes(name));
-      });
+      // nom exact seulement (« A » ne doit pas toucher tous les bâtiments)
+      const b = db.buildings.find((x) => (x.site || DEFAULT_SITE) === siteId && norm(x.name) === needle);
       if (!b) continue;
       const status = ['bloque', 'partiel', 'ouvert'].includes(item.status) ? item.status : null;
       if (!status || b.status === status) continue;
@@ -283,9 +280,9 @@ export async function syncInstagramStories(ctx = {}) {
       b.by = 'Story Instagram';
       delete b.yesterday;
       delete b.resetAt;
-      db.audit.push({ id: newId(), at: now(), by: 'Instagram', org: reel.username, action: 'story bâtiment Instagram', detail: `${b.name} → ${status}`, site: siteId });
-      db.feed.unshift({ at: now(), level: status === 'bloque' ? 'alert' : status === 'partiel' ? 'warn' : 'ok', text: `${siteName(siteId)} · ${b.name} → ${status === 'bloque' ? 'bloqué' : status === 'partiel' ? 'partiel' : 'rouvert'}${b.note ? ' · ' + b.note : ''} · Story Instagram` });
-      db.feed = db.feed.slice(0, 40);
+      ctx.audit?.(IG, 'story Instagram : bâtiment', `${b.name} → ${status}`, siteId);
+      ctx.feed?.(`${b.name} (${b.campus}) → ${status === 'bloque' ? 'BLOQUÉ' : status === 'partiel' ? 'PARTIEL' : 'OUVERT'}${b.note ? ' · ' + b.note : ''} · story Instagram`, status === 'bloque' ? 'alert' : status === 'partiel' ? 'warn' : 'ok');
+      ctx.onBuilding?.(b);
       ctx.queueBuildingAlert?.(b);
       ctx.broadcast?.('buildings', { id: b.id });
       applied.buildings.push({ name: b.name, status });
@@ -303,7 +300,7 @@ export async function syncInstagramStories(ctx = {}) {
         description: String(item.description || '').slice(0, 1500),
         org: 'Story Instagram', createdAt: now(),
       });
-      db.audit.push({ id: newId(), at: now(), by: 'Instagram', org: reel.username, action: 'story événement Instagram', detail: title, site: siteId });
+      ctx.audit?.(IG, 'story Instagram : événement', title, siteId);
       ctx.notifyEvent?.({ site: siteId, title, start, place: item.place || '' });
       ctx.broadcast?.('events', {});
       applied.events.push({ title, start });
@@ -314,14 +311,13 @@ export async function syncInstagramStories(ctx = {}) {
       const text = String(item.text || '').trim().slice(0, 500);
       if (!title || !text) continue;
       const expiresAt = new Date(Date.now() + 24 * 3600e3).toISOString();
-      db.flashes.push({
-        id: newId(), site: siteId, title, text,
-        type: ['info', 'warn', 'alert', 'ok'].includes(item.tone) ? item.tone : 'info',
-        at: now(), expiresAt, org: 'Story Instagram',
-      });
-      db.feed.unshift({ at: now(), level: item.tone === 'alert' ? 'alert' : item.tone === 'warn' ? 'warn' : item.tone === 'ok' ? 'ok' : 'info', text: `${title} · ${text} · Story Instagram` });
-      db.feed = db.feed.slice(0, 40);
-      db.audit.push({ id: newId(), at: now(), by: 'Instagram', org: reel.username, action: 'story flash Instagram', detail: title, site: siteId });
+      const key = `story-flash:${title}:${text}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      // même format que les flashs des modos (niveau, texte, plus récent en premier)
+      db.flashes.unshift({ id: newId(), site: siteId, level: { alert: 'alerte', warn: 'alerte', ok: 'ok' }[item.tone] || 'info', text: `${title} · ${text}`.slice(0, 500), at: now(), expiresAt, org: 'Story Instagram', official: false });
+      db.flashes = db.flashes.slice(0, 100);
+      ctx.audit?.(IG, 'story Instagram : flash', title, siteId);
       ctx.notifyFlash?.({ site: siteId, title, text, tone: item.tone });
       ctx.broadcast?.('flashes', {});
       applied.flashes.push({ title, text });

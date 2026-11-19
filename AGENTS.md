@@ -116,5 +116,6 @@ PWA gratuite « Lyon 1 · La Doua en lutte » (dossier `lyon1-lutte/`) : infos d
 - 2026-11 : compte piquet = écran calqué sur la page publique Bâtiments (pas d'onglets ni d'en-tête modo) ; toucher un bâtiment ouvre la caméra, puis on choisit l'état sur la photo. Aucun import possible.
 - 2026-11 : comptes piquet PARTAGÉS (l'admin a diffusé 5 liens à tout le monde) : limites et traçage par téléphone (pas par compte), un·e modo peut bloquer le téléphone d'une photo fausse, l'admin débloque tout dans 👥 Comptes.
 - 2026-11 : compte piquet « un geste » : la caméra affiche 🔴 🟠 🟢 (photo + envoi d'un coup) et des notes toutes prêtes (liste TERRAIN_NOTES dans server.js, pas de texte libre ni d'info tactique) ; une maj piquet sans note efface l'ancienne note.
+- 2026-11-19 : stories Instagram (Copilot) : mêmes règles que le canal (nom de bâtiment exact, flashs au format modo, journal via audit()). Le contenu lu par l'IA est publié sur le site SANS notification à tous ni Telegram (une erreur de lecture ne doit pas partir sur 150 téléphones) : les modos relaient. Ne pas modifier render.yaml (Blueprint auto-sync).
 - 2026-11 : lecture du canal Instagram (Copilot) : désactivée par défaut, clé IA obligatoire, noms de bâtiments exacts
   seulement, rien n'est publié si Instagram demande une connexion.
