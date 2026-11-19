@@ -258,7 +258,7 @@ export function registerCommunity(app, mod, ctx) {
   function publicPoll(p, dev) {
     const mine = dev ? p.ballots[ballot(p.id, dev)] : undefined;
     const open = isOpen(p);
-    const showResults = !open || p.results === 'live';
+    const showResults = !open || p.results === 'live' || (p.results === 'voted' && mine !== undefined);
     const counts = p.options.map((_, i) => Object.values(p.ballots).filter((b) => b === i).length);
     return {
       id: p.id, site: siteOf(p), ag: p.ag || '', question: p.question, description: p.description, options: p.options,
@@ -366,7 +366,7 @@ export function registerCommunity(app, mod, ctx) {
     const psite = targetSite(req);
     if (!needSite(req, res, psite)) return;
     // « ag » : l'assemblée générale qui organise ce vote (ex. « AG du 18/11 · Doua »), affichée sur la page des votes
-    const p = { id: newId(), site: psite, ag: clip(req.body.ag, 80) || `AG ${siteName(psite)}`, question, description: clip(req.body.description, 600), options, opensAt: now(), closesAt: closesAt.toISOString(), results: oneOf(req.body.results, ['live', 'after'], 'live'), ballots: {}, org: req.mod.org, createdAt: now() };
+    const p = { id: newId(), site: psite, ag: clip(req.body.ag, 80), question, description: clip(req.body.description, 600), options, opensAt: now(), closesAt: closesAt.toISOString(), results: oneOf(req.body.results, ['live', 'voted', 'after'], 'live'), ballots: {}, org: req.mod.org, createdAt: now() };
     db.polls.push(p); save();
     audit(req.mod, 'vote créé', question, psite);
     feed(`${p.ag} · Nouveau vote anonyme : « ${question} » · jusqu'au ${closesAt.toLocaleString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' })}`, 'info');
@@ -380,6 +380,7 @@ export function registerCommunity(app, mod, ctx) {
     if (!needSite(req, res, siteOf(p))) return;
     if (req.body.close) { p.closed = true; p.closesAt = now(); feed(`Vote clos : « ${p.question} » (${Object.keys(p.ballots).length} votes)`, 'ok'); }
     if (req.body.hidden !== undefined) p.hidden = !!req.body.hidden;
+    if (req.body.results !== undefined) p.results = oneOf(req.body.results, ['live', 'voted', 'after'], p.results);
     if (req.body.extendHours) { const h = Math.min(168, Number(req.body.extendHours) || 0); p.closesAt = new Date(Math.max(Date.now(), new Date(p.closesAt).getTime()) + h * 3600e3).toISOString(); p.closed = false; }
     save(); audit(req.mod, 'vote modifié', p.question, siteOf(p)); broadcast('poll', { id: p.id });
     res.json({ ok: true });

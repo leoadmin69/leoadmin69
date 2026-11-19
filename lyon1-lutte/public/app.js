@@ -2432,6 +2432,7 @@ function remaining(iso) {
   if (s < 86400) return `${Math.floor(s / 3600)} h ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}`;
   return `${Math.floor(s / 86400)} j ${Math.floor((s % 86400) / 3600)} h`;
 }
+const POLL_RESULTS = [['live', 'Visibles par tout le monde pendant le vote'], ['voted', 'Visibles seulement après avoir voté'], ['after', 'Cachés jusqu’à la clôture']];
 function pollHtml(p) {
   const voted = p.myVote !== null;
   const total = p.counts ? p.counts.reduce((a, b) => a + b, 0) : p.total;
@@ -2445,7 +2446,7 @@ function pollHtml(p) {
       if (p.open && !voted) return `<button class="opt" data-opt="${i}">${esc(o)}</button>`;
       return `<div class="opt res ${p.myVote === i ? 'mine' : ''}"><i style="width:${pct}%"></i><span>${p.myVote === i ? '✓ ' : ''}${esc(o)}</span><b>${n === null ? '?' : pct + ' %'}</b></div>`;
     }).join('')}</div>
-    <div class="faint small" style="margin-top:8px">${voted ? 'Ton vote est enregistré (anonyme). ' : ''}${!p.counts ? 'Résultats affichés à la clôture. ' : ''}Lancé par ${esc(p.org)} · fin ${esc(fmt(p.closesAt, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}</div>
+    <div class="faint small" style="margin-top:8px">${voted ? 'Ton vote est enregistré (anonyme). ' : ''}${!p.counts ? (p.results === 'voted' && !voted ? 'Vote pour voir les résultats. ' : 'Résultats affichés à la clôture. ') : ''}Lancé par ${esc(p.org)} · fin ${esc(fmt(p.closesAt, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}</div>
     <button class="btn small ghost" data-share-poll="${esc(p.id)}" style="margin-top:10px">${icon('share', 16)} Partager ce vote</button>
   </div>`;
 }
@@ -2461,7 +2462,7 @@ async function viewPolls(focusId) {
     if (!box) return;
     const mine = polls.filter((p) => inScope(p));
     const ags = [...new Set(mine.map((p) => p.ag || 'Vote'))];
-    box.innerHTML = mine.length ? ags.map((ag) => `<div class="ag-head">🗳️ ${esc(ag)}</div>${mine.filter((p) => (p.ag || 'Vote') === ag).map(pollHtml).join('')}`).join('') : `<div class="card empty"><div class="big">🗳️</div>Aucun vote ${state.data.scope === ALL ? '' : 'pour ' + esc(siteShort(state.data.scope)) + ' '}pour le moment. Chaque AG lance ses votes ici.</div>`;
+    box.innerHTML = mine.length ? ags.map((ag) => `<div class="ag-head">🗳️ ${esc(ag)}</div>${mine.filter((p) => (p.ag || 'Vote') === ag).map(pollHtml).join('')}`).join('') : `<div class="card empty"><div class="big">🗳️</div>Aucun vote ${state.data.scope === ALL ? '' : 'pour ' + esc(siteShort(state.data.scope)) + ' '}pour le moment. Les votes d’avis apparaîtront ici.</div>`;
     // Lien direct vers un vote (#/votes/<id>) : on l'amène à l'écran et on le met en avant
     const target = focusId && box.querySelector(`[data-poll="${CSS.escape(focusId)}"]`);
     if (target) { target.classList.add('focus'); setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150); }
@@ -2698,7 +2699,7 @@ async function modPolls(el) {
         <div class="field"><label>Durée</label><select id="pdur"><option value="1h">1 heure</option><option value="3h">3 heures</option><option value="6h">6 heures</option><option value="12h">12 heures</option><option value="24h" selected>24 heures</option><option value="48h">48 heures</option><option value="72h">3 jours</option><option value="7j">7 jours</option><option value="custom">Date précise…</option></select></div>
         <div class="field" id="pcw" hidden><label>Clôture le</label><input type="datetime-local" id="pc"></div>
       </div>
-      <label class="check"><input type="checkbox" id="plive" checked> Résultats visibles pendant le vote (sinon : à la clôture)</label>
+      <div class="field"><label>Résultats</label><select id="pres">${POLL_RESULTS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></div>
       <button class="btn">Lancer le vote</button></form></div>
     <h2 class="section">Votes</h2>
     ${polls.map((p) => `<div class="card" data-id="${esc(p.id)}">
@@ -2708,18 +2709,24 @@ async function modPolls(el) {
       ${p.options.map((o, i) => `<div class="kv"><span>${esc(o)}</span><b class="mono">${p.counts[i]}${p.suspectCounts?.[i] ? ` <span class="faint">(dont ${p.suspectCounts[i]} suspects)</span>` : ''}</b></div>`).join('')}
       ${p.suspect ? `<div class="card" style="background:rgba(255,159,10,.12);margin-top:8px">⚠ <b>${p.suspect} vote(s) suspect(s)</b> : téléphones tout neufs arrivés en rafale depuis un même réseau (bourrage possible). <button class="btn small ghost" data-a="purge">Retirer les votes suspects</button></div>` : ''}
       <div class="btn-row" style="margin-top:8px"><button class="btn small ghost" data-a="link">🔗 Lien</button>${p.open ? '<button class="btn small ghost" data-a="story">📸 Story du vote</button>' : ''}${p.total ? '<button class="btn small ghost" data-a="res">📊 Story résultats</button>' : ''}${p.open ? '<button class="btn small red" data-a="close">Clore maintenant</button>' : ''}<button class="btn small ghost" data-a="extend">+24 h</button><button class="btn small ghost" data-a="hide">${p.hidden ? 'Afficher' : 'Masquer'}</button><button class="btn small ghost" data-a="del">Supprimer</button></div>
+      <div class="field" style="margin-top:8px"><label>Résultats</label><select data-a="results">${POLL_RESULTS.map(([k, l]) => `<option value="${k}" ${k === (p.results || 'live') ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
     </div>`).join('') || '<div class="empty">Aucun vote.</div>'}`;
   $('#pdur').onchange = (e) => ($('#pcw').hidden = e.target.value !== 'custom');
   $('#pf').onsubmit = async (e) => {
     e.preventDefault();
     const custom = $('#pdur').value === 'custom';
-    await act(() => api('/api/mod/polls', { method: 'POST', body: { ag: (store.set('l1-ag2-' + state.modSite, $('#pag').value), $('#pag').value), question: $('#pq').value, description: $('#pd').value, options: $('#po').value.split('\n'), duration: $('#pdur').value, closesAt: custom && $('#pc').value ? new Date($('#pc').value).toISOString() : undefined, results: $('#plive').checked ? 'live' : 'after' } }), 'Vote lancé.');
+    await act(() => api('/api/mod/polls', { method: 'POST', body: { ag: (store.set('l1-ag2-' + state.modSite, $('#pag').value), $('#pag').value), question: $('#pq').value, description: $('#pd').value, options: $('#po').value.split('\n'), duration: $('#pdur').value, closesAt: custom && $('#pc').value ? new Date($('#pc').value).toISOString() : undefined, results: $('#pres').value } }), 'Vote lancé.');
     render(true);
+  };
+  el.onchange = async (e) => {
+    if (e.target.dataset.a !== 'results') return;
+    const id = e.target.closest('[data-id]')?.dataset.id;
+    if (id) await act(() => api(`/api/mod/polls/${id}`, { method: 'PUT', body: { results: e.target.value } }), 'Affichage des résultats modifié.');
   };
   el.onclick = async (e) => {
     const a = e.target.dataset.a;
     const card = e.target.closest('[data-id]');
-    if (!a || !card) return;
+    if (!a || !card || a === 'results') return;
     const id = card.dataset.id;
     const p = polls.find((x) => x.id === id);
     if (a === 'link') { try { await navigator.clipboard.writeText(voteUrl(p)); toast('Lien du vote copié : colle-le dans un sticker « Lien » de ta story.'); } catch { prompt('Lien du vote :', voteUrl(p)); } return; }
