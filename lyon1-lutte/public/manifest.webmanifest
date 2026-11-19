@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "Lyon 1 · La Doua en lutte",
-  "short_name": "La Doua en lutte",
+  "name": "Lyon 1 · La Doua au courant",
+  "short_name": "La Doua au courant",
   "description": "Blocus, bâtiments bloqués, AG, manifs, votes et chat anonyme des étudiant·es de Lyon 1, en direct.",
   "start_url": "/?app=1",
   "scope": "/",

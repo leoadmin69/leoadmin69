@@ -12,7 +12,7 @@ const resendReady = () => !!process.env.RESEND_API_KEY;
 const smtpReady = () => !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 export const mailEnabled = () => brevoReady() || resendReady() || smtpReady();
 export const mailProvider = () => (brevoReady() ? 'Brevo' : resendReady() ? 'Resend' : smtpReady() ? 'SMTP' : null);
-export const SITE_NAME = 'Lyon 1 · La Doua en lutte';
+export const SITE_NAME = 'Lyon 1 · La Doua au courant';
 const FROM = () => process.env.MAIL_FROM || (process.env.MAIL_FROM_EMAIL ? `${SITE_NAME} <${process.env.MAIL_FROM_EMAIL}>` : process.env.SMTP_USER) || `${SITE_NAME} <alertes@example.org>`;
 // Chaîne Telegram de la mobilisation, rappelée en bas des emails
 const TELEGRAM_LINK = () => (process.env.TELEGRAM_URL && !/bot\/?$/i.test(process.env.TELEGRAM_URL) ? process.env.TELEGRAM_URL : 'https://t.me/ladoualyon1');

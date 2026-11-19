@@ -1,4 +1,4 @@
-// Lyon 1 · La Doua en lutte : plateforme d'information étudiante pendant la mobilisation.
+// Lyon 1 · La Doua au courant : plateforme d'information étudiante pendant la mobilisation.
 // API JSON + flux temps réel (SSE) + site statique (public/).
 import express from 'express';
 import { createRequire } from 'node:module';
@@ -444,8 +444,8 @@ app.post('/api/subscribe', async (req, res) => {
     s.pending = { alerts: alerts.length ? alerts : ALERTS, sites: sitesWanted, at: now() };
     save();
     const link = `${SITE_URL()}/api/confirm?token=${encodeURIComponent(s.token)}&apply=1`;
-    const { html, text } = renderEmail({ tone: 'blue', kicker: 'LYON 1 · LA DOUA EN LUTTE', title: 'Modifier tes alertes', body: `Clique sur le bouton pour appliquer tes nouveaux choix d'alertes.\n\nLien direct : ${link}`, cta: 'Appliquer', token: s.token });
-    sendMany([{ to: email, subject: 'Modifier tes alertes · La Doua en lutte', html: html.replace(SITE_URL() + '"', link + '"'), text }]).catch(() => {});
+    const { html, text } = renderEmail({ tone: 'blue', kicker: 'LYON 1 · LA DOUA AU COURANT', title: 'Modifier tes alertes', body: `Clique sur le bouton pour appliquer tes nouveaux choix d'alertes.\n\nLien direct : ${link}`, cta: 'Appliquer', token: s.token });
+    sendMany([{ to: email, subject: 'Modifier tes alertes · La Doua au courant', html: html.replace(SITE_URL() + '"', link + '"'), text }]).catch(() => {});
     return res.json({ ok: true, message: 'Vérifie ta boîte mail pour confirmer (pense aux spams).' });
   }
   s.alerts = alerts.length ? alerts : ALERTS;
@@ -459,13 +459,13 @@ app.post('/api/subscribe', async (req, res) => {
   save();
   if (!s.confirmed) {
     const link = `${SITE_URL()}/api/confirm?token=${encodeURIComponent(s.token)}`;
-    const { html, text } = renderEmail({ tone: 'blue', kicker: 'LYON 1 · LA DOUA EN LUTTE', title: 'Confirme ton inscription', body: `Clique sur le bouton pour recevoir ${EMAIL_MODE === 'digest' ? `le récapitulatif de chaque matin (${DIGEST_HOUR} h : bâtiments bloqués, AG, manifs)` : 'les alertes (bâtiments bloqués, AG, manifs)'}.\n\nLien direct : ${link}`, cta: 'Confirmer', token: s.token });
-    await sendMany([{ to: email, subject: 'Confirme tes alertes Lyon 1 · La Doua en lutte', html: html.replace(SITE_URL() + '"', link + '"'), text }]);
+    const { html, text } = renderEmail({ tone: 'blue', kicker: 'LYON 1 · LA DOUA AU COURANT', title: 'Confirme ton inscription', body: `Clique sur le bouton pour recevoir ${EMAIL_MODE === 'digest' ? `le récapitulatif de chaque matin (${DIGEST_HOUR} h : bâtiments bloqués, AG, manifs)` : 'les alertes (bâtiments bloqués, AG, manifs)'}.\n\nLien direct : ${link}`, cta: 'Confirmer', token: s.token });
+    await sendMany([{ to: email, subject: 'Confirme tes alertes Lyon 1 · La Doua au courant', html: html.replace(SITE_URL() + '"', link + '"'), text }]);
     return res.json({ ok: true, message: 'Vérifie ta boîte mail pour confirmer (pense aux spams).' });
   }
   res.json({ ok: true, message: 'Vérifie ta boîte mail pour confirmer (pense aux spams).' });
 });
-const page = (title, msg) => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#000;color:#f2f2f7;font:17px -apple-system,Segoe UI,Roboto,sans-serif;padding:16px"><div style="max-width:420px;text-align:center"><h1 style="font-size:28px">${title}</h1><p style="color:#a1a1aa">${msg}</p><a href="/" style="color:#30D158">Retour au site →</a><p style="color:#6e6e73;font-size:13px;margin-top:24px">Lyon 1 · La Doua en lutte</p></div>`;
+const page = (title, msg) => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#000;color:#f2f2f7;font:17px -apple-system,Segoe UI,Roboto,sans-serif;padding:16px"><div style="max-width:420px;text-align:center"><h1 style="font-size:28px">${title}</h1><p style="color:#a1a1aa">${msg}</p><a href="/" style="color:#30D158">Retour au site →</a><p style="color:#6e6e73;font-size:13px;margin-top:24px">Lyon 1 · La Doua au courant</p></div>`;
 app.get('/api/confirm', (req, res) => {
   const s = db.subscribers.find((x) => x.token === req.query.token);
   if (!s) return res.status(404).send(page('Lien invalide', 'Ce lien ne correspond à aucune inscription.'));
@@ -639,7 +639,7 @@ async function sendDigest() {
     if (s.alerts?.includes('reports') && reports.length) lines.push('', '📝 Nouveaux comptes rendus :', ...reports.map((r) => `• ${r.titre}`));
     lines.push('', 'Pour être prévenu·e tout de suite dans la journée : notifications de l’app ou chaîne Telegram.');
     const items = s.alerts?.includes('buildings') ? blds.map((x) => ({ label: `${x.name} : ${STATUS_LABEL[x.status]}`, value: siteName(siteOf(x)), tone: tone[x.status] })) : [];
-    const { html, text } = renderEmail({ tone: nBlocked || effectiveBlocus(main) === 'actif' ? 'red' : 'green', kicker: `LYON 1 · LA DOUA EN LUTTE · ${BLOCUS_LABEL[effectiveBlocus(main)]}`, title, items, body: lines.join('\n').trim(), token: s.token });
+    const { html, text } = renderEmail({ tone: nBlocked || effectiveBlocus(main) === 'actif' ? 'red' : 'green', kicker: `LYON 1 · LA DOUA AU COURANT · ${BLOCUS_LABEL[effectiveBlocus(main)]}`, title, items, body: lines.join('\n').trim(), token: s.token });
     messages.push({ to: s.email, subject: `☀️ Ce matin à Lyon 1 · ${title.replace(/^[^ ]+ /, '').replace(/ ce matin$/, '')}`, html, text });
   }
   const r = await sendMany(messages);
@@ -749,7 +749,7 @@ mod.post('/digest/send', requireAdmin, async (req, res) => {
   res.json(await sendDigest());
 });
 mod.post('/push/test', async (req, res) => {
-  const r = await sendPush('urgent', { title: 'Test · La Doua en lutte', body: 'Les notifications marchent ✊', url: '/', tag: 'test' }, (s) => s.endpoint === req.body?.endpoint);
+  const r = await sendPush('urgent', { title: 'Test · La Doua au courant', body: 'Les notifications marchent ✊', url: '/', tag: 'test' }, (s) => s.endpoint === req.body?.endpoint);
   res.json(r);
 });
 
@@ -1002,7 +1002,7 @@ mod.post('/events', (req, res) => {
   const when = new Date(e.start).toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' });
   feed(`${siteName(e.site)} · Nouveau rendez-vous · ${e.type} · ${e.title} · ${when}${e.place ? ' · ' + e.place : ''}`, 'info');
   broadcast('events', {});
-  const evMsg = { site: e.site, tone: 'blue', subject: `📣 ${e.type} : ${e.title} (${when})`, kicker: `LYON 1 · LA DOUA EN LUTTE · ${e.type.toUpperCase()}`, title: e.title, body: `${when}\n${e.place}${e.address ? ' · ' + e.address : ''}\n\n${e.description}`.trim(), url: '/#/agenda' };
+  const evMsg = { site: e.site, tone: 'blue', subject: `📣 ${e.type} : ${e.title} (${when})`, kicker: `LYON 1 · LA DOUA AU COURANT · ${e.type.toUpperCase()}`, title: e.title, body: `${when}\n${e.place}${e.address ? ' · ' + e.address : ''}\n\n${e.description}`.trim(), url: '/#/agenda' };
   if (req.body.notify) notify('events', evMsg);
   else tgAnnounce(evMsg.site, evMsg.subject, evMsg.body, null, evMsg.url); // Telegram : toujours
   res.json({ ...e, reach: reach(req.body.notify ? 'events' : null, e.site) });
@@ -1050,8 +1050,8 @@ mod.post('/flashes', (req, res) => {
     audit(req.mod, 'annonce officielle', text, fsite);
     feed(`📢 Administration du site · ${text}`, f.level === 'alerte' ? 'alert' : f.level === 'ok' ? 'ok' : 'info');
     const icon = { alerte: '🚨', info: '📢', ok: '✅' }[f.level];
-    for (const chat of telegramChats(ALL_SITES)) postTelegram(`${icon} <b>Administration du site · La Doua en lutte</b>\n${tgEsc(text)}`, '/', chat);
-    const pushed = sendPushAll({ title: `${icon} Administration · La Doua en lutte`, body: text, url: '/', tag: `officiel-${f.id}` }).catch((e) => console.error('[push]', e.message));
+    for (const chat of telegramChats(ALL_SITES)) postTelegram(`${icon} <b>Administration du site · La Doua au courant</b>\n${tgEsc(text)}`, '/', chat);
+    const pushed = sendPushAll({ title: `${icon} Administration · La Doua au courant`, body: text, url: '/', tag: `officiel-${f.id}` }).catch((e) => console.error('[push]', e.message));
     broadcast('flashes', {});
     return res.json({ ...f, reach: { phones: (db.pushSubs || []).length, emails: 0, telegram: telegramEnabled() ? telegramChats(ALL_SITES).length : 0, online: clients.size, delaySec: 0 } });
   }
@@ -1236,7 +1236,7 @@ mod.put('/reports/:id', (req, res) => {
       broadcast('demands', {});
     }
     save();
-    const crMsg = { site: siteOf(r), tone: 'blue', subject: `📝 Compte rendu : ${r.titre}`, kicker: 'LYON 1 · LA DOUA EN LUTTE · COMPTE RENDU', title: r.titre, body: r.resume, items: r.flashs.slice(0, 6).map((f) => ({ label: f.titre, value: '', tone: f.type === 'alerte' ? 'red' : undefined })), url: `/#/cr/${r.id}` };
+    const crMsg = { site: siteOf(r), tone: 'blue', subject: `📝 Compte rendu : ${r.titre}`, kicker: 'LYON 1 · LA DOUA AU COURANT · COMPTE RENDU', title: r.titre, body: r.resume, items: r.flashs.slice(0, 6).map((f) => ({ label: f.titre, value: '', tone: f.type === 'alerte' ? 'red' : undefined })), url: `/#/cr/${r.id}` };
     if (req.body.notify) notify('reports', crMsg);
     else tgAnnounce(crMsg.site, crMsg.subject, crMsg.body, crMsg.items, crMsg.url); // Telegram : toujours
   }

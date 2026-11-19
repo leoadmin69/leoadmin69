@@ -1,6 +1,6 @@
 import { randomNick, isSystemNick } from './nicks.js';
 import { EMOTES } from './emotes.js';
-// Lyon 1 · La Doua en lutte : application monopage (sans framework).
+// Lyon 1 · La Doua au courant : application monopage (sans framework).
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -462,7 +462,7 @@ function icsFor(e) {
   const d = (iso) => new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
   const endIso = new Date(new Date(e.start).getTime() + 2 * 3600e3).toISOString();
   const clean = (s) => String(s || '').replace(/[\\,;]/g, (c) => '\\' + c).replace(/\n/g, '\\n');
-  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Lyon 1 La Doua en lutte//FR', 'BEGIN:VEVENT', `UID:${e.id}@lyon1-lutte`, `DTSTAMP:${d(new Date().toISOString())}`, `DTSTART:${d(e.start)}`, `DTEND:${d(endIso)}`, `SUMMARY:${clean(`[${EVENT_TYPE[e.type][0]}] ${e.title}`)}`, `LOCATION:${clean([e.place, e.address].filter(Boolean).join(', '))}`, `DESCRIPTION:${clean(e.description)}`, 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Lyon 1 La Doua au courant//FR', 'BEGIN:VEVENT', `UID:${e.id}@lyon1-lutte`, `DTSTAMP:${d(new Date().toISOString())}`, `DTSTART:${d(e.start)}`, `DTEND:${d(endIso)}`, `SUMMARY:${clean(`[${EVENT_TYPE[e.type][0]}] ${e.title}`)}`, `LOCATION:${clean([e.place, e.address].filter(Boolean).join(', '))}`, `DESCRIPTION:${clean(e.description)}`, 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
 }
 function viewAgenda() {
   const evs = state.data.events;
@@ -601,7 +601,7 @@ function viewDemands() {
   if ($('#ctxToggle')) $('#ctxToggle').onclick = () => { state.ctxOpen = !state.ctxOpen; render(true); };
   $('#shareDemands').onclick = async () => {
     const text = cats.map((c) => `${c.toUpperCase()}\n${sorted.filter((d) => d.category === c).map((d) => `• ${d.title}`).join('\n')}`).join('\n\n');
-    try { if (navigator.share) await navigator.share({ title: 'Nos revendications · La Doua en lutte', text, url: location.origin + '/#/revendications' }); else { await navigator.clipboard.writeText(`${text}\n\n${location.origin}/#/revendications`); toast('Revendications copiées.'); } } catch {}
+    try { if (navigator.share) await navigator.share({ title: 'Nos revendications · La Doua au courant', text, url: location.origin + '/#/revendications' }); else { await navigator.clipboard.writeText(`${text}\n\n${location.origin}/#/revendications`); toast('Revendications copiées.'); } } catch {}
   };
   $$('.support').forEach((b) => (b.onclick = async () => {
     try {
@@ -973,7 +973,7 @@ async function viewAlerts() {
     const s2 = await currentPushSub();
     try { await api('/api/push/subscribe', { method: 'POST', body: { subscription: s2.toJSON(), kinds: pick('pk'), sites: pick('pc') } }); } catch {}
     const reg = await navigator.serviceWorker.getRegistration();
-    reg?.showNotification('Test · La Doua en lutte', { body: 'Les notifications marchent ✊', icon: '/icons/icon-192.png', badge: '/icons/badge-96.png' });
+    reg?.showNotification('Test · La Doua au courant', { body: 'Les notifications marchent ✊', icon: '/icons/icon-192.png', badge: '/icons/badge-96.png' });
   };
   if ($('#sub')) $('#sub').onsubmit = async (e) => {
     e.preventDefault();
@@ -1795,7 +1795,7 @@ function storyFrame(ctx, W, H, accent) {
   for (let y = 0; y < H; y += 6) ctx.fillRect(0, y, W, 2);
   // en-tête
   ctx.fillStyle = '#fff'; ctx.font = `800 64px ${MONO}`; ctx.fillText('LYON 1', 80, 200);
-  ctx.fillStyle = '#ff453a'; ctx.font = `800 40px ${MONO}`; ctx.fillText('LA DOUA EN LUTTE', 80, 255);
+  ctx.fillStyle = '#ff453a'; ctx.font = `800 40px ${MONO}`; ctx.fillText('LA DOUA AU COURANT', 80, 255);
   ctx.fillStyle = '#a1a1aa'; ctx.font = `500 30px ${SF}`;
   ctx.fillText(new Date().toLocaleString('fr-FR', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }), 80, 300);
   // pied
@@ -1949,7 +1949,7 @@ function phoneMock(ctx, x, y, w, { notif = false } = {}) {
   ctx.fillStyle = '#ff453a'; ctx.fillRect(ix, iy + u * 12, iw, u * 9);
   ctx.fillStyle = '#fff'; ctx.font = `800 ${u * 4.2}px ${MONO}`; ctx.fillText('ALERTE · BLOQUÉ : THÉMIS · NAUTIBUS', ix + u * 4, iy + u * 18);
   ctx.fillStyle = '#fff'; ctx.font = `800 ${u * 5}px ${MONO}`; ctx.fillText('LYON 1 ·', ix + u * 6, iy + u * 32);
-  ctx.fillStyle = '#ff453a'; ctx.fillText('LA DOUA EN LUTTE', ix + u * 34, iy + u * 32);
+  ctx.fillStyle = '#ff453a'; ctx.fillText('LA DOUA AU COURANT', ix + u * 34, iy + u * 32);
   const g = ctx.createLinearGradient(ix, iy + u * 38, ix + iw, iy + u * 90);
   g.addColorStop(0, '#4a0b08'); g.addColorStop(1, '#000');
   ctx.fillStyle = g; rrect(ctx, ix + u * 5, iy + u * 38, iw - u * 10, u * 58, u * 7); ctx.fill();
@@ -1988,7 +1988,7 @@ function phoneMock(ctx, x, y, w, { notif = false } = {}) {
 }
 function promoHeader(ctx, W, top = 130) {
   ctx.fillStyle = '#fff'; ctx.font = `800 78px ${MONO}`; ctx.fillText('LYON 1', 80, top + 60);
-  ctx.fillStyle = '#ff453a'; ctx.font = `800 50px ${MONO}`; ctx.fillText('LA DOUA EN LUTTE', 80, top + 125);
+  ctx.fillStyle = '#ff453a'; ctx.font = `800 50px ${MONO}`; ctx.fillText('LA DOUA AU COURANT', 80, top + 125);
 }
 function featureRows(ctx, x, y, w, rows, size = 42, gap = 82) {
   rows.forEach(([ico, txt], i) => {
@@ -2048,7 +2048,7 @@ function tutoFrame(ctx, W, H, n, accent = '#ff453a') {
   g.addColorStop(0, accent + '55'); g.addColorStop(1, '#00000000'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = 'rgba(255,255,255,0.025)'; for (let y = 0; y < H; y += 6) ctx.fillRect(0, y, W, 2);
   ctx.fillStyle = '#fff'; ctx.font = `800 40px ${MONO}`; ctx.fillText('LYON 1', 70, 90);
-  ctx.fillStyle = '#ff453a'; ctx.font = `800 28px ${MONO}`; ctx.fillText('LA DOUA EN LUTTE', 70, 130);
+  ctx.fillStyle = '#ff453a'; ctx.font = `800 28px ${MONO}`; ctx.fillText('LA DOUA AU COURANT', 70, 130);
   ctx.fillStyle = 'rgba(255,255,255,0.12)'; rrect(ctx, W - 170, 52, 100, 54, 27); ctx.fill();
   ctx.fillStyle = '#fff'; ctx.font = `800 30px ${MONO}`; ctx.fillText(`${n}/4`, W - 150, 89);
   ctx.fillStyle = '#6e6e73'; ctx.font = `600 28px ${MONO}`; ctx.fillText(siteHost(), 70, H - 50);
@@ -2577,7 +2577,7 @@ async function modAccounts(el) {
     <div class="btn-row"><button class="btn" id="lcopy">Copier le lien</button>${navigator.share ? '<button class="btn ghost" id="lshare">Partager…</button>' : ''}</div>
     <p class="faint small">Envoie-le par Signal. Il ne sera plus affiché : en cas de perte, « Nouveau lien » (l’ancien cessera de marcher).</p>`, (root) => {
       $('#lcopy', root).onclick = async () => { try { await navigator.clipboard.writeText(m.link); toast('Lien copié ✅'); } catch { prompt('Lien :', m.link); } };
-      if ($('#lshare', root)) $('#lshare', root).onclick = () => navigator.share({ title: 'Accès piquet · La Doua en lutte', text: 'Ton accès piquet pour mettre à jour les bâtiments :', url: m.link }).catch(() => {});
+      if ($('#lshare', root)) $('#lshare', root).onclick = () => navigator.share({ title: 'Accès piquet · La Doua au courant', text: 'Ton accès piquet pour mettre à jour les bâtiments :', url: m.link }).catch(() => {});
     });
   const showPw = (m) => sheet(`<h3>Accès pour ${esc(m.username)}</h3><p class="muted">Transmets-le en main propre ou par messagerie chiffrée (Signal). Il ne sera plus affiché.</p><div class="secret">${esc(m.password)}</div><p class="faint small">La personne pourra le changer dans « Mon compte ».</p>`);
   // comptes piquet partagés : l'admin peut débloquer tous les téléphones bloqués par les modos
@@ -3139,7 +3139,7 @@ function connectLive() {
     const f = JSON.parse(e.data);
     if (state.data) state.data.feed.unshift(f);
     typeFeedLine(f);
-    if (f.level === 'alert' && document.hidden && 'Notification' in window && Notification.permission === 'granted') new Notification('Lyon 1 · La Doua en lutte', { body: f.text, icon: '/icon.svg' });
+    if (f.level === 'alert' && document.hidden && 'Notification' in window && Notification.permission === 'granted') new Notification('Lyon 1 · La Doua au courant', { body: f.text, icon: '/icon.svg' });
   });
   es.addEventListener('chat', (e) => onChat(JSON.parse(e.data)));
   es.addEventListener('sighting', () => { scheduleRefresh(); if (route() === 'modo' && state.modTab === 'situation') drawSightings(); });
@@ -3270,7 +3270,7 @@ function showInstallHelp(forPush = false) {
     : `<ol class="steps">
       <li>Ouvre le menu du navigateur <span class="kbd">⋮</span> (en haut à droite dans Chrome).</li>
       <li>Choisis <b>« Installer l’application »</b> ou <b>« Ajouter à l’écran d’accueil »</b>.</li>
-      <li>L’icône <b>LYON 1 / LA DOUA EN LUTTE</b> apparaît avec tes autres apps.</li></ol>`}
+      <li>L’icône <b>LYON 1 / LA DOUA AU COURANT</b> apparaît avec tes autres apps.</li></ol>`}
     <p class="faint small">C’est gratuit, sans store, et ça ne prend presque pas de place.</p>`);
 }
 function appCardHtml() {
@@ -3295,7 +3295,7 @@ async function welcomePopup() {
   const needInstall = !standalone;
   const iosBrowser = isIOS && !standalone;
   sheet(`<div class="welcome">
-      <div class="welcome-head"><div class="kicker">LYON 1 · LA DOUA EN LUTTE</div><h2>Ne rate rien de la mobilisation ✊</h2>
+      <div class="welcome-head"><div class="kicker">LYON 1 · LA DOUA AU COURANT</div><h2>Ne rate rien de la mobilisation ✊</h2>
       <p class="muted">Bâtiments bloqués, AG, manifs, votes : sois prévenu·e en direct, gratuitement, sans compte.</p></div>
       ${needInstall ? `<button class="welcome-step" id="w-install" type="button"><span class="w-ico">📲</span><span class="grow"><b>1. Installer l’app</b><span>Une icône sur ton écran d’accueil, ouverte en 1 tap${isIOS ? ' (obligatoire sur iPhone pour les notifs)' : ''}.</span></span><span class="chev">${icon('chev', 18)}</span></button>` : ''}
       ${pushOn ? '' : `<button class="welcome-step" id="w-push" type="button"><span class="w-ico">🔔</span><span class="grow"><b>${needInstall ? '2. ' : ''}Activer les notifications</b><span>${iosBrowser ? 'Après avoir installé l’app, ouvre-la et active-les ici.' : 'Une alerte sur ton téléphone dès qu’un bâtiment est bloqué ou qu’une AG est annoncée.'}</span></span><span class="chev">${icon('chev', 18)}</span></button>`}
@@ -3708,7 +3708,7 @@ async function modPushCard() {
   if (!on && Notification.permission === 'denied' && !sess.get('l1-modpush-ask') && !$('.sheet')) {
     sess.set('l1-modpush-ask');
     sheet(`<h3>🔕 Notifications bloquées sur ce téléphone</h3><p class="muted">Tu les as refusées pour ce site un jour : il ne peut plus te les redemander. Pour recevoir les signalements à vérifier :</p>
-      <ol class="steps">${isIOS ? '<li>Réglages de l’iPhone → <b>Notifications</b>.</li><li>Choisis l’app <b>La Doua en lutte</b> et active <b>Autoriser les notifications</b>.</li>' : '<li>Touche le <b>cadenas</b> (ou ⓘ) à gauche de l’adresse du site.</li><li><b>Autorisations</b> → <b>Notifications</b> → <b>Autoriser</b>.</li>'}<li>Reviens ici et touche <b>Activer</b> dans l’encart « Alertes modo ».</li></ol>
+      <ol class="steps">${isIOS ? '<li>Réglages de l’iPhone → <b>Notifications</b>.</li><li>Choisis l’app <b>La Doua au courant</b> (ou « La Doua en lutte » si tu l’as installée avant) et active <b>Autoriser les notifications</b>.</li>' : '<li>Touche le <b>cadenas</b> (ou ⓘ) à gauche de l’adresse du site.</li><li><b>Autorisations</b> → <b>Notifications</b> → <b>Autoriser</b>.</li>'}<li>Reviens ici et touche <b>Activer</b> dans l’encart « Alertes modo ».</li></ol>
       <button class="btn ghost" id="mp-no" style="width:100%">Compris</button>`, (el, close) => { $('#mp-no', el).onclick = close; });
   }
   // Pas encore autorisées : on le propose à chaque ouverture de l'espace modo (une fois par visite, et à chaque connexion)

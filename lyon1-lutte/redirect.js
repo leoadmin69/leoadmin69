@@ -31,8 +31,8 @@ self.addEventListener('fetch', (e) => {
 });
 self.addEventListener('push', (e) => {
   let d = {};
-  try { d = e.data.json(); } catch { d = { title: 'La Doua en lutte', body: e.data ? e.data.text() : '' }; }
-  e.waitUntil(self.registration.showNotification(d.title || 'La Doua en lutte', {
+  try { d = e.data.json(); } catch { d = { title: 'La Doua au courant', body: e.data ? e.data.text() : '' }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'La Doua au courant', {
     body: d.body || '', icon: TO + '/icons/icon-192.png', badge: TO + '/icons/badge-96.png',
     tag: d.tag || 'info', renotify: true, vibrate: [200, 100, 200], data: { url: d.url || '/' },
   }));

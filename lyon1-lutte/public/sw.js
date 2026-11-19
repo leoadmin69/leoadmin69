@@ -1,6 +1,6 @@
 // Service worker : installation sur l'écran d'accueil, ouverture même sans réseau (dernières infos connues),
 // et réception des notifications (bâtiment bloqué, alerte, AG…).
-const VERSION = 'v65'; // à changer à chaque mise à jour importante : force les téléphones à recharger l'app
+const VERSION = 'v66'; // à changer à chaque mise à jour importante : force les téléphones à recharger l'app
 const SHELL = `shell-${VERSION}`;
 const DATA = 'data';
 const SHELL_FILES = ['/', '/style.css', '/app.js', '/nicks.js', '/emotes.js', '/vendor/qrcode.js', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/badge-96.png'];
@@ -45,8 +45,8 @@ self.addEventListener('fetch', (e) => {
 
 self.addEventListener('push', (e) => {
   let d = {};
-  try { d = e.data.json(); } catch { d = { title: 'La Doua en lutte', body: e.data ? e.data.text() : '' }; }
-  e.waitUntil(self.registration.showNotification(d.title || 'La Doua en lutte', {
+  try { d = e.data.json(); } catch { d = { title: 'La Doua au courant', body: e.data ? e.data.text() : '' }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'La Doua au courant', {
     body: d.body || '',
     icon: '/icons/icon-192.png',
     badge: '/icons/badge-96.png',

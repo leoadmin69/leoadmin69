@@ -150,7 +150,7 @@ export async function telegramTest(chatId) {
   const chat = normalizeChat(chatId) || MAIN_CHAT();
   if (!chat) return { ok: false, error: 'TELEGRAM_CHAT_ID manquant.' };
   try {
-    const r = await call('sendMessage', { chat_id: chat, text: '✅ <b>Test · Lyon 1 · La Doua en lutte</b>\nLa chaîne est bien reliée au site : les infos arriveront ici automatiquement.', parse_mode: 'HTML' });
+    const r = await call('sendMessage', { chat_id: chat, text: '✅ <b>Test · Lyon 1 · La Doua au courant</b>\nLa chaîne est bien reliée au site : les infos arriveront ici automatiquement.', parse_mode: 'HTML' });
     if (r.ok) { status.sent++; status.lastOkAt = new Date().toISOString(); return { ok: true, chat }; }
     const error = explain(r.description, r.status);
     status.lastError = error; status.lastErrorAt = new Date().toISOString(); status.lastErrorChat = chat;
