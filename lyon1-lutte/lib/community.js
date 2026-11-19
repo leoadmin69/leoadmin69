@@ -267,10 +267,64 @@ export function registerCommunity(app, mod, ctx) {
     };
   }
   app.get('/api/polls', (req, res) => {
+    seenAge(req, res);
     const dev = parseCookies(req.headers.cookie)[DEVICE];
     const list = db.polls.filter((p) => !p.hidden).sort((a, b) => (isOpen(b) - isOpen(a)) || b.createdAt.localeCompare(a.createdAt)).slice(0, 40);
     res.json(list.map((p) => publicPoll(p, dev)));
   });
+  // ---- Anti-bourrage des votes (sans compte, vote anonyme) ----
+  // 1. Petit calcul fait par le téléphone avant chaque vote (jeton à usage unique lié au vote et à l'appareil)
+  const POW_BITS = () => Math.min(24, Math.max(8, Number(process.env.VOTE_POW_BITS || 17)));
+  const powSign = (s) => crypto.createHmac('sha256', SECRET).update(`pow|${s}`).digest('base64url').slice(0, 22);
+  const devTag = (dev) => crypto.createHmac('sha256', SECRET).update(`powdev|${dev}`).digest('base64url').slice(0, 10);
+  const usedTokens = new Map(); // jeton → expiration (un jeton ne sert qu'une fois)
+  setInterval(() => { const t = Date.now(); for (const [k, exp] of usedTokens) if (exp < t) usedTokens.delete(k); }, 60e3).unref();
+  function powCheck(p, dev, token, nonce) {
+    const parts = String(token || '').split('.');
+    if (parts.length !== 6) return 'Recharge la page puis revote.';
+    const [pid, tag, ts, bits, rnd, sig] = parts;
+    if (sig !== powSign(parts.slice(0, 5).join('.')) || pid !== p.id || tag !== devTag(dev)) return 'Recharge la page puis revote.';
+    const age = Date.now() - Number(ts);
+    if (!(age >= 0 && age < 15 * 60e3)) return 'Ta page est restée ouverte trop longtemps : recharge-la puis revote.';
+    if (usedTokens.has(token)) return 'Recharge la page puis revote.';
+    const n = Number(nonce);
+    if (!Number.isInteger(n) || n < 0) return 'Recharge la page puis revote.';
+    const first = crypto.createHash('sha256').update(`${token}:${n}`).digest().readUInt32BE(0);
+    if (first >= 2 ** (32 - Number(bits))) return 'Recharge la page puis revote.';
+    usedTokens.set(token, Date.now() + 15 * 60e3);
+    return null;
+  }
+  // 2. Âge de l'appareil : cookie signé posé à la première visite de la page des votes (vider ses cookies = appareil « neuf »)
+  const SEEN = 'l1_seen';
+  function seenAge(req, res) {
+    const v = parseCookies(req.headers.cookie)[SEEN] || '';
+    const [ts, sig] = v.split('.');
+    if (ts && sig === powSign(`seen|${ts}`)) return Date.now() - Number(ts);
+    const t = String(Date.now());
+    const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+    res.append('Set-Cookie', `${SEEN}=${t}.${powSign(`seen|${t}`)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${400 * 86400}${secure}`);
+    return 0;
+  }
+  // 3. Rafales depuis un même réseau sur un même vote (pour repérer le bourrage, sans gêner le wifi du campus)
+  const netVotes = new Map(); // `${poll}|${réseau}` → horodatages des 5 dernières minutes
+  function netBurst(pid, net) {
+    const k = `${pid}|${net}`, t = Date.now();
+    const list = (netVotes.get(k) || []).filter((x) => t - x < 5 * 60e3);
+    list.push(t); netVotes.set(k, list);
+    return list.length;
+  }
+  setInterval(() => { const t = Date.now(); for (const [k, l] of netVotes) if (!l.some((x) => t - x < 5 * 60e3)) netVotes.delete(k); }, 60e3).unref();
+  app.get('/api/polls/:id/challenge', (req, res) => {
+    const p = db.polls.find((x) => x.id === req.params.id && !x.hidden);
+    if (!p) return bad(res, 'Vote introuvable.', 404);
+    if (limited(`powch:${visitor(req)}`, 600, 60e3)) return bad(res, 'Trop de demandes, réessaie dans une minute.', 429);
+    const dev = deviceId(req, res);
+    seenAge(req, res);
+    const base = [p.id, devTag(dev), Date.now(), POW_BITS(), crypto.randomBytes(6).toString('base64url')].join('.');
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ token: `${base}.${powSign(base)}`, bits: POW_BITS() });
+  });
+
   const pollTimers = new Map();
   const pollPing = (id) => { if (pollTimers.has(id)) return; pollTimers.set(id, setTimeout(() => { pollTimers.delete(id); broadcast('poll', { id, vote: 1 }); }, 5000)); };
   app.post('/api/polls/:id/vote', (req, res) => {
@@ -282,9 +336,16 @@ export function registerCommunity(app, mod, ctx) {
     // Garde-fou très large contre le bourrage : en AG, des centaines de personnes votent depuis le MÊME wifi du campus
     // (et beaucoup de forfaits 4G partagent aussi une adresse). Le vrai contrôle est « 1 vote par appareil » ci-dessous.
     if (limited(`vote:${p.id}:${visitor(req)}`, Number(process.env.VOTES_PER_NETWORK_HOUR || 3000), 3600e3)) return bad(res, 'Trop de votes depuis ce réseau, réessaie dans quelques minutes.', 429);
+    // rafale : plus de 100 votes en 1 min depuis un même réseau = un script, pas des étudiant·es
+    if (limited(`voteburst:${p.id}:${visitor(req)}`, Number(process.env.VOTES_PER_NETWORK_MINUTE || 100), 60e3)) return bad(res, 'Beaucoup de votes en même temps depuis ce réseau : réessaie dans une minute.', 429);
     const dev = deviceId(req, res);
     const b = ballot(p.id, dev);
     if (p.ballots[b] !== undefined) return bad(res, 'Tu as déjà voté sur cet appareil.', 409);
+    const powErr = powCheck(p, dev, req.body.token, req.body.nonce);
+    if (powErr) return bad(res, powErr, 400);
+    // suspect = appareil tout neuf (moins de 2 min) ET déjà 10 votes ou plus de ce réseau en 5 min sur ce vote
+    const fresh = seenAge(req, res) < 120e3, burst = netBurst(p.id, visitor(req));
+    if (fresh && burst >= 10) { p.suspect ||= {}; p.suspect[b] = 1; }
     p.ballots[b] = choice;
     save();
     pollPing(p.id);
@@ -292,7 +353,17 @@ export function registerCommunity(app, mod, ctx) {
   });
 
   const DURATIONS = { '1h': 1, '3h': 3, '6h': 6, '12h': 12, '24h': 24, '48h': 48, '72h': 72, '7j': 168 };
-  mod.get('/polls', (req, res) => res.json(db.polls.filter((p) => visible(req, p)).map((p) => ({ ...publicPoll(p), counts: p.options.map((_, i) => Object.values(p.ballots).filter((b) => b === i).length), hidden: !!p.hidden, closed: !!p.closed }))));
+  mod.get('/polls', (req, res) => res.json(db.polls.filter((p) => visible(req, p)).map((p) => ({ ...publicPoll(p), counts: p.options.map((_, i) => Object.values(p.ballots).filter((b) => b === i).length), suspect: Object.keys(p.suspect || {}).filter((k) => p.ballots[k] !== undefined).length, suspectCounts: p.options.map((_, i) => Object.keys(p.suspect || {}).filter((k) => p.ballots[k] === i).length), hidden: !!p.hidden, closed: !!p.closed }))));
+  mod.post('/polls/:id/purge-suspects', (req, res) => {
+    const p = db.polls.find((x) => x.id === req.params.id);
+    if (!p) return bad(res, 'Introuvable', 404);
+    if (!needSite(req, res, siteOf(p))) return;
+    let n = 0;
+    for (const k of Object.keys(p.suspect || {})) if (p.ballots[k] !== undefined) { delete p.ballots[k]; n++; }
+    p.suspect = {}; p.purged = (p.purged || 0) + n;
+    save(); audit(req.mod, 'votes suspects retirés', `${n} · ${p.question}`, siteOf(p)); broadcast('poll', { id: p.id });
+    res.json({ ok: true, n });
+  });
   mod.post('/polls', (req, res) => {
     const question = clip(req.body.question, 200);
     const options = (Array.isArray(req.body.options) ? req.body.options : []).map((o) => clip(o, 100)).filter(Boolean).slice(0, 8);

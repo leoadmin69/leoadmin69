@@ -2481,7 +2481,9 @@ async function viewPolls(focusId) {
       const pid = card.dataset.poll;
       $$('button', card).forEach((b) => (b.disabled = true));
       try {
-        const p = await api(`/api/polls/${pid}/vote`, { method: 'POST', body: { option: Number(opt.dataset.opt) } });
+        opt.classList.add('voting');
+        const proof = await votePow(pid);
+        const p = await api(`/api/polls/${pid}/vote`, { method: 'POST', body: { option: Number(opt.dataset.opt), ...proof } });
         // la carte a pu être redessinée entre-temps : on reprend la carte affichée
         const now = $(`[data-poll="${CSS.escape(pid)}"]`) || card;
         now.outerHTML = pollHtml(p);
@@ -2492,6 +2494,20 @@ async function viewPolls(focusId) {
       } finally { state.voting = false; }
     };
   } catch (err) { $('#polls').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+}
+
+// Petit calcul anti-bourrage fait par le téléphone avant chaque vote (≈ 1 s, en arrière-plan)
+async function votePow(pid) {
+  const ch = await api(`/api/polls/${encodeURIComponent(pid)}/challenge`);
+  const nonce = await new Promise((resolve, reject) => {
+    let w;
+    try { w = new Worker('/pow-worker.js'); } catch { return reject(new Error('Ton navigateur bloque le vote : mets-le à jour ou essaie avec un autre.')); }
+    const t = setTimeout(() => { w.terminate(); reject(new Error('Le vote prend trop de temps : réessaie.')); }, 60000);
+    w.onmessage = (e) => { clearTimeout(t); w.terminate(); e.data.nonce >= 0 ? resolve(e.data.nonce) : reject(new Error('Réessaie.')); };
+    w.onerror = () => { clearTimeout(t); w.terminate(); reject(new Error('Le vote n’a pas pu être préparé : recharge la page.')); };
+    w.postMessage({ token: ch.token, bits: ch.bits });
+  });
+  return { token: ch.token, nonce };
 }
 
 // ----- Blog -----
@@ -2689,7 +2705,8 @@ async function modPolls(el) {
       <div class="chips"><span class="pill ${p.open ? 'red' : 'grey'}">${p.open ? 'En cours · ' + esc(remaining(p.closesAt)) : 'Clos'}</span>${p.hidden ? '<span class="pill grey">masqué</span>' : ''}<span class="pill grey">${p.total} votes</span></div>
       <div class="faint small" style="margin-top:6px">${esc(p.ag || '')} · ${esc(p.org)}</div>
       <b style="display:block;margin:4px 0 8px">${esc(p.question)}</b>
-      ${p.options.map((o, i) => `<div class="kv"><span>${esc(o)}</span><b class="mono">${p.counts[i]}</b></div>`).join('')}
+      ${p.options.map((o, i) => `<div class="kv"><span>${esc(o)}</span><b class="mono">${p.counts[i]}${p.suspectCounts?.[i] ? ` <span class="faint">(dont ${p.suspectCounts[i]} suspects)</span>` : ''}</b></div>`).join('')}
+      ${p.suspect ? `<div class="card" style="background:rgba(255,159,10,.12);margin-top:8px">⚠ <b>${p.suspect} vote(s) suspect(s)</b> : téléphones tout neufs arrivés en rafale depuis un même réseau (bourrage possible). <button class="btn small ghost" data-a="purge">Retirer les votes suspects</button></div>` : ''}
       <div class="btn-row" style="margin-top:8px"><button class="btn small ghost" data-a="link">🔗 Lien</button>${p.open ? '<button class="btn small ghost" data-a="story">📸 Story du vote</button>' : ''}${p.total ? '<button class="btn small ghost" data-a="res">📊 Story résultats</button>' : ''}${p.open ? '<button class="btn small red" data-a="close">Clore maintenant</button>' : ''}<button class="btn small ghost" data-a="extend">+24 h</button><button class="btn small ghost" data-a="hide">${p.hidden ? 'Afficher' : 'Masquer'}</button><button class="btn small ghost" data-a="del">Supprimer</button></div>
     </div>`).join('') || '<div class="empty">Aucun vote.</div>'}`;
   $('#pdur').onchange = (e) => ($('#pcw').hidden = e.target.value !== 'custom');
@@ -2710,6 +2727,7 @@ async function modPolls(el) {
     if (a === 'res') return openStory(`res:${id}`);
     if (a === 'close' && confirm('Clore ce vote maintenant ?')) await act(() => api(`/api/mod/polls/${id}`, { method: 'PUT', body: { close: true } }), 'Clos.');
     if (a === 'extend') await act(() => api(`/api/mod/polls/${id}`, { method: 'PUT', body: { extendHours: 24 } }), 'Prolongé de 24 h.');
+    if (a === 'purge' && confirm('Retirer les votes suspects de ce vote ? Les vrais votes restent.')) { const r = await act(() => api(`/api/mod/polls/${id}/purge-suspects`, { method: 'POST' })); toast(`${r.n} vote(s) suspect(s) retiré(s).`); }
     if (a === 'hide') await act(() => api(`/api/mod/polls/${id}`, { method: 'PUT', body: { hidden: !p.hidden } }), 'OK.');
     if (a === 'del' && confirm('Supprimer ce vote et ses résultats ?')) await act(() => api(`/api/mod/polls/${id}`, { method: 'DELETE' }), 'Supprimé.');
     render(true);

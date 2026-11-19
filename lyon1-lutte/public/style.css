@@ -777,3 +777,7 @@ html.no-select * { -webkit-tap-highlight-color: transparent; }
 
 /* Liens dans les flashs */
 .flash .fx a { color: inherit; text-decoration: underline; word-break: break-all; }
+
+/* Vote : pendant le petit calcul anti-bourrage */
+.opt.voting { opacity: .7; }
+.opt.voting::after { content: ' ⏳'; }
