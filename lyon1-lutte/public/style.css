@@ -774,3 +774,6 @@ html.no-select * { -webkit-tap-highlight-color: transparent; }
 
 /* Agenda : événement déjà passé (plus de 2 h) */
 .card.event.past { opacity: .55; }
+
+/* Liens dans les flashs */
+.flash .fx a { color: inherit; text-decoration: underline; word-break: break-all; }

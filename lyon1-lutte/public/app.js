@@ -333,7 +333,7 @@ function viewLive() {
     ${d.pollsOpen ? `<a class="card" href="#/votes" style="display:flex;gap:14px;align-items:center;margin-top:14px;color:inherit;border-color:rgba(10,132,255,0.5)"><div style="font-size:28px">🗳️</div><div class="grow"><b>${d.pollsOpen} vote${d.pollsOpen > 1 ? 's' : ''} anonyme${d.pollsOpen > 1 ? 's' : ''} en cours</b><div class="muted small">Un tap, aucune trace. Donne ton avis.</div></div><span class="chev">${icon('chev', 18)}</span></a>` : ''}
 
     ${d.flashes.length ? `<h2 class="section">⚡ Flash infos</h2>${d.flashes.slice(0, 4).map((f) => `
-      <div class="flash ${f.level === 'alerte' ? 'alerte' : f.level === 'ok' ? 'action' : 'vote'}"><div class="ico">${f.level === 'alerte' ? '🚨' : f.level === 'ok' ? '✅' : 'ℹ️'}</div><div><div class="fx">${f.official ? '<span class="pill official-pill">📢 Administration du site</span> ' : ''}${esc(f.text)}</div><div class="faint small mono">${esc(ago(f.at))} · ${esc(f.org || '')}</div></div></div>`).join('')}` : ''}
+      <div class="flash ${f.level === 'alerte' ? 'alerte' : f.level === 'ok' ? 'action' : 'vote'}"><div class="ico">${f.level === 'alerte' ? '🚨' : f.level === 'ok' ? '✅' : 'ℹ️'}</div><div><div class="fx">${f.official ? '<span class="pill official-pill">📢 Administration du site</span> ' : ''}${linkify(f.text)}</div><div class="faint small mono">${esc(ago(f.at))} · ${esc(f.org || '')}</div></div></div>`).join('')}` : ''}
 
     <h2 class="section">${blocked.length ? '🔴' : '🏛️'} Bâtiments bloqués <a href="#/batiments">Tout voir</a></h2>
     ${blocked.length || partial.length
@@ -372,6 +372,12 @@ function viewLive() {
   const f = $('#feed');
   if (f) f.scrollTop = 0;
 }
+// Texte échappé avec les liens https://… et t.me/… cliquables (ouverts dans un nouvel onglet)
+const linkify = (t) => esc(t).replace(/\b(https:\/\/[^\s<]+|t\.me\/[^\s<]+)/g, (u) => {
+  const clean = u.replace(/[.,;:!?)»]+$/, ''), rest = u.slice(clean.length);
+  const href = clean.startsWith('http') ? clean : `https://${clean}`;
+  return `<a href="${href}" target="_blank" rel="noopener noreferrer">${clean}</a>${rest}`;
+});
 const feedLine = (f) => `<div class="line ${esc(f.level)}"><span class="t">[${esc(hhmm(f.at))}]</span> ${esc(f.text)}</div>`;
 
 // Ligne tapée « en direct » dans le terminal.
