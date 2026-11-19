@@ -544,7 +544,7 @@ function dayReset() {
   if (!target) return;
   db.settings.lastDayReset = target;
   let n = 0;
-  for (const b of db.buildings) if (b.status !== 'inconnu') { b.yesterday = b.status; b.status = 'inconnu'; b.resetAt = now(); n++; }
+  for (const b of db.buildings) if (b.status !== 'inconnu') { b.yesterday = b.status; b.status = 'inconnu'; b.resetAt = now(); if (b.note) { b.yesterdayNote = b.note; b.note = ''; } n++; }
   // le titre de chaque site revient en automatique (il suit les bâtiments) ; on garde l'ancien réglage au cas où
   let titles = 0;
   for (const st of Object.values(db.siteStatus || {})) if (st.state && st.state !== 'auto') { st.beforeReset = st.state; st.state = 'auto'; st.updatedAt = now(); titles++; }
@@ -780,13 +780,13 @@ mod.post('/terrain/buildings', (req, res) => {
   if (!name) return bad(res, 'Nom du bâtiment requis.');
   const dev = deviceKey(req, res, true);
   if ((db.settings.blockedDevices || []).includes(dev)) return bad(res, 'Ce téléphone a été bloqué par les modos.', 403);
-  if (limited(`terrainadd:${dev}`, 5, 24 * 3600e3)) return bad(res, 'Limite d’ajouts atteinte pour aujourd’hui : demande à un·e modo.', 429);
   const sid = targetSite(req);
   if (!needSite(req, res, sid)) return;
   const normalizeName = (s) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
   if (db.buildings.some((b) => siteOf(b) === sid && normalizeName(b.name) === normalizeName(name))) {
     return bad(res, 'Ce bâtiment existe déjà sur ce site.');
   }
+  if (limited(`terrainadd:${dev}`, 5, 24 * 3600e3)) return bad(res, 'Limite d’ajouts atteinte pour aujourd’hui : demande à un·e modo.', 429);
   const b = { id: newId(), name, site: sid, campus: siteName(sid), status: 'inconnu', note: '', updatedAt: null, by: '' };
   db.buildings.push(b);
   save();

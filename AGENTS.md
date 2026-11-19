@@ -99,7 +99,7 @@ PWA gratuite « Lyon 1 · La Doua en lutte » (dossier `lyon1-lutte/`) : infos d
 - **Aucun lien vers l'Instagram lyon1_ladoua.enlutte** (chaque modo a son propre Insta).
 - Pages communes à tous les sites (pas de sélecteur) : droits, frise, témoignages, revendications, « Parler à qui ».
 - **Signalement d'un bâtiment par le public : photo obligatoire** (caméra, pas d'import). Sans validation modo en 5 min,
-  le bâtiment s'affiche « bloqué selon les personnes sur place » (sans notif publique). 3 signalements → notif aux modos du site.
+  le bâtiment s'affiche « bloqué selon les personnes sur place » (sans notif publique). Notif aux modos du site dès le 1er signalement (photo obligatoire), puis de nouveau au seuil public de 3.
 - **Compte piquet : photo obligatoire** avant tout changement de statut.
 - **Remise à zéro des bâtiments à 22 h** (heure de Paris), jamais en journée. Affiché « Dernière info : … · à reconfirmer ».
 - Flash info : durée 1 h / 6 h / 24 h (défaut) / 3 jours / illimité. L'admin peut viser « tous les sites » et
@@ -117,5 +117,6 @@ PWA gratuite « Lyon 1 · La Doua en lutte » (dossier `lyon1-lutte/`) : infos d
 - 2026-11 : comptes piquet PARTAGÉS (l'admin a diffusé 5 liens à tout le monde) : limites et traçage par téléphone (pas par compte), un·e modo peut bloquer le téléphone d'une photo fausse, l'admin débloque tout dans 👥 Comptes.
 - 2026-11 : compte piquet « un geste » : la caméra affiche 🔴 🟠 🟢 (photo + envoi d'un coup) et des notes toutes prêtes (liste TERRAIN_NOTES dans server.js, pas de texte libre ni d'info tactique) ; une maj piquet sans note efface l'ancienne note.
 - 2026-11-19 : stories Instagram (Copilot) : mêmes règles que le canal (nom de bâtiment exact, flashs au format modo, journal via audit()). Le contenu lu par l'IA est publié sur le site SANS notification à tous ni Telegram (une erreur de lecture ne doit pas partir sur 150 téléphones) : les modos relaient. Ne pas modifier render.yaml (Blueprint auto-sync).
+- 2026-11-19 : alerte modo dès le 1er signalement avec photo (SIGHT_MOD_ALERT, défaut 1) ; l'affichage public « selon les personnes sur place » reste à 3 non validés en 5 min. Remise à 22 h : la note de la veille est mise de côté (yesterdayNote). Le compte piquet qui touche l'onglet Bâtiments reste sur son écran.
 - 2026-11 : lecture du canal Instagram (Copilot) : désactivée par défaut, clé IA obligatoire, noms de bâtiments exacts
   seulement, rien n'est publié si Instagram demande une connexion.

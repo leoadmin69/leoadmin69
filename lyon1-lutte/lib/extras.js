@@ -12,7 +12,8 @@ import { isSystemNick } from '../public/nicks.js';
 const SIGHT_WINDOW = 45 * 60e3;                                   // un signalement compte 45 min
 // Signalements confirmés par assez d'étudiant·es mais sans réponse des modos : affichés publiquement au bout de N minutes
 const CROWD_DELAY = () => Number(process.env.SIGHT_PUBLIC_MIN || 5) * 60e3;
-const SIGHT_THRESHOLD = () => Number(process.env.SIGHTING_THRESHOLD || 3); // signalements concordants pour alerter les modos
+const SIGHT_THRESHOLD = () => Number(process.env.SIGHTING_THRESHOLD || 3); // signalements concordants pour l'affichage public « selon les personnes sur place »
+const MOD_ALERT_MIN = () => Math.max(1, Number(process.env.SIGHT_MOD_ALERT || 1)); // photo obligatoire : les modos sont prévenu·es dès le 1er signalement
 const ENTRAIDE_DAYS = 14;
 const DEVICE = 'l1_dev';
 const parisDay = (d = new Date()) => new Intl.DateTimeFormat('fr-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
@@ -278,15 +279,20 @@ export function registerExtras(app, mod, ctx) {
     save();
     const s = summary().find((x) => x.building === b.id && x.status === status);
     broadcast('sighting', { building: b.id });
-    // Seuil atteint : notification aux modos de ce site (une fois par bâtiment et par état, puis plus avant 45 min)
+    // Notification aux modos du site dès le 1er signalement (photo à l'appui), puis de nouveau quand le seuil
+    // d'affichage public est atteint ; sinon pas plus d'une fois par bâtiment et par état toutes les 45 min
     const key = `${b.id}|${status}`;
     db.sightNotified ||= {};
-    if (s && s.count >= SIGHT_THRESHOLD() && Date.now() - new Date(db.sightNotified[key] || 0).getTime() > SIGHT_WINDOW) {
-      db.sightNotified[key] = now(); save();
+    const last = db.sightNotified[key];
+    const lastAt = new Date(typeof last === 'string' ? last : last?.at || 0).getTime(), lastCount = typeof last === 'object' && last ? last.count || 0 : 0;
+    const reachedPublic = s && s.count >= SIGHT_THRESHOLD() && lastCount < SIGHT_THRESHOLD();
+    if (s && s.count >= MOD_ALERT_MIN() && (Date.now() - lastAt > SIGHT_WINDOW || reachedPublic)) {
+      db.sightNotified[key] = { at: now(), count: s.count }; save();
       const sid = siteOf(b);
       const ids = db.mods.filter((m) => !m.disabled && canSite(m, sid)).map((m) => m.id);
       const word = status === 'bloque' ? 'BLOQUÉ' : status === 'partiel' ? 'PARTIEL' : 'OUVERT';
-      sendModPush?.(ids, { title: `👀 À vérifier · ${b.name} ${word} ?`, body: `${s.count} étudiant·es le signalent (${siteName(sid)}). Vérifie puis confirme en un tap dans l’espace modo.`, url: '/#/modo', tag: `sight-${b.id}` }).catch((e) => console.error('[push modo]', e.message));
+      const who = s.count > 1 ? `${s.count} personnes le signalent` : '1 personne le signale';
+      sendModPush?.(ids, { title: `👀 À vérifier · ${b.name} ${word} ?`, body: `${who}, photo à l’appui (${siteName(sid)}). Vérifie puis confirme en un tap dans l’espace modo.`, url: '/#/modo', tag: `sight-${b.id}` }).catch((e) => console.error('[push modo]', e.message));
     }
     if (s && s.count === SIGHT_THRESHOLD()) feed(`${siteName(siteOf(b))} · 👀 ${s.count} étudiant·es signalent ${b.name} ${status === 'bloque' ? 'bloqué' : status === 'partiel' ? 'partiellement bloqué' : 'ouvert'} (à confirmer par un·e modo)`, 'warn');
     res.json({ ok: true, count: s?.count || 1, message: s && s.count >= SIGHT_THRESHOLD() ? 'Merci ! Plusieurs personnes l’ont signalé : un·e modo va confirmer.' : 'Merci ! Ton signalement est transmis aux modos.' });
@@ -301,17 +307,17 @@ export function registerExtras(app, mod, ctx) {
     if (!buf) return bad(res, 'Photo introuvable.', 410);
     res.type('image/jpeg').send(buf);
   });
-  mod.get('/sightings', (req, res) => res.json({ threshold: SIGHT_THRESHOLD(), list: summary().filter((x) => canSite(req.mod, x.site)) }));
+  mod.get('/sightings', (req, res) => res.json({ threshold: SIGHT_THRESHOLD(), alertMin: MOD_ALERT_MIN(), list: summary().filter((x) => canSite(req.mod, x.site)) }));
   // Envoie maintenant, aux modos concernés, une notification pour chaque signalement en attente (≥ seuil).
   // mods : comptes à prévenir (par défaut tous) ; building : un seul bâtiment.
   async function remindSightings({ mods = null, building = null } = {}) {
-    const pending = summary().filter((x) => x.count >= SIGHT_THRESHOLD() && (!building || x.building === building));
+    const pending = summary().filter((x) => x.count >= MOD_ALERT_MIN() && (!building || x.building === building));
     let sent = 0;
     for (const x of pending) {
       const ids = db.mods.filter((m) => !m.disabled && canSite(m, x.site) && (!mods || mods.includes(m.id))).map((m) => m.id);
       if (!ids.length) continue;
       const word = x.status === 'bloque' ? 'BLOQUÉ' : x.status === 'partiel' ? 'PARTIEL' : 'OUVERT';
-      const r = await sendModPush?.(ids, { title: `👀 À vérifier · ${x.name} ${word} ?`, body: `${x.count} étudiant·es le signalent (${siteName(x.site)}). Vérifie puis confirme en un tap dans l’espace modo.`, url: '/#/modo', tag: `sight-${x.building}` }).catch(() => null);
+      const r = await sendModPush?.(ids, { title: `👀 À vérifier · ${x.name} ${word} ?`, body: `${x.count > 1 ? `${x.count} personnes le signalent` : '1 personne le signale'}, photo à l’appui (${siteName(x.site)}). Vérifie puis confirme en un tap dans l’espace modo.`, url: '/#/modo', tag: `sight-${x.building}` }).catch(() => null);
       sent += r?.sent || 0;
     }
     return { pending: pending.length, sent };

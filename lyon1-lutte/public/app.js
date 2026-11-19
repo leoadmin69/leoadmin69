@@ -294,7 +294,8 @@ function render(force = false) {
   renderNav();
   renderAlertBar();
   renderSiteBar();
-  const [r, arg] = route().split('/');
+  let [r, arg] = route().split('/');
+  if (r === 'batiments' && state.me?.role === 'terrain') { history.replaceState(null, '', '#/modo'); r = 'modo'; }
   if (!state.data) { view().innerHTML = '<div class="empty"><div class="big typing mono">_</div>Connexion au flux…</div>'; return; }
   const views = { '': viewLive, batiments: viewBuildings, agenda: viewAgenda, chat: viewChat, cr: arg ? () => viewReport(arg) : viewReports, revendications: viewDemands, votes: () => viewPolls(arg), blog: () => viewBlog(arg), temoignages: viewTestimonies, contacts: viewContacts, alertes: viewAlerts, plus: viewPlus, modo: viewModo, terrain: () => terrainLogin(arg), frise: viewFrise, entraide: () => viewEntraide(arg), droits: viewDroits };
   const out = (views[r] || viewLive)();
@@ -1059,7 +1060,7 @@ async function viewTerrain() {
   const draw = () => {
     const words = normSearch(state.tsearch).split(' ').filter(Boolean);
     const shown = list.filter((b) => (state.tcampus === 'Tous' || b.campus === state.tcampus) && words.every((w) => normSearch(`${b.name} ${b.note || ''} ${b.campus}`).includes(w)))
-      .sort((a, b) => order[a.status] - order[b.status] || a.name.localeCompare(b.name));
+      .sort((a, b) => order[a.status] - order[b.status] || (b.yesterday ? 1 : 0) - (a.yesterday ? 1 : 0) || a.name.localeCompare(b.name));
     $('#terrain-grid').innerHTML = shown.map((b) => `
       <div class="bld ${esc(b.status)}" data-update="${esc(b.id)}">
         <div class="status">${b.yesterday && b.status === 'inconnu' ? '⚪ À CONFIRMER' : `${STATUS[b.status].dot} ${STATUS[b.status].label}`}</div>
@@ -1085,7 +1086,8 @@ async function viewTerrain() {
       e.preventDefault();
       const name = $('#terrain-add-name', root).value.trim();
       if (!name) return;
-      try { const nb = await api('/api/mod/terrain/buildings', { method: 'POST', body: { name, site: state.modSite } }); list.push(nb); close(); toast(`✅ Ajouté : ${nb.name}`); draw(); } catch (err) { toast(err.message); }
+      const siteOfFilter = state.tcampus !== 'Tous' ? (list.find((x) => x.campus === state.tcampus)?.site || state.modSite) : state.modSite;
+      try { const nb = await api('/api/mod/terrain/buildings', { method: 'POST', body: { name, site: siteOfFilter } }); list.push(nb); close(); toast(`✅ Ajouté : ${nb.name}`); draw(); } catch (err) { toast(err.message); }
     };
   });
   el.onclick = (e) => {
@@ -1112,7 +1114,11 @@ function terrainQuick(b, notes, draw) {
   const video = $('video', ov), msg = $('#qmsg', ov);
   let stream = null, facing = 'environment', closed = false, seq = 0, note = '', busy = false;
   const stop = () => { stream?.getTracks().forEach((t) => t.stop()); stream = null; };
-  const close = () => { closed = true; stop(); ov.remove(); };
+  let ctrl = null;
+  const close = () => {
+    closed = true; ctrl?.abort(); stop(); ov.remove();
+    if (state.terrainStale) { state.terrainStale = false; setTimeout(() => { if (route().startsWith('modo') && !$('.cam') && !$('.sheet')) render(true); }, 50); }
+  };
   const start = async () => {
     stop();
     const my = ++seq;
@@ -1132,7 +1138,8 @@ function terrainQuick(b, notes, draw) {
   });
   $('.qst', ov).onclick = async (e) => {
     const status = e.target.closest('[data-st]')?.dataset.st;
-    if (!status || busy || !video.videoWidth) return;
+    if (!status || busy) return;
+    if (!video.videoWidth) { msg.textContent = '⏳ Caméra en cours de démarrage…'; return; }
     busy = true;
     // photo au format 3:4 (comme le cadre)
     const vw = video.videoWidth, vh = video.videoHeight;
@@ -1149,7 +1156,8 @@ function terrainQuick(b, notes, draw) {
     ov.classList.add('sending');
     try {
       const blob = await new Promise((r, j) => cv.toBlob((x) => (x ? r(x) : j(new Error('Photo illisible, réessaie.'))), 'image/jpeg', 0.8));
-      const r = await fetch(`/api/mod/terrain/building/${encodeURIComponent(b.id)}/photo?${new URLSearchParams({ status, note })}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'image/jpeg' }, body: blob });
+      ctrl = new AbortController();
+      const r = await fetch(`/api/mod/terrain/building/${encodeURIComponent(b.id)}/photo?${new URLSearchParams({ status, note })}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'image/jpeg' }, body: blob, signal: ctrl.signal });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || 'Mise à jour impossible.');
       Object.assign(b, { status, note, updatedAt: j.updatedAt || new Date().toISOString(), by: j.by }); delete b.yesterday;
@@ -1157,7 +1165,8 @@ function terrainQuick(b, notes, draw) {
       toast(`✅ ${b.name} : ${STATUS[status].label}${note ? ' · ' + note : ''}`);
       draw();
     } catch (err) {
-      msg.textContent = `⚠ ${err.message}`;
+      if (closed) return; // fermé pendant l'envoi : envoi annulé
+      msg.textContent = `⚠ ${err instanceof TypeError ? 'Pas de réseau : rapproche-toi du wifi ou de la 4G, puis retouche la couleur.' : err.message}`;
       ov.classList.remove('sending'); $('.cam-flash', ov).classList.remove('on');
       video.play().catch(() => {});
       busy = false;
@@ -2795,7 +2804,7 @@ function scheduleRefresh() {
     try { await refresh(); } catch { return; }
     const r = route().split('/')[0];
     if (r === 'chat') { renderNav(); renderAlertBar(); return; }
-    if (r === 'modo' && state.me) { renderNav(); renderAlertBar(); if (state.me.role === 'terrain') { if (!$('.sheet') && !$('.cam') && !view().contains(document.activeElement)) render(true); return; } if (state.modTab === 'situation') { window.drawTiles?.(); const h = $('#bhint'); if (h && state.data.blocus.auto) h.textContent = `Automatique : le titre suit les bâtiments (actuellement « ${BLOCUS[blocusNow(state.data.blocus)]} »).`; } return; }
+    if (r === 'modo' && state.me) { renderNav(); renderAlertBar(); if (state.me.role === 'terrain') { if (!$('.sheet') && !$('.cam') && !view().contains(document.activeElement)) render(true); else state.terrainStale = true; return; } if (state.modTab === 'situation') { window.drawTiles?.(); const h = $('#bhint'); if (h && state.data.blocus.auto) h.textContent = `Automatique : le titre suit les bâtiments (actuellement « ${BLOCUS[blocusNow(state.data.blocus)]} »).`; } return; }
     render();
   }, 250);
 }
@@ -3059,14 +3068,14 @@ async function drawSightings() {
   let r;
   try { r = await api('/api/mod/sightings'); } catch { return; }
   const list = r.list.filter((x) => inScope(x));
-  const strong = list.filter((x) => x.count >= r.threshold);
+  const strong = list.filter((x) => x.count >= (r.alertMin || r.threshold));
   // nouveau signalement à vérifier pendant que le modo a l'écran ouvert
   const keyNow = strong.map((x) => `${x.building}|${x.status}`);
   if (state.sightSeen && keyNow.some((k) => !state.sightSeen.includes(k))) { navigator.vibrate?.([30, 60, 30]); toast('👀 Nouveau signalement à vérifier en haut de la page'); }
   state.sightSeen = keyNow;
   if (!list.length) { box.innerHTML = ''; return; }
   box.innerHTML = `<div class="card sight-card ${strong.length ? 'hot' : ''}" style="margin-bottom:12px">
-    <div class="kicker">📣 Signalements des étudiant·es · ${r.threshold} signalements concordants = à vérifier</div>
+    <div class="kicker">📣 Signalements avec photo · à vérifier dès le 1er · affiché publiquement à ${r.threshold}</div>
     ${list.map((x) => `<div class="sight-row" data-b="${esc(x.building)}" data-st="${esc(x.status)}" data-from="${esc(x.current)}">
       <div class="grow"><b>${esc(x.name)}</b> → ${STATUS[x.status].dot} ${esc(STATUS[x.status].label)}
         <div class="faint small">${x.count} personne${x.count > 1 ? 's' : ''} · dernier ${esc(ago(x.last))} · affiché : ${esc(STATUS[x.current].label)}</div>
@@ -3074,7 +3083,7 @@ async function drawSightings() {
       <button class="btn small ${x.status === 'bloque' ? 'red' : x.status === 'partiel' ? 'orange' : 'green'}" data-ok>✓ Confirmer</button>
       ${x.photos?.length ? `<button class="btn small ghost" data-photos="${esc(x.photos.join(','))}">📷 ${x.photos.length} photo${x.photos.length > 1 ? 's' : ''}</button>` : ''}
       <button class="btn small ghost" data-no>Ignorer</button>
-      ${x.count >= r.threshold ? '<button class="btn small ghost" data-remind title="Renvoyer la notification aux modos du site">🔔 Prévenir les modos</button>' : ''}
+      ${x.count >= (r.alertMin || r.threshold) ? '<button class="btn small ghost" data-remind title="Renvoyer la notification aux modos du site">🔔 Prévenir les modos</button>' : ''}
     </div>`).join('')}
     <p class="faint small" style="margin:8px 0 0">Vérifie (sur place, dans un groupe, ou par un·e camarade) avant de confirmer : un signalement peut être une blague ou une manip.</p>
   </div>`;
@@ -3566,7 +3575,7 @@ function modPushSummary(mods) {
   }).join('');
   const missing = siteList().filter((x) => { const t = active.filter((m) => m.role !== 'admin' && covers(m, x.id)); return t.length && !t.some((m) => m.modPush); });
   return `<div class="card" style="margin-top:14px"><div class="kicker">🔔 Alertes modo sur téléphone · ${on.length}/${active.length} compte${active.length > 1 ? 's' : ''} actif${active.length > 1 ? 's' : ''}</div>
-    <p class="muted small" style="margin:6px 0 10px">Un modo reçoit une notification quand 3 étudiant·es signalent un bâtiment de ses sites, seulement s’il a touché « Activer » dans l’espace modo sur son téléphone.${missing.length ? ` <b style="color:var(--orange)">Personne n’est prévenu pour : ${missing.map((x) => esc(x.short)).join(', ')}.</b> Relance ces modos.` : ''}</p>
+    <p class="muted small" style="margin:6px 0 10px">Un modo reçoit une notification dès qu’une personne signale un bâtiment de ses sites (photo à l’appui), seulement s’il a touché « Activer » dans l’espace modo sur son téléphone.${missing.length ? ` <b style="color:var(--orange)">Personne n’est prévenu pour : ${missing.map((x) => esc(x.short)).join(', ')}.</b> Relance ces modos.` : ''}</p>
     <div class="mp-grid">${rows}</div></div>`;
 }
 
@@ -3730,7 +3739,8 @@ function openTerrainCamera(done) {
   const video = $('video', ov);
   let stream = null, facing = 'environment', closed = false, seq = 0;
   const stop = () => { stream?.getTracks().forEach((t) => t.stop()); stream = null; };
-  const close = () => { closed = true; stop(); ov.remove(); };
+  let shot = false;
+  const close = () => { if (closed) return; closed = true; stop(); ov.remove(); if (!shot) done(null); };
   const start = async () => {
     stop();
     const my = ++seq;
@@ -3762,6 +3772,7 @@ function openTerrainCamera(done) {
     c.drawImage(video, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
     $('.cam-flash', ov).classList.add('on');
     navigator.vibrate?.(20);
+    shot = true;
     cv.toBlob((blob) => { close(); done(blob); }, 'image/jpeg', 0.82);
   };
   start();
