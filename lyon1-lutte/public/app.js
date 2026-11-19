@@ -374,11 +374,18 @@ function viewLive() {
   if (f) f.scrollTop = 0;
 }
 // Texte échappé avec les liens https://… et t.me/… cliquables (ouverts dans un nouvel onglet)
-const linkify = (t) => esc(t).replace(/\b(https:\/\/[^\s<]+|t\.me\/[^\s<]+)/g, (u) => {
-  const clean = u.replace(/[.,;:!?)»]+$/, ''), rest = u.slice(clean.length);
-  const href = clean.startsWith('http') ? clean : `https://${clean}`;
-  return `<a href="${href}" target="_blank" rel="noopener noreferrer">${clean}</a>${rest}`;
+// Liens cliquables dans un texte DÉJÀ échappé (https://…, http://…, www.…, t.me/…), ouverts dans un nouvel onglet.
+// Seuls des liens web sont créés (jamais javascript: ni autre chose) ; la ponctuation finale reste du texte.
+const linkHtml = (h) => String(h).replace(/(^|[\s>(«;])((?:https?:\/\/|www\.)[^\s<]+|t\.me\/[^\s<]+)/gi, (all, pre, u) => {
+  // le lien s'arrête aux guillemets et chevrons (échappés), puis on enlève la ponctuation finale
+  const cut = u.search(/&(quot|#39|lt|gt);/);
+  let clean = (cut >= 0 ? u.slice(0, cut) : u).replace(/[.,;:!?)»]+$/, '');
+  const rest = u.slice(clean.length);
+  const href = /^https?:\/\//i.test(clean) ? clean : `https://${clean}`;
+  const label = clean.length > 60 ? `${clean.slice(0, 57)}…` : clean;
+  return `${pre}<a class="ulink" href="${href}" target="_blank" rel="noopener noreferrer nofollow">${label}</a>${rest}`;
 });
+const linkify = (t) => linkHtml(esc(t));
 const feedLine = (f) => `<div class="line ${esc(f.level)}"><span class="t">[${esc(hhmm(f.at))}]</span> ${esc(f.text)}</div>`;
 
 // Ligne tapée « en direct » dans le terminal.
@@ -480,7 +487,7 @@ function viewAgenda() {
             <span class="pill ${EVENT_TYPE[e.type][1]}">${EVENT_TYPE[e.type][0]}</span> ${siteTag(e)}
             <div class="title" style="margin-top:6px">${esc(e.title)}</div>
             <div class="place">${icon('pin', 14)} ${esc(e.place || 'Lieu à confirmer')}${e.address ? ' · ' + esc(e.address) : ''}</div>
-            ${e.description ? `<div class="desc">${esc(e.description)}</div>` : ''}
+            ${e.description ? `<div class="desc">${linkify(e.description)}</div>` : ''}
             <div class="actions">
               ${e.place || e.address ? `<a class="btn small ghost" target="_blank" rel="noopener" href="https://www.openstreetmap.org/search?query=${encodeURIComponent([e.address || e.place, 'Lyon'].join(' '))}">${icon('pin', 16)} Itinéraire</a>` : ''}
               <button class="btn small ghost" data-ics="${esc(e.id)}">${icon('calendar', 16)} Calendrier</button>
@@ -574,7 +581,7 @@ function viewDemands() {
         <div class="grow">
           ${d.status !== 'en-lutte' ? `<div class="chips"><span class="pill ${DEMAND_STATUS[d.status][1]}">${DEMAND_STATUS[d.status][0]}</span></div>` : ''}
           <h3>${esc(d.title)}</h3>
-          ${d.text ? `<p>${esc(d.text)}</p>` : ''}
+          ${d.text ? `<p>${linkify(d.text)}</p>` : ''}
           ${siteTag(d)}
         </div>
         <button class="support ${mine.includes(d.id) ? 'done' : ''}" data-id="${esc(d.id)}" aria-label="Soutenir"><span>✊</span><b>${d.support}</b><span>${mine.includes(d.id) ? 'soutenu' : 'soutenir'}</span></button>
@@ -639,7 +646,7 @@ function msgHtml(m) {
   return `<div class="msg ${me ? 'me' : ''} ${m.mod ? 'modo' : ''} ${forMe ? 'for-me' : ''}" data-id="${esc(m.id)}">
     <div class="who">${m.mod ? '🛡️ ' : ''}<b>${esc(m.nick)}</b>${m.mod ? ` <span class="pill green" style="padding:1px 6px;font-size:10px">${esc(m.mod)}</span>` : ''} <span class="faint">${esc(hhmm(m.at))}</span>
       <button class="act" data-reply="${esc(m.id)}" aria-label="Répondre">↩ répondre</button><button class="act" data-menu="${esc(m.id)}" aria-label="Réagir">＋ réagir</button>${me ? '' : ` <button class="act rep" data-rep="${esc(m.id)}">signaler</button>`}</div>
-    ${m.photo ? snapHtml(m, me) : ''}<div class="bubble ${onlyEmotes(m.text) && !m.reply ? 'jumbo' : ''}" ${m.photo && !m.text && !m.reply ? 'hidden' : ''}>${m.reply ? `<div class="quote" data-goto="${esc(m.reply.id)}"><b>↩ ${esc(m.reply.nick)}</b><span>${withEmotes(esc(m.reply.text))}</span></div>` : ''}${withEmotes(esc(m.text))}</div>${reactsHtml(m)}<span class="swipe-ico" aria-hidden="true">↩</span></div>`;
+    ${m.photo ? snapHtml(m, me) : ''}<div class="bubble ${onlyEmotes(m.text) && !m.reply ? 'jumbo' : ''}" ${m.photo && !m.text && !m.reply ? 'hidden' : ''}>${m.reply ? `<div class="quote" data-goto="${esc(m.reply.id)}"><b>↩ ${esc(m.reply.nick)}</b><span>${withEmotes(esc(m.reply.text))}</span></div>` : ''}${linkHtml(withEmotes(esc(m.text)))}</div>${reactsHtml(m)}<span class="swipe-ico" aria-hidden="true">↩</span></div>`;
 }
 // Clavier ouvert sur téléphone : on cale l'écran sur la partie visible (au-dessus du clavier).
 // iPhone ne réduit pas la page quand le clavier s'ouvre : sans ça, la zone d'écriture du chat monte et descend
@@ -1027,12 +1034,12 @@ function ensProp(p) {
   return `<div class="card ens-prop">
     <div class="chips">${p.bridge >= 3 ? '<span class="pill blue">🌉 rassemble les deux camps</span>' : ''}<span class="pill grey">Idée n°${p.num}</span>${p.camp ? `<span class="pill ${ENS_CAMP[p.camp]?.pill || 'grey'}">proposée par : ${esc(ENS_CAMP[p.camp]?.short || '')}</span>` : ''}<span class="faint small">${esc(ago(p.at))}</span></div>
     <h3 style="margin:10px 0 6px">${esc(p.title)}</h3>
-    ${p.text ? `<p class="muted" style="white-space:pre-wrap;margin:0 0 8px">${esc(p.text)}</p>` : ''}
+    ${p.text ? `<p class="muted" style="white-space:pre-wrap;margin:0 0 8px">${linkify(p.text)}</p>` : ''}
     <div class="ens-gains"><div class="ens-gain bloc"><b>Ce que ça apporte à celles et ceux qui veulent continuer le blocus</b>${esc(p.gainB)}</div><div class="ens-gain anti"><b>Ce que ça apporte à celles et ceux qui veulent reprendre les cours</b>${esc(p.gainA)}</div></div>
     ${p.risk ? `<p class="small muted" style="margin:0 0 8px">⚖️ Ce que ça demande ou risque : ${esc(p.risk)}</p>` : ''}
     ${ensMeter(p.tally)}${ensReact(p)}
     <details class="ens-amends" data-eamends="${esc(p.id)}" ${ens.open.has(p.id) ? 'open' : ''}><summary>✏️ ${p.amends.length ? `${p.amends.length} modification(s) proposée(s)` : 'Proposer une modification'}</summary>
-      ${p.amends.map((a) => `<div class="ens-amend"><div class="faint small"><i>Résumé de l’idée par cette personne : « ${esc(a.summary)} »</i></div><p style="margin:6px 0"><b>Modification :</b> ${esc(a.text)}</p><p class="small" style="margin:0 0 6px"><b>Pourquoi ça peut convenir aux deux :</b> ${esc(a.why)}</p>${a.bridge >= 3 ? '<span class="pill blue">🌉 rassemble</span>' : ''}${ensMeter(a.tally)}${ensReact(a)}</div>`).join('')}
+      ${p.amends.map((a) => `<div class="ens-amend"><div class="faint small"><i>Résumé de l’idée par cette personne : « ${esc(a.summary)} »</i></div><p style="margin:6px 0"><b>Modification :</b> ${linkify(a.text)}</p><p class="small" style="margin:0 0 6px"><b>Pourquoi ça peut convenir aux deux :</b> ${esc(a.why)}</p>${a.bridge >= 3 ? '<span class="pill blue">🌉 rassemble</span>' : ''}${ensMeter(a.tally)}${ensReact(a)}</div>`).join('')}
       <button class="btn small ghost" data-eamend="${esc(p.id)}" style="margin-top:8px">✏️ Proposer une modification</button></details>
   </div>`;
 }
@@ -2903,7 +2910,7 @@ async function viewTestimonies() {
     box.innerHTML = r.items.length ? r.items.map((t) => `
       <div class="card testimony">
         <div class="chips"><span class="pill red">${esc(t.categoryLabel)}</span>${t.date ? `<span class="pill grey">${esc(isoDate(t.date))}</span>` : ''}${t.place ? `<span class="pill grey">${icon('pin', 12)} ${esc(t.place)}</span>` : ''}</div>
-        <p class="ttext">${esc(t.text)}</p>
+        <p class="ttext">${linkify(t.text)}</p>
         ${t.media.length ? `<div class="media-grid">${t.media.map((m) => mediaHtml(m, t.sensitive)).join('')}</div>` : ''}
         <div class="faint small">Publié ${esc(ago(t.publishedAt))} · témoignage anonyme vérifié par les modos</div>
       </div>`).join('') : '<div class="card empty"><div class="big">🤝</div>Aucun témoignage publié.</div>';
@@ -3520,9 +3527,9 @@ async function viewEntraide(focus) {
       <div class="card ent ${focus === a.id ? 'focus' : ''}" data-id="${esc(a.id)}" id="ent-${esc(a.id)}">
         <div class="chips"><span class="pill ${ENT_KIND[a.kind][1]}">${ENT_KIND[a.kind][0]}</span><span class="pill grey">${esc(a.catLabel)}</span>${siteTag(a)}</div>
         <div class="title" style="margin-top:8px">${esc(a.title)}</div>
-        ${a.text ? `<div class="desc">${esc(a.text)}</div>` : ''}
+        ${a.text ? `<div class="desc">${linkify(a.text)}</div>` : ''}
         <div class="faint small" style="margin-top:6px">${esc(a.nick)} · ${esc(ago(a.at))} · expire ${esc(fmt(a.expires, { day: 'numeric', month: 'short' }))}</div>
-        ${a.replies.length ? `<div class="ent-replies">${a.replies.map((r) => `<div class="ent-reply"><b>${esc(r.nick)}${r.author ? ' <span class="pill green">auteur·e</span>' : ''}</b> <span class="faint small">${esc(ago(r.at))}</span><div>${esc(r.text)}</div><button class="linklike faint small" data-rep="${esc(r.id)}">Signaler</button></div>`).join('')}</div>` : ''}
+        ${a.replies.length ? `<div class="ent-replies">${a.replies.map((r) => `<div class="ent-reply"><b>${esc(r.nick)}${r.author ? ' <span class="pill green">auteur·e</span>' : ''}</b> <span class="faint small">${esc(ago(r.at))}</span><div>${linkify(r.text)}</div><button class="linklike faint small" data-rep="${esc(r.id)}">Signaler</button></div>`).join('')}</div>` : ''}
         <form class="ent-form" data-reply>
           <input type="text" name="text" maxlength="500" placeholder="Répondre (lieu, horaire, pseudo Signal…)" required>
           <button class="btn small">Envoyer</button>
@@ -3588,7 +3595,7 @@ async function modEntraide(el) {
       <div class="card" data-id="${esc(a.id)}" style="${flagged(a) ? 'border-color:rgba(255,159,10,0.5)' : ''}">
         <div class="chips"><span class="pill ${ENT_KIND[a.kind][1]}">${ENT_KIND[a.kind][0]}</span><span class="pill grey">${esc(a.catLabel)}</span>${a.hidden ? '<span class="pill red">masquée</span>' : ''}${a.reports ? `<span class="pill orange">${a.reports} signalement(s)</span>` : ''}</div>
         <div class="title" style="margin-top:6px">${esc(a.title)}</div>
-        ${a.text ? `<div class="desc">${esc(a.text)}</div>` : ''}
+        ${a.text ? `<div class="desc">${linkify(a.text)}</div>` : ''}
         <div class="faint small">${esc(a.nick)} · ${esc(ago(a.at))}</div>
         ${a.repliesAll.map((r) => `<div class="ent-reply ${r.hidden ? 'off' : ''}" data-r="${esc(r.id)}"><b>${esc(r.nick)}</b> ${r.reports ? `<span class="pill orange">${r.reports}</span>` : ''} ${r.hidden ? '<span class="pill red">masquée</span>' : ''}<div>${esc(r.text)}</div>
           <button class="linklike small" data-act="${r.hidden ? 'restore' : 'hide'}">${r.hidden ? 'Rétablir' : 'Masquer'}</button></div>`).join('')}

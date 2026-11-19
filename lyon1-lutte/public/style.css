@@ -824,3 +824,7 @@ html.kb-open.no-select .chat .msgs { min-height: 0; }
 /* Fenêtres (sheet) : calées sur la partie visible, le champ en cours n'est plus caché par le clavier */
 html.kb-open .sheet-backdrop { top: var(--vv-top, 0px); bottom: auto; height: var(--vvh, 100dvh); }
 html.kb-open .sheet { max-height: calc(var(--vvh, 100dvh) - 8px); padding-bottom: 12px; }
+
+/* Liens écrits par les gens (chat, agenda, entraide…) : cliquables, coupés proprement */
+a.ulink { color: inherit; text-decoration: underline; text-underline-offset: 2px; word-break: break-all; }
+.bubble a.ulink { color: #9fd0ff; }
