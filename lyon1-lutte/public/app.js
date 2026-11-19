@@ -2436,7 +2436,7 @@ function pollHtml(p) {
   const voted = p.myVote !== null;
   const total = p.counts ? p.counts.reduce((a, b) => a + b, 0) : p.total;
   return `<div class="card poll" data-poll="${esc(p.id)}">
-    <div class="chips">${siteTag(p)}<span class="pill ${p.open ? 'red' : 'grey'}">${p.open ? `● EN COURS · clôture dans ${esc(remaining(p.closesAt))}` : 'CLOS'}</span><span class="pill grey">${p.total} vote${p.total > 1 ? 's' : ''}</span></div>
+    <div class="chips">${siteTag(p)}<span class="pill ${p.open ? 'red' : 'grey'}">${p.open ? `● EN COURS · clôture dans ${esc(remaining(p.closesAt))}` : 'CLOS'}</span><span class="pill grey">${p.total} vote${p.total > 1 ? 's' : ''}</span><span class="pill grey" title="Vote ouvert à tout le campus pour prendre la température : ce n’est pas une décision officielle">💬 avis indicatif</span></div>
     <h3 style="margin:10px 0 4px;font-size:20px">${esc(p.question)}</h3>
     ${p.description ? `<p class="muted" style="margin:0 0 6px">${esc(p.description)}</p>` : ''}
     <div class="opts">${p.options.map((o, i) => {
@@ -2453,7 +2453,7 @@ async function viewPolls(focusId) {
   view().innerHTML = `
     <h1 class="large-title">Votes anonymes</h1>
     <p class="subtitle">Donne ton avis en un tap. Aucun compte, aucune trace de qui a voté quoi. 1 vote par appareil.</p>
-    <div class="notice">ℹ️ Ces votes sont <b>indicatifs</b> : ils servent à prendre la température. Les décisions se votent en AG.</div>
+    <div class="notice">ℹ️ Ce sont des <b>votes d’avis indicatifs</b>, ouverts à tout le campus : ils servent à prendre la température, ce ne sont pas des décisions officielles. Les décisions se votent en AG.</div>
     <div id="polls"><div class="empty faint mono typing">chargement</div></div>`;
   try {
     const polls = await api('/api/polls');
@@ -2690,7 +2690,7 @@ async function modPolls(el) {
   el.innerHTML = `
     <div class="card"><form class="form" id="pf">
       <div class="kicker">Nouveau vote anonyme · ${esc(siteShort(state.modSite))}</div>
-      <div class="field"><label>Assemblée générale qui organise ce vote</label><input type="text" id="pag" maxlength="80" value="${esc(store.get('l1-ag-' + state.modSite, `AG ${siteShort(state.modSite)}`))}" placeholder="AG du 18/11 · ${esc(siteShort(state.modSite))}"></div>
+      <div class="field"><label>Qui lance ce vote (facultatif, affiché au-dessus)</label><input type="text" id="pag" maxlength="80" value="${esc(store.get('l1-ag2-' + state.modSite, ''))}" placeholder="Ex : Collectif ${esc(siteShort(state.modSite))} en lutte"></div>
       <div class="field"><label>Question</label><input type="text" id="pq" maxlength="200" required placeholder="Faut-il reconduire le blocus demain ?"></div>
       <div class="field"><label>Précision (facultatif)</label><input type="text" id="pd" maxlength="600"></div>
       <div class="field"><label>Choix (un par ligne, 2 à 8)</label><textarea id="po" required>Pour\nContre\nAbstention</textarea></div>
@@ -2713,7 +2713,7 @@ async function modPolls(el) {
   $('#pf').onsubmit = async (e) => {
     e.preventDefault();
     const custom = $('#pdur').value === 'custom';
-    await act(() => api('/api/mod/polls', { method: 'POST', body: { ag: (store.set('l1-ag-' + state.modSite, $('#pag').value), $('#pag').value), question: $('#pq').value, description: $('#pd').value, options: $('#po').value.split('\n'), duration: $('#pdur').value, closesAt: custom && $('#pc').value ? new Date($('#pc').value).toISOString() : undefined, results: $('#plive').checked ? 'live' : 'after' } }), 'Vote lancé.');
+    await act(() => api('/api/mod/polls', { method: 'POST', body: { ag: (store.set('l1-ag2-' + state.modSite, $('#pag').value), $('#pag').value), question: $('#pq').value, description: $('#pd').value, options: $('#po').value.split('\n'), duration: $('#pdur').value, closesAt: custom && $('#pc').value ? new Date($('#pc').value).toISOString() : undefined, results: $('#plive').checked ? 'live' : 'after' } }), 'Vote lancé.');
     render(true);
   };
   el.onclick = async (e) => {
