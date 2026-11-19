@@ -2750,6 +2750,7 @@ async function modPolls(el) {
       <div class="faint small" style="margin-top:6px">${esc(p.ag || '')} · ${esc(p.org)}</div>
       <b style="display:block;margin:4px 0 8px">${esc(p.question)}</b>
       ${p.options.map((o, i) => `<div class="kv"><span>${esc(o)}</span><b class="mono">${p.counts[i]}${p.suspectCounts?.[i] ? ` <span class="faint">(dont ${p.suspectCounts[i]} suspects)</span>` : ''}</b></div>`).join('')}
+      ${p.botRemoved ? `<div class="card" style="background:rgba(191,90,242,.12);margin-top:8px">🤖 <b>${p.botRemoved} vote(s) de robot retirés automatiquement</b>${(p.botLog || []).map((l) => `<div class="faint small">${esc(ago(l.at))} · ${l.n} · ${esc(l.why)}</div>`).join('')}<button class="btn small ghost" data-a="restorebot" style="margin-top:6px">Annuler (remettre ces votes)</button></div>` : ''}
       ${pollTimeline(p)}
       ${p.total >= 500 ? '<button class="btn small ghost" data-a="order" style="margin-top:8px">🤖 Chercher des votes de robot (ordre d’arrivée)</button>' : ''}
       ${p.suspect ? `<div class="card" style="background:rgba(255,159,10,.12);margin-top:8px">⚠ <b>${p.suspect} vote(s) suspect(s)</b> : téléphones tout neufs arrivés en rafale depuis un même réseau (bourrage possible). <button class="btn small ghost" data-a="purge">Retirer les votes suspects</button></div>` : ''}
@@ -2781,6 +2782,7 @@ async function modPolls(el) {
     if (a === 'extend') await act(() => api(`/api/mod/polls/${id}`, { method: 'PUT', body: { extendHours: 24 } }), 'Prolongé de 24 h.');
     if (a === 'slot') { e.target.classList.toggle('sel'); const sel = $$('.tl-bar.sel', card); const n = sel.reduce((s, x) => s + Number(x.dataset.n), 0); const btn = $('[data-a="purgeslots"]', card); btn.hidden = !sel.length; btn.textContent = `Retirer les ${n} vote(s) de ${sel.length} tranche(s)`; return; }
     if (a === 'order') return pollOrder(id, p);
+    if (a === 'restorebot' && confirm('Remettre tous les votes retirés comme « robot » ?')) { const r = await act(() => api(`/api/mod/polls/${id}/restore-bot`, { method: 'POST' })); toast(`${r.n} vote(s) remis.`); }
     if (a === 'purgeslots') {
       const slots = $$('.tl-bar.sel', card).map((x) => Number(x.dataset.slot));
       if (!slots.length || !confirm('Retirer tous les votes de ces tranches horaires ? (vrais et faux : à utiliser sur un pic de bourrage)')) return;

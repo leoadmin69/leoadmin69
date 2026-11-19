@@ -161,7 +161,7 @@ export function renderRich(text) {
 }
 
 export function registerCommunity(app, mod, ctx) {
-  const { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, targetSite, stale, touch } = ctx;
+  const { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, targetSite, stale, touch, sendModPush } = ctx;
   const visible = (req, x) => canSite(req.mod, siteOf(x));
   const pubSite = (v) => (site(v) ? v : DEFAULT_SITE);
 
@@ -330,12 +330,13 @@ export function registerCommunity(app, mod, ctx) {
     if (limited(`voteburst:${p.id}:${visitor(req)}`, Number(process.env.VOTES_PER_NETWORK_MINUTE || 100), 60e3)) return bad(res, 'Beaucoup de votes en même temps depuis ce réseau : réessaie dans une minute.', 429);
     const dev = deviceId(req, res);
     const b = ballot(p.id, dev);
-    if (p.ballots[b] !== undefined) return bad(res, 'Tu as déjà voté sur cet appareil.', 409);
+    if (p.ballots[b] !== undefined || p.bot?.[b] !== undefined) return bad(res, 'Tu as déjà voté sur cet appareil.', 409);
     const powErr = powCheck(p, dev, req.body.token, req.body.nonce);
     if (powErr) return bad(res, powErr, 400);
     // suspect = appareil tout neuf (moins de 30 min) ET déjà 10 votes ou plus de ce réseau en 5 min sur ce vote
     const fresh = Date.now() - (req.devBorn || Date.now()) < 30 * 60e3, burst = netBurst(p.id, visitor(req));
     if (fresh && burst >= 10) { p.suspect ||= {}; p.suspect[b] = 1; }
+    if (fresh) liveBot(p, visitor(req), b, choice);
     p.ballots[b] = choice;
     p.times ||= {}; p.times[b] = Math.floor(Date.now() / 60e3); // minute du vote, sans rien sur la personne
     save();
@@ -344,7 +345,7 @@ export function registerCommunity(app, mod, ctx) {
   });
 
   const DURATIONS = { '1h': 1, '3h': 3, '6h': 6, '12h': 12, '24h': 24, '48h': 48, '72h': 72, '7j': 168 };
-  mod.get('/polls', (req, res) => res.json(db.polls.filter((p) => visible(req, p)).map((p) => ({ ...publicPoll(p), counts: p.options.map((_, i) => Object.values(p.ballots).filter((b) => b === i).length), timeline: timeline(p), purged: p.purged || 0, suspect: Object.keys(p.suspect || {}).filter((k) => p.ballots[k] !== undefined).length, suspectCounts: p.options.map((_, i) => Object.keys(p.suspect || {}).filter((k) => p.ballots[k] === i).length), hidden: !!p.hidden, closed: !!p.closed }))));
+  mod.get('/polls', (req, res) => res.json(db.polls.filter((p) => visible(req, p)).map((p) => ({ ...publicPoll(p), counts: p.options.map((_, i) => Object.values(p.ballots).filter((b) => b === i).length), timeline: timeline(p), purged: p.purged || 0, botRemoved: Object.keys(p.bot || {}).length, botLog: (p.botLog || []).slice(0, 5), suspect: Object.keys(p.suspect || {}).filter((k) => p.ballots[k] !== undefined).length, suspectCounts: p.options.map((_, i) => Object.keys(p.suspect || {}).filter((k) => p.ballots[k] === i).length), hidden: !!p.hidden, closed: !!p.closed }))));
   // Votes par tranche de 10 min (pour repérer un pic de bourrage) ; les votes d'avant ce suivi ne sont pas datés
   const SLOT = 10;
   function timeline(p) {
@@ -361,6 +362,77 @@ export function registerCommunity(app, mod, ctx) {
   // Ordre d'arrivée des bulletins (gardé par la base) : par paquets de 100, la part de chaque choix.
   // Un robot qui vote des milliers de fois d'affilée laisse un long bloc presque 100 % sur le même choix.
   const PACK = 100;
+  // ---- Suppression AUTOMATIQUE des votes de robot (annulable par un·e modo) ----
+  // Les votes retirés sont mis de côté dans p.bot (pas effacés) : « Annuler » les remet en une touche.
+  function removeAsBot(p, keys, why) {
+    let n = 0;
+    p.bot ||= {};
+    for (const k of keys) {
+      if (p.ballots[k] === undefined) continue;
+      p.bot[k] = p.ballots[k]; delete p.ballots[k];
+      if (p.suspect) delete p.suspect[k];
+      n++;
+    }
+    if (!n) return 0;
+    p.botLog ||= [];
+    p.botLog.unshift({ at: now(), n, why });
+    p.botLog = p.botLog.slice(0, 20);
+    save();
+    audit({ username: 'robot-detecteur', org: 'Détection automatique' }, 'votes de robot retirés automatiquement', `${n} · ${p.question} · ${why}`, siteOf(p));
+    broadcast('poll', { id: p.id });
+    const ids = db.mods.filter((m) => !m.disabled && canSite(m, siteOf(p))).map((m) => m.id);
+    sendModPush?.(ids, { title: `🤖 ${n} votes de robot retirés`, body: `« ${p.question.slice(0, 80)} » : ${why}. Vérifie dans l’espace modo (bouton Annuler si c’est une erreur).`, url: '/#/modo', tag: `bot-${p.id}` }).catch(() => {});
+    return n;
+  }
+  // 1. En direct : au moins 60 votes de téléphones tout neufs depuis un même réseau en 10 min, dont 95 % sur le même choix
+  const liveNets = new Map(); // `${poll}|${réseau}` → [{ k, t, c }] (en mémoire seulement)
+  function liveBot(p, net, k, c) {
+    const key = `${p.id}|${net}`, t = Date.now();
+    const list = (liveNets.get(key) || []).filter((x) => t - x.t < 10 * 60e3);
+    list.push({ k, t, c }); liveNets.set(key, list);
+    if (list.length < 60) return;
+    const top = p.options.map((_, i) => list.filter((x) => x.c === i).length);
+    const m = Math.max(...top);
+    if (m / list.length < 0.95) return;
+    const n = removeAsBot(p, list.map((x) => x.k), `${list.length} votes en rafale depuis un même réseau, ${Math.round((m / list.length) * 100)} % « ${p.options[top.indexOf(m)]} »`);
+    if (n) liveNets.set(key, []);
+  }
+  setInterval(() => { const t = Date.now(); for (const [k, l] of liveNets) if (!l.some((x) => t - x.t < 10 * 60e3)) liveNets.delete(k); }, 60e3).unref();
+  // 2. Toutes les 5 min : un bloc d'au moins 1000 votes arrivés d'affilée (10 paquets de 100) à 95 % sur le même choix
+  function orderBot(p) {
+    const keys = Object.keys(p.ballots), vals = keys.map((k) => p.ballots[k]);
+    const packs = [];
+    for (let i = 0; i < vals.length; i += PACK) {
+      const slice = vals.slice(i, i + PACK);
+      if (slice.length < PACK) break;
+      const counts = p.options.map((_, j) => slice.filter((v) => v === j).length);
+      const m = Math.max(...counts);
+      packs.push(m / PACK >= 0.95 ? counts.indexOf(m) : -1);
+    }
+    const out = [];
+    for (let i = 0; i < packs.length;) {
+      if (packs[i] < 0) { i++; continue; }
+      let j = i; while (j + 1 < packs.length && packs[j + 1] === packs[i]) j++;
+      if (j - i + 1 >= 10) out.push([i, j, packs[i]]);
+      i = j + 1;
+    }
+    for (const [i, j, c] of out.reverse()) removeAsBot(p, keys.slice(i * PACK, (j + 1) * PACK), `bloc de ${(j - i + 1) * PACK} votes d’affilée à 95 % « ${p.options[c]} »`);
+  }
+  const AUTO_BOT = () => !/^(0|false|non|off)$/i.test(process.env.VOTE_AUTO_BOT || '1');
+  setInterval(() => { if (AUTO_BOT()) for (const p of db.polls) if (!p.hidden && Object.keys(p.ballots).length >= 1000) orderBot(p); }, 5 * 60e3).unref();
+  setTimeout(() => { if (AUTO_BOT()) for (const p of db.polls) if (!p.hidden && Object.keys(p.ballots).length >= 1000) orderBot(p); }, 30e3).unref();
+  // Annuler : remet les votes retirés automatiquement
+  mod.post('/polls/:id/restore-bot', (req, res) => {
+    const p = db.polls.find((x) => x.id === req.params.id);
+    if (!p) return bad(res, 'Introuvable', 404);
+    if (!needSite(req, res, siteOf(p))) return;
+    let n = 0;
+    for (const [k, v] of Object.entries(p.bot || {})) { if (p.ballots[k] === undefined) { p.ballots[k] = v; n++; } }
+    p.bot = {}; p.botLog = [];
+    save(); audit(req.mod, 'votes « robot » remis', `${n} · ${p.question}`, siteOf(p)); broadcast('poll', { id: p.id });
+    res.json({ ok: true, n });
+  });
+
   function orderPacks(p) {
     const vals = Object.values(p.ballots), packs = [];
     for (let i = 0; i < vals.length; i += PACK) {

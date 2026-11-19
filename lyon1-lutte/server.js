@@ -1420,7 +1420,7 @@ mod.delete('/sites/:id', requireAdmin, (req, res) => {
 });
 
 // ---------- Votes, blog, témoignages ----------
-const community = registerCommunity(app, mod, { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, targetSite, stale, touch });
+const community = registerCommunity(app, mod, { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, targetSite, stale, touch, sendModPush });
 // Signalements, « J'y vais », frise, page droits, entraide
 extras = registerExtras(app, mod, { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, sendPush, postTelegram, tgEsc, sendModPush, deviceKey });
 
