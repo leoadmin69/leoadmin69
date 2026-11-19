@@ -324,9 +324,9 @@ export function registerExtras(app, mod, ctx) {
   }
   // Bouton « Prévenir les modos » : relance la notification d'un signalement (ou de tous)
   mod.post('/sightings/remind', async (req, res) => {
+    if (req.mod.role === 'terrain') return bad(res, 'Compte piquet : tu ne peux pas relancer les modos.', 403);
     const b = req.body.building ? db.buildings.find((x) => x.id === req.body.building) : null;
     if (req.body.building && !b) return bad(res, 'Introuvable', 404);
-    if (!b && req.mod.role === 'terrain') return bad(res, 'Choisis un bâtiment.', 400);
     if (b && !needSite(req, res, siteOf(b))) return;
     if (limited(`remind:${req.mod.id}`, 10, 600e3)) return bad(res, 'Déjà relancé plusieurs fois, attends quelques minutes.', 429);
     const r = await remindSightings({ building: b?.id });
@@ -335,6 +335,7 @@ export function registerExtras(app, mod, ctx) {
   });
 
   mod.post('/sightings/ignore', (req, res) => {
+    if (req.mod.role === 'terrain') return bad(res, 'Compte piquet : tu ne peux pas ignorer un signalement.', 403);
     const b = db.buildings.find((x) => x.id === req.body.building);
     if (!b) return bad(res, 'Introuvable', 404);
     if (!needSite(req, res, siteOf(b))) return;

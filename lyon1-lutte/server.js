@@ -145,7 +145,7 @@ function audit(mod, action, detail = '', siteId = '') {
 function currentMod(req) { return readToken(parseCookies(req.headers.cookie)[COOKIE]); }
 // Dans le chat, seul·es les vrais modos ont des droits en plus (pas les comptes piquet)
 function chatMod(req) { const m = currentMod(req); return m && m.role !== 'terrain' ? m : null; }
-const TERRAIN_OK = [/^GET \/terrain\/buildings$/, /^POST \/terrain\/buildings$/, /^PUT \/buildings-batch$/, /^PUT \/buildings\/[\w-]+$/, /^POST \/terrain\/building\/[\w-]+\/photo$/, /^GET \/sightings$/, /^POST \/sightings\/(ignore|remind)$/, /^GET \/sightings\/photo\/[\w-]+$/, /^POST \/push\/(subscribe|unsubscribe|status)$/, /^GET \/presence$/, /^GET \/guide\.pdf$/];
+const TERRAIN_OK = [/^GET \/terrain\/buildings$/, /^POST \/terrain\/buildings$/, /^PUT \/buildings-batch$/, /^PUT \/buildings\/[\w-]+$/, /^POST \/terrain\/building\/[\w-]+\/photo$/, /^GET \/sightings$/, /^POST \/push\/(subscribe|unsubscribe|status)$/, /^GET \/presence$/, /^GET \/guide\.pdf$/];
 function requireMod(req, res, next) {
   const mod = currentMod(req);
   if (!mod) return bad(res, 'Connexion modo requise.', 401);

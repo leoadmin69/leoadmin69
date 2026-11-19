@@ -65,6 +65,18 @@ dans le même commit que le code.
 3. Vérifier avant de pousser (règle 2), monter `VERSION` de `public/sw.js` si `public/` change.
 4. En fin de tâche : mettre à jour cette section « Passation ».
 
+### Passation Copilot (2026-11-19)
+**Dernier état**
+- Audit ciblé terrain/signalements/SSE/mobile réalisé sur la branche `copilot/fix-bugs-in-lyon1-lutte`.
+- Corrigé : comptes piquet empêchés de relancer ou ignorer les signalements publics côté serveur et liste blanche.
+- Corrigé : écrans publics/SSE ne se re-rendent plus pendant une feuille ou une caméra ouverte.
+- Corrigé : cadre caméra limité à au moins 120 px afin d’éviter une vue écrasée en paysage/courte hauteur.
+- Vérifié : syntaxe Node OK, serveur local démarré sur `/api/state`, page Bâtiments ouverte à 375 px.
+
+**À faire**
+- Vérifier en vrai sur iPhone les dimensions caméra en paysage et le comportement des feuilles après SSE.
+- Aucun accès production utilisé dans cette session.
+
 ## Accès production (serveur, base, hébergeur)
 Tout se pilote avec `node tools/ops.mjs` (dans `lyon1-lutte/`) : `health`, `status`, `deploy`, `env`, `setenv NOM=valeur`,
 `backup`, `restore fichier --oui`. **Les secrets ne sont jamais dans le dépôt** ; chaque assistant les reçoit ainsi :
