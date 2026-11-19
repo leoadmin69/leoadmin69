@@ -31,6 +31,7 @@ const EMOTE_SET = new Set(EMOTES.map((e) => e.code));
 import { bannedList, findBanned, normalize as normalizeWord, BANNED_BASE } from './lib/moderation.js';
 import { telegramEnabled, telegramUrl, postTelegram, tgEsc, telegramCheck, telegramTest, telegramStatus, normalizeChat } from './lib/telegram.js';
 import { DEFAULT_SITE, site, siteName, modSites, canSite, siteOf, migrateSites, effectiveBlocus, wantsSite, isAdmin, ALL_SITES, telegramChats } from './lib/sites.js';
+import { readDevice, deviceCookie, newDeviceId, setRequestDevice } from './lib/device.js';
 import { syncInstagram, syncInstagramStories, startInstagramSync, instagramEnabled, intervalMinutes as instagramInterval } from './lib/instagram.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -67,9 +68,29 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.json({ limit: '200kb' }));
+// Appareil anonyme signé : seul le serveur crée des appareils, au plus DEVICE_NEW_PER_HOUR par réseau et par heure
+// (un script ne peut plus s'inventer un appareil neuf à chaque requête). Les anciens cookies sont convertis.
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+  const d = readDevice(req.headers.cookie);
+  if (d?.signed) { req.devBorn = d.born; setRequestDevice(req, d.id); return next(); }
+  const wantsDevice = DEVICE_ROUTES.test(`${req.method} ${req.path}`) || req.path === '/api/polls' || /^\/api\/polls\/[\w-]+\/challenge$/.test(req.path);
+  if (!d && !wantsDevice) { setRequestDevice(req, null); return next(); }
+  // nouvel appareil, ou ancien cookie non signé à convertir : au compte-gouttes par réseau
+  if (limited(`devnew:${visitor(req)}`, Number(process.env.DEVICE_NEW_PER_HOUR || 1000), 3600e3)) {
+    setRequestDevice(req, null);
+    return wantsDevice ? res.status(429).json({ error: 'Beaucoup de nouveaux appareils depuis ce réseau : réessaie dans quelques minutes.' }) : next();
+  }
+  const id = d?.id || newDeviceId();
+  // transition : les téléphones qui avaient déjà un cookie avant la signature gardent leur ancienneté jusqu'au 21/11
+  const born = d && Date.now() < Date.parse(process.env.DEVICE_LEGACY_UNTIL || '2026-11-21T00:00:00Z') ? Date.now() - 3 * 3600e3 : Date.now();
+  res.append('Set-Cookie', deviceCookie(id, born));
+  req.devBorn = born;
+  setRequestDevice(req, id);
+  next();
+});
 app.use((req, res, next) => {
   if (!DEVICE_ROUTES.test(`${req.method} ${req.path}`) || hasDevice(req)) return next();
-  deviceKey(req, res); // pose le cookie
   res.status(428).json({ error: 'Recharge la page et réessaie.', retry: true });
 });
 // Requête illisible (JSON cassé, trop gros) : réponse claire, sans trace d'erreur dans les journaux
@@ -89,10 +110,8 @@ const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 // Sur le wifi du campus, des centaines d'étudiant·es partagent la même IP : on ne peut pas limiter par IP seule.
 function deviceKey(req, res, stable = false) {
   let d = parseCookies(req.headers.cookie).l1_dev;
-  if (!/^[A-Za-z0-9_-]{20,64}$/.test(d || '')) {
-    d = crypto.randomBytes(24).toString('base64url');
-    res.append('Set-Cookie', `l1_dev=${d}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${400 * 86400}${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
-  }
+  // sans appareil signé (réseau saturé) : empreinte jetable, rien n'est enregistré côté téléphone
+  if (!/^[A-Za-z0-9_-]{20,64}$/.test(d || '')) d = crypto.randomBytes(24).toString('base64url');
   return crypto.createHmac('sha256', SECRET).update(`${stable ? 'stable' : new Date().toISOString().slice(0, 10)}|dev|${d}`).digest('hex').slice(0, 16);
 }
 
@@ -100,7 +119,7 @@ function deviceKey(req, res, stable = false) {
 // d'appareil déjà présent : sinon chaque requête sans cookie compterait comme un nouvel appareil.
 // Le site pose ce cookie dès l'ouverture (/api/hit) ; s'il manque, on le pose et l'app réessaie toute seule (428).
 const hasDevice = (req) => /^[A-Za-z0-9_-]{20,64}$/.test(parseCookies(req.headers.cookie).l1_dev || '');
-const DEVICE_ROUTES = /^(POST \/api\/hit|POST \/api\/chat(\/photo|\/[\w-]+\/(report|react))?|GET \/api\/chat\/photo\/[\w-]+|POST \/api\/sightings(\/photo)?|POST \/api\/events\/[\w-]+\/going|POST \/api\/polls\/[\w-]+\/vote|POST \/api\/demands\/[\w-]+\/support|POST \/api\/entraide(\/[\w-]+\/(report|reply))?)$/;
+const DEVICE_ROUTES = /^(POST \/api\/mod\/terrain\/building\/[\w-]+\/photo|POST \/api\/mod\/terrain\/buildings|POST \/api\/hit|POST \/api\/chat(\/photo|\/[\w-]+\/(report|react))?|GET \/api\/chat\/photo\/[\w-]+|POST \/api\/sightings(\/photo)?|POST \/api\/events\/[\w-]+\/going|POST \/api\/polls\/[\w-]+\/vote|POST \/api\/demands\/[\w-]+\/support|POST \/api\/entraide(\/[\w-]+\/(report|reply))?)$/;
 
 // Limiteur simple en mémoire.
 const buckets = new Map();
@@ -271,7 +290,7 @@ app.post('/api/chat', (req, res) => {
   if (findBanned(text)) return bad(res, 'Message bloqué : il contient un mot ou une expression interdits par la charte du chat.');
   const v = deviceKey(req, res);
   if (limited(`chat:${v}`, 1, 1500) || limited(`chatm:${v}`, 20, 60000)) return bad(res, 'Doucement 🙂 attends quelques secondes.', 429);
-  if (limited(`chatip:${visitor(req)}`, 300, 60000)) return bad(res, 'Le chat est très sollicité depuis ce réseau, réessaie dans une minute.', 429);
+  if (limited(`chatip:${visitor(req)}`, 60, 60000)) return bad(res, 'Le chat est très sollicité depuis ce réseau, réessaie dans une minute.', 429);
   const mod = chatMod(req);
   if ((text.match(/:[a-z0-9]+:/g) || []).length > 15) return bad(res, 'Trop de stickers dans un seul message (15 max).');
   // Réponse à un message : on garde l'auteur et un extrait (le message d'origine peut ensuite être masqué)
@@ -321,6 +340,7 @@ app.post('/api/chat/photo', express.raw({ type: 'image/jpeg', limit: '2mb' }), a
 });
 // Voir une photo : une seule fois par appareil (les modos : toujours)
 app.get('/api/chat/photo/:id', async (req, res) => {
+  if (limited(`snapview:${visitor(req)}`, 300, 3600e3)) return res.status(429).end();
   res.setHeader('Cache-Control', 'no-store, private');
   const m = db.messages.find((x) => x.photo?.id === req.params.id);
   if (!m || m.photo.gone) return bad(res, 'Photo expirée ou supprimée.', 410);
@@ -352,10 +372,13 @@ app.post('/api/chat/:id/report', (req, res) => {
   const m = db.messages.find((x) => x.id === req.params.id);
   if (!m) return bad(res, 'Introuvable', 404);
   const v = deviceKey(req, res);
-  if (limited(`chatrep:${visitor(req)}`, 60, 3600e3)) return bad(res, 'Trop de signalements depuis ce réseau.', 429);
+  if (limited(`chatrep:${visitor(req)}`, 30, 3600e3)) return bad(res, 'Trop de signalements depuis ce réseau.', 429);
   if (!m.reports.includes(v)) m.reports.push(v);
-  // Masqué automatiquement après 3 signalements ; un modo peut le rétablir.
-  if (m.reports.length >= 3 && !m.hidden && !m.mod) { m.hidden = true; broadcast('chat-del', { id: m.id }); }
+  // Masqué automatiquement après 3 signalements d'appareils connus depuis au moins 1 h (pas des appareils fabriqués
+  // à la chaîne pour faire taire quelqu'un) ; les autres signalements restent visibles par les modos.
+  if (!(Date.now() - (req.devBorn || Date.now()) >= 3600e3)) { m.reportsNew = (m.reportsNew || 0) + 1; save(); return res.json({ ok: true }); }
+  m.reportsOld = (m.reportsOld || 0) + 1;
+  if (m.reportsOld >= 3 && !m.hidden && !m.mod) { m.hidden = true; broadcast('chat-del', { id: m.id }); }
   save();
   res.json({ ok: true });
 });
@@ -649,11 +672,13 @@ app.post('/api/push/unsubscribe', (req, res) => { pushUnsubscribe(String(req.bod
 app.post('/api/auth/login', (req, res) => {
   const username = clip(req.body.username, 40).toLowerCase();
   // Seuls les échecs comptent : par identifiant (force brute sur un compte) et, plus large, par réseau (wifi partagé)
-  const failKey = `loginfail:${username}`, netKey = `loginnet:${visitor(req)}`;
+  // verrou : 8 échecs pour un identifiant depuis un même réseau, 200 en tout pour un identifiant (force brute
+  // répartie), 60 depuis un réseau : un inconnu ailleurs ne peut plus bloquer l'admin avec quelques essais
+  const failKey = `loginfail:${username}:${visitor(req)}`, allKey = `loginall:${username}`, netKey = `loginnet:${visitor(req)}`;
   const recent = (k, w) => (buckets.get(k) || []).filter((x) => Date.now() - x < w).length;
-  if (recent(failKey, 15 * 60e3) >= 8 || recent(netKey, 15 * 60e3) >= 60) return bad(res, 'Trop de tentatives. Réessaie dans 15 minutes.', 429);
+  if (recent(failKey, 15 * 60e3) >= 8 || recent(allKey, 15 * 60e3) >= 200 || recent(netKey, 15 * 60e3) >= 60) return bad(res, 'Trop de tentatives. Réessaie dans 15 minutes.', 429);
   const mod = db.mods.find((m) => m.username === username && !m.disabled);
-  if (!mod || !verifyPassword(req.body.password || '', mod)) { limited(failKey, 1e9, 15 * 60e3); limited(netKey, 1e9, 15 * 60e3); return bad(res, 'Identifiants incorrects.', 401); }
+  if (!mod || !verifyPassword(req.body.password || '', mod)) { limited(failKey, 1e9, 15 * 60e3); limited(allKey, 1e9, 15 * 60e3); limited(netKey, 1e9, 15 * 60e3); return bad(res, 'Identifiants incorrects.', 401); }
   res.setHeader('Set-Cookie', cookieHeader(createToken(mod), 14 * 86400));
   res.json(publicMod(mod));
 });
@@ -842,6 +867,13 @@ mod.post('/terrain/building/:id/photo', express.raw({ type: 'image/jpeg', limit:
   const dev = deviceKey(req, res, true);
   if ((db.settings.blockedDevices || []).includes(dev)) return bad(res, 'Ce téléphone a été bloqué par les modos.', 403);
   if (limited(`terrainph:${dev}`, 1, 5000) || limited(`terrainphh:${dev}`, 60, 3600e3)) return bad(res, 'Attends quelques secondes entre deux mises à jour.', 429);
+  // lien piquet public : un téléphone arrivé il y a moins de 1 h ne peut pas changer un bâtiment déjà confirmé
+  // aujourd'hui (par un·e modo ou un piquet) : il peut seulement renseigner ceux « non renseignés / à reconfirmer »
+  const devAge = Date.now() - (req.devBorn || Date.now());
+  const confirmedToday = b.status !== 'inconnu' && b.updatedAt && Date.now() - new Date(b.updatedAt).getTime() < 12 * 3600e3;
+  if (devAge < 60 * 60e3 && confirmedToday && status !== b.status) return bad(res, `Ce bâtiment a déjà été confirmé aujourd’hui. Ton téléphone vient d’arriver sur le site : tu pourras le changer dans ${Math.ceil((60 * 60e3 - devAge) / 60e3)} min. En attendant, préviens un·e modo.`, 403);
+  // au plus 30 mises à jour toutes les 10 min par compte piquet (tous téléphones confondus)
+  if (limited(`terrainacct:${req.mod.id}`, 30, 10 * 60e3)) return bad(res, 'Beaucoup de mises à jour sur ce compte piquet : attends quelques minutes.', 429);
   const pid = `terrain-${newId()}${newId()}`;
   try { await saveSnap(pid, clean); } catch (e) { return bad(res, 'Enregistrement de la photo impossible.', 500); }
   if (b.terrainProof?.id) deleteSnap(b.terrainProof.id);
@@ -1124,7 +1156,7 @@ mod.delete('/chat/:id', (req, res) => {
 mod.post('/chat/:id/restore', (req, res) => {
   const m = db.messages.find((x) => x.id === req.params.id);
   if (!m) return bad(res, 'Introuvable', 404);
-  m.hidden = false; m.reports = []; save(); broadcast('chat', publicMsg(m));
+  m.hidden = false; m.reports = []; m.reportsOld = 0; m.reportsNew = 0; save(); broadcast('chat', publicMsg(m));
   audit(req.mod, 'message rétabli', (m.text || '📸 photo').slice(0, 80));
   res.json({ ok: true });
 });

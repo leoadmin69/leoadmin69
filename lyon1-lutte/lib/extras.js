@@ -103,11 +103,8 @@ export function registerExtras(app, mod, ctx) {
   // Identifiant d'appareil anonyme (même cookie que les votes), puis empreinte propre à chaque usage
   function device(req, res) {
     let d = parseCookies(req.headers.cookie)[DEVICE];
-    if (!/^[A-Za-z0-9_-]{20,64}$/.test(d || '')) {
-      d = crypto.randomBytes(24).toString('base64url');
-      const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-      res.setHeader('Set-Cookie', `${DEVICE}=${d}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${400 * 86400}${secure}`);
-    }
+    // le cookie signé est posé par server.js ; sans lui (réseau saturé), empreinte jetable
+    if (!/^[A-Za-z0-9_-]{20,64}$/.test(d || '')) d = crypto.randomBytes(24).toString('base64url');
     return d;
   }
   const mark = (kind, id, dev) => crypto.createHmac('sha256', SECRET).update(`${kind}|${id}|${dev}`).digest('base64url').slice(0, 20);
@@ -227,7 +224,8 @@ export function registerExtras(app, mod, ctx) {
       o.strongAt = o.count >= SIGHT_THRESHOLD() ? o.times[SIGHT_THRESHOLD() - 1] : null;
       // affiché « selon les personnes sur place » : seuil atteint depuis 5 min, et aucun·e modo n'a touché ce bâtiment depuis
       o.publicAt = o.strongAt ? new Date(new Date(o.strongAt).getTime() + CROWD_DELAY()).toISOString() : null;
-      o.crowd = !!o.strongAt && Date.now() >= new Date(o.publicAt).getTime() && !(o.updatedAt && o.updatedAt > o.strongAt);
+      const bNow = db.buildings.find((x) => x.id === o.building);
+      o.crowd = !!o.strongAt && bNow?.status === 'inconnu' && Date.now() >= new Date(o.publicAt).getTime() && !(o.updatedAt && o.updatedAt > o.strongAt);
       delete o.times; delete o.updatedAt;
     }
     return Object.values(out).sort((a, b) => b.count - a.count);

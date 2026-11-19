@@ -24,7 +24,8 @@ const FFMPEG = [process.env.FFMPEG_PATH, 'ffmpeg', staticFfmpeg].find(works) || 
 const HAS_FFMPEG = works(FFMPEG);
 const MAX_IMAGE = 15 * 1024 * 1024;
 // Supabase gratuit limite chaque fichier à 50 Mo : on reste en dessous quand il est utilisé.
-export const MAX_VIDEO_MB = Number(process.env.MAX_VIDEO_MB || (remoteEnabled() ? 45 : 150));
+export const MAX_VIDEO_MB = Number(process.env.MAX_VIDEO_MB || 25);
+const DAILY_UPLOAD_MB = Number(process.env.DAILY_UPLOAD_MB || 300); // tous envois publics confondus (stockage gratuit limité)
 const MAX_VIDEO = MAX_VIDEO_MB * 1024 * 1024;
 
 for (const k of ['polls', 'posts', 'testimonies', 'media']) db[k] ||= [];
@@ -169,6 +170,9 @@ export function registerCommunity(app, mod, ctx) {
   app.post('/api/uploads', async (req, res) => {
     const v = visitor(req);
     if (limited(`up:${v}`, 12, 3600e3)) return bad(res, 'Trop de fichiers envoyés, réessaie dans une heure.', 429);
+    const today = new Date().toISOString().slice(0, 10);
+    if (db.settings.uploadDay !== today) { db.settings.uploadDay = today; db.settings.uploadBytes = 0; }
+    if ((db.settings.uploadBytes || 0) + Number(req.headers['content-length'] || 0) > DAILY_UPLOAD_MB * 1048576) return bad(res, 'Beaucoup de fichiers envoyés aujourd’hui : réessaie demain, ou envoie seulement le texte.', 429);
     const declared = String(req.headers['content-type'] || '');
     if (!/^(image\/(jpeg|png)|video\/(mp4|quicktime|webm))$/.test(declared)) return bad(res, 'Formats acceptés : photo JPEG/PNG, vidéo MP4/MOV/WEBM.', 415);
     const max = declared.startsWith('video') ? MAX_VIDEO : MAX_IMAGE;
@@ -194,6 +198,7 @@ export function registerCommunity(app, mod, ctx) {
       const file = `${id}.${type.ext}`;
       fs.renameSync(tmp, path.join(UPLOADS, file));
       db.media.push({ id, file, size, ...type, status: 'tmp', cleaned: false, public: false, createdAt: now() });
+      db.settings.uploadBytes = (db.settings.uploadBytes || 0) + size;
       save();
       res.json({ id, kind: type.kind, size });
     });
@@ -244,11 +249,8 @@ export function registerCommunity(app, mod, ctx) {
   const DEVICE = 'l1_dev';
   function deviceId(req, res) {
     let d = parseCookies(req.headers.cookie)[DEVICE];
-    if (!/^[A-Za-z0-9_-]{20,64}$/.test(d || '')) {
-      d = crypto.randomBytes(24).toString('base64url');
-      const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-      res.setHeader('Set-Cookie', `${DEVICE}=${d}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${400 * 86400}${secure}`);
-    }
+    // le cookie signé est posé par server.js ; sans lui (réseau saturé), empreinte jetable
+    if (!/^[A-Za-z0-9_-]{20,64}$/.test(d || '')) d = crypto.randomBytes(24).toString('base64url');
     return d;
   }
   const ballot = (pollId, dev) => crypto.createHmac('sha256', SECRET).update(`vote|${pollId}|${dev}`).digest('base64url').slice(0, 22);
@@ -256,7 +258,7 @@ export function registerCommunity(app, mod, ctx) {
   function publicPoll(p, dev) {
     const mine = dev ? p.ballots[ballot(p.id, dev)] : undefined;
     const open = isOpen(p);
-    const showResults = !open || p.results === 'live' || mine !== undefined;
+    const showResults = !open || p.results === 'live';
     const counts = p.options.map((_, i) => Object.values(p.ballots).filter((b) => b === i).length);
     return {
       id: p.id, site: siteOf(p), ag: p.ag || '', question: p.question, description: p.description, options: p.options,
@@ -267,7 +269,6 @@ export function registerCommunity(app, mod, ctx) {
     };
   }
   app.get('/api/polls', (req, res) => {
-    seenAge(req, res);
     const dev = parseCookies(req.headers.cookie)[DEVICE];
     const list = db.polls.filter((p) => !p.hidden).sort((a, b) => (isOpen(b) - isOpen(a)) || b.createdAt.localeCompare(a.createdAt)).slice(0, 40);
     res.json(list.map((p) => publicPoll(p, dev)));
@@ -294,17 +295,7 @@ export function registerCommunity(app, mod, ctx) {
     usedTokens.set(token, Date.now() + 15 * 60e3);
     return null;
   }
-  // 2. Âge de l'appareil : cookie signé posé à la première visite de la page des votes (vider ses cookies = appareil « neuf »)
-  const SEEN = 'l1_seen';
-  function seenAge(req, res) {
-    const v = parseCookies(req.headers.cookie)[SEEN] || '';
-    const [ts, sig] = v.split('.');
-    if (ts && sig === powSign(`seen|${ts}`)) return Date.now() - Number(ts);
-    const t = String(Date.now());
-    const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-    res.append('Set-Cookie', `${SEEN}=${t}.${powSign(`seen|${t}`)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${400 * 86400}${secure}`);
-    return 0;
-  }
+  // 2. Âge de l'appareil : donné par le cookie d'appareil signé (req.devBorn, voir lib/device.js)
   // 3. Rafales depuis un même réseau sur un même vote (pour repérer le bourrage, sans gêner le wifi du campus)
   const netVotes = new Map(); // `${poll}|${réseau}` → horodatages des 5 dernières minutes
   function netBurst(pid, net) {
@@ -319,7 +310,6 @@ export function registerCommunity(app, mod, ctx) {
     if (!p) return bad(res, 'Vote introuvable.', 404);
     if (limited(`powch:${visitor(req)}`, 600, 60e3)) return bad(res, 'Trop de demandes, réessaie dans une minute.', 429);
     const dev = deviceId(req, res);
-    seenAge(req, res);
     const base = [p.id, devTag(dev), Date.now(), POW_BITS(), crypto.randomBytes(6).toString('base64url')].join('.');
     res.setHeader('Cache-Control', 'no-store');
     res.json({ token: `${base}.${powSign(base)}`, bits: POW_BITS() });
@@ -343,8 +333,8 @@ export function registerCommunity(app, mod, ctx) {
     if (p.ballots[b] !== undefined) return bad(res, 'Tu as déjà voté sur cet appareil.', 409);
     const powErr = powCheck(p, dev, req.body.token, req.body.nonce);
     if (powErr) return bad(res, powErr, 400);
-    // suspect = appareil tout neuf (moins de 2 min) ET déjà 10 votes ou plus de ce réseau en 5 min sur ce vote
-    const fresh = seenAge(req, res) < 120e3, burst = netBurst(p.id, visitor(req));
+    // suspect = appareil tout neuf (moins de 30 min) ET déjà 10 votes ou plus de ce réseau en 5 min sur ce vote
+    const fresh = Date.now() - (req.devBorn || Date.now()) < 30 * 60e3, burst = netBurst(p.id, visitor(req));
     if (fresh && burst >= 10) { p.suspect ||= {}; p.suspect[b] = 1; }
     p.ballots[b] = choice;
     save();
@@ -513,6 +503,7 @@ export function registerCommunity(app, mod, ctx) {
       const prev = t.status;
       t.status = oneOf(req.body.status, ['pending', 'published', 'rejected'], t.status);
       if (t.status === 'published' && prev !== 'published') { t.publishedAt = now(); feed(`Nouveau témoignage publié · ${CATEGORIES[t.category]}${t.place ? ' · ' + t.place : ''}`, 'warn'); }
+      if (t.status === 'rejected' && t.media.length) { deleteMedia(t.media); t.media = []; }
     }
     for (const id of t.media) {
       const m = db.media.find((x) => x.id === id);
