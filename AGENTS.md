@@ -49,7 +49,7 @@ dans le même commit que le code.
   l'adresse du projet. Ne jamais lire les clés du site depuis Render pour s'en servir ailleurs.
 - **Blueprint Render « Lyon1 »** (auto-sync sur `render.yaml`) : c'est lui qui a créé le doublon. Ne pas modifier
   `render.yaml` ; conseiller à l'admin de le déconnecter (Render → Blueprints → Lyon1, en gardant le service).
-- **Clé Render** : si l'admin a réutilisé une clé déjà collée dans un chat, elle doit être révoquée et recréée.
+- **Clé Render** : nouvelle clé enregistrée le 19/11 (secret réseau Claude, environnement « Par défaut ») : `node tools/ops.mjs status` marche côté Claude.
 
 ### Idées proposées, pas encore demandées
 - Bouton « Pause Telegram » dans l'admin.
