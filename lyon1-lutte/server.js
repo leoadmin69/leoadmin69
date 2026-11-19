@@ -1424,9 +1424,9 @@ mod.delete('/sites/:id', requireAdmin, (req, res) => {
 const community = registerCommunity(app, mod, { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, targetSite, stale, touch, sendModPush });
 // Signalements, « J'y vais », frise, page droits, entraide
 extras = registerExtras(app, mod, { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, sendPush, postTelegram, tgEsc, sendModPush, deviceKey });
-// « On en parle » : espace neutre de propositions (page /ensemble)
+// « On en parle » : idées pour sortir du blocage, pour les deux camps (page #/ensemble)
 registerEnsemble(app, mod, { bad, clip, limited, visitor, audit, broadcast });
-app.get('/ensemble', (req, res) => res.sendFile(path.join(ROOT, 'public', 'ensemble.html')));
+app.get('/ensemble', (req, res) => res.redirect(302, '/#/ensemble'));
 
 // ---------- Site ----------
 // Le service worker doit toujours être relu, sinon les mises à jour de l'app n'arriveraient pas.

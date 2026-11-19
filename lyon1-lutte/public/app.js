@@ -59,7 +59,7 @@ const siteFull = (id) => siteList().find((x) => x.id === id)?.name || id;
 const defaultSite = () => state.raw?.defaultSite || 'doua';
 const publicSite = () => (state.site && state.site !== ALL && siteList().some((x) => x.id === state.site) ? state.site : defaultSite());
 // Pages communes à tous les sites : pas de choix de site, tout est ensemble
-const UNIFIED = ['droits', 'frise', 'temoignages', 'revendications', 'contacts'];
+const UNIFIED = ['droits', 'frise', 'temoignages', 'revendications', 'contacts', 'ensemble'];
 const unified = () => UNIFIED.includes(route().split('/')[0]);
 const scopeSite = () => (unified() ? ALL : route().startsWith('modo') && state.me ? state.modSite || defaultSite() : state.site && siteList().some((x) => x.id === state.site) ? state.site : state.site === ALL ? ALL : defaultSite());
 const inScope = (x, sc = scopeSite()) => sc === ALL || x.site === ALL_SITES || (x.site || defaultSite()) === sc;
@@ -141,6 +141,7 @@ const NAV = [
   { id: 'chat', label: 'Chat anonyme', icon: 'chat' },
   { id: 'cr', label: 'Comptes rendus', icon: 'doc' },
   { id: 'votes', label: 'Votes anonymes', icon: 'ballot' },
+  { id: 'ensemble', label: 'On en parle', icon: 'people' },
   { id: 'revendications', label: 'Revendications', icon: 'megaphone' },
   { id: 'blog', label: 'Blog & tribunes', icon: 'pen' },
   { id: 'temoignages', label: 'Témoignages', icon: 'shield' },
@@ -280,7 +281,7 @@ document.addEventListener('selectionchange', () => {
   if (sel && !sel.isCollapsed) sel.removeAllRanges();
 });
 // Pages où l'on remplit un formulaire : une mise à jour en direct ne les redessine pas (on perdrait ce qui est coché ou tapé)
-const FORM_ROUTES = ['alertes', 'temoignages', 'entraide'];
+const FORM_ROUTES = ['alertes', 'temoignages', 'entraide', 'ensemble'];
 function render(force = false) {
   const active = document.activeElement;
   if (!force && active && view().contains(active) && /INPUT|TEXTAREA|SELECT/.test(active.tagName)) { state.dirty = true; return; }
@@ -297,7 +298,7 @@ function render(force = false) {
   let [r, arg] = route().split('/');
   if (r === 'batiments' && state.me?.role === 'terrain') { history.replaceState(null, '', '#/modo'); r = 'modo'; }
   if (!state.data) { view().innerHTML = '<div class="empty"><div class="big typing mono">_</div>Connexion au flux…</div>'; return; }
-  const views = { '': viewLive, batiments: viewBuildings, agenda: viewAgenda, chat: viewChat, cr: arg ? () => viewReport(arg) : viewReports, revendications: viewDemands, votes: () => viewPolls(arg), blog: () => viewBlog(arg), temoignages: viewTestimonies, contacts: viewContacts, alertes: viewAlerts, plus: viewPlus, modo: viewModo, terrain: () => terrainLogin(arg), frise: viewFrise, entraide: () => viewEntraide(arg), droits: viewDroits };
+  const views = { '': viewLive, batiments: viewBuildings, agenda: viewAgenda, chat: viewChat, cr: arg ? () => viewReport(arg) : viewReports, revendications: viewDemands, votes: () => viewPolls(arg), blog: () => viewBlog(arg), temoignages: viewTestimonies, contacts: viewContacts, alertes: viewAlerts, plus: viewPlus, modo: viewModo, terrain: () => terrainLogin(arg), frise: viewFrise, ensemble: viewEnsemble, entraide: () => viewEntraide(arg), droits: viewDroits };
   const out = (views[r] || viewLive)();
   // mise à jour en direct : on reste au même endroit de la page
   if (keepY != null) Promise.resolve(out).then(() => { if (Math.abs(window.scrollY - keepY) > 2) window.scrollTo(0, keepY); });
@@ -953,13 +954,187 @@ async function viewAlerts() {
   };
 }
 
+// ===== On en parle : idées pour sortir du blocage, pour les deux camps (pas de vote) =====
+// Chaque idée dit ce qu'elle apporte aux deux camps ; on soutient (« je soutiens » / « je peux vivre avec »),
+// on propose des modifications (après avoir résumé l'idée), et les idées qui rassemblent les deux camps remontent.
+const ENS_CAMP = {
+  bloc: { label: 'Pour continuer le blocus', short: 'continuer le blocus', pill: 'purple' },
+  anti: { label: 'Pour reprendre les cours', short: 'reprendre les cours', pill: 'orange' },
+  entre: { label: 'Entre les deux', short: 'entre les deux', pill: 'grey' },
+  nsp: { label: 'Je préfère ne pas dire', short: 'sans avis déclaré', pill: 'grey' },
+};
+const ens = { props: [], myCamp: store.get('ens-camp', null), sort: 'bridge', open: new Set() };
+const ENS_ATTACKS = /\b(fachos?|fascistes?|gauchiasses?|gauchistes?|casseurs?|terroristes?|connards?|abrutis?|idiots?|debiles?|nazis?|traitres?|collabos?|bolcheviks?|wokistes?|bourges?|faineants?|parasites?)\b/i;
+function ensTone(t) {
+  if (!t) return '';
+  if (ENS_ATTACKS.test(t.normalize('NFD').replace(/[̀-ͯ]/g, ''))) return '🕊️ Parle de l’idée, pas des personnes : essaie sans étiquette.';
+  const letters = t.replace(/[^A-Za-zÀ-ÿ]/g, '');
+  if (letters.length > 25 && letters.replace(/[^A-ZÀ-Þ]/g, '').length / letters.length > 0.5) return '🕊️ En majuscules, ça se lit comme un cri : écris normalement.';
+  if (/[!?]{3,}/.test(t)) return '🕊️ Un seul point d’exclamation suffit.';
+  if (/\b(vous|ils|elles)\s+(êtes|etes|sont)\s+(des|tous|toutes)\b/i.test(t)) return '🕊️ « Vous êtes tous… » braque l’autre camp. Essaie « je crains que… » ou « je propose que… ».';
+  return '';
+}
+function ensWatchTone(root) {
+  $$('textarea, input[type=text]', root).forEach((el) => {
+    const box = el.closest('.field')?.querySelector('.ens-tone');
+    if (box) el.addEventListener('input', () => { const h = ensTone(el.value); box.textContent = h; box.hidden = !h; });
+  });
+}
+const ensTotal = (x) => ['soutien', 'vivre'].reduce((s, k) => s + Object.values(x.tally[k]).reduce((a, b) => a + b, 0), 0);
+function ensMeter(t) {
+  const max = Math.max(1, ...['bloc', 'anti'].map((c) => t.soutien[c] + t.vivre[c]));
+  const row = (k) => `<div class="ens-row"><span class="pill ${ENS_CAMP[k].pill}">${esc(ENS_CAMP[k].short)}</span><span class="ens-bar"><i class="s" style="width:${(t.soutien[k] / max) * 100}%"></i><i class="v" style="width:${(t.vivre[k] / max) * 100}%"></i></span><b class="mono">${t.soutien[k] + t.vivre[k]}</b></div>`;
+  const other = t.soutien.entre + t.vivre.entre + t.soutien.nsp + t.vivre.nsp;
+  return `<div class="ens-meter">${row('bloc')}${row('anti')}<div class="faint small">Plein : « je soutiens » · clair : « je peux vivre avec »${other ? ` · + ${other} sans camp` : ''}</div></div>`;
+}
+const ensReact = (x) => `<div class="btn-row" style="margin-top:8px">
+  <button class="btn small ${x.mine === 'soutien' ? '' : 'ghost'}" data-ereact="${esc(x.id)}" data-kind="soutien">👍 Je soutiens</button>
+  <button class="btn small ${x.mine === 'vivre' ? '' : 'ghost'}" data-ereact="${esc(x.id)}" data-kind="vivre">🤝 Je peux vivre avec</button>
+  <button class="btn small ghost" data-ereport="${esc(x.id)}" aria-label="Signaler">⚑</button></div>`;
+function ensProp(p) {
+  return `<div class="card ens-prop">
+    <div class="chips">${p.bridge >= 3 ? '<span class="pill blue">🌉 rassemble les deux camps</span>' : ''}<span class="pill grey">Idée n°${p.num}</span>${p.camp ? `<span class="pill ${ENS_CAMP[p.camp]?.pill || 'grey'}">proposée par : ${esc(ENS_CAMP[p.camp]?.short || '')}</span>` : ''}<span class="faint small">${esc(ago(p.at))}</span></div>
+    <h3 style="margin:10px 0 6px">${esc(p.title)}</h3>
+    ${p.text ? `<p class="muted" style="white-space:pre-wrap;margin:0 0 8px">${esc(p.text)}</p>` : ''}
+    <div class="ens-gains"><div class="ens-gain bloc"><b>Ce que ça apporte à celles et ceux qui veulent continuer le blocus</b>${esc(p.gainB)}</div><div class="ens-gain anti"><b>Ce que ça apporte à celles et ceux qui veulent reprendre les cours</b>${esc(p.gainA)}</div></div>
+    ${p.risk ? `<p class="small muted" style="margin:0 0 8px">⚖️ Ce que ça demande ou risque : ${esc(p.risk)}</p>` : ''}
+    ${ensMeter(p.tally)}${ensReact(p)}
+    <details class="ens-amends" data-eamends="${esc(p.id)}" ${ens.open.has(p.id) ? 'open' : ''}><summary>✏️ ${p.amends.length ? `${p.amends.length} modification(s) proposée(s)` : 'Proposer une modification'}</summary>
+      ${p.amends.map((a) => `<div class="ens-amend"><div class="faint small"><i>Résumé de l’idée par cette personne : « ${esc(a.summary)} »</i></div><p style="margin:6px 0"><b>Modification :</b> ${esc(a.text)}</p><p class="small" style="margin:0 0 6px"><b>Pourquoi ça peut convenir aux deux :</b> ${esc(a.why)}</p>${a.bridge >= 3 ? '<span class="pill blue">🌉 rassemble</span>' : ''}${ensMeter(a.tally)}${ensReact(a)}</div>`).join('')}
+      <button class="btn small ghost" data-eamend="${esc(p.id)}" style="margin-top:8px">✏️ Proposer une modification</button></details>
+  </div>`;
+}
+function ensDrawList() {
+  const box = $('#ens-list');
+  if (!box) return;
+  const list = [...ens.props].sort((a, b) => (ens.sort === 'recent' ? b.at.localeCompare(a.at) : ens.sort === 'top' ? ensTotal(b) - ensTotal(a) || b.at.localeCompare(a.at) : b.bridge - a.bridge || ensTotal(b) - ensTotal(a) || b.at.localeCompare(a.at)));
+  box.innerHTML = list.map(ensProp).join('') || '<div class="card empty">Pas encore d’idée. Lance la première 🙂<br><span class="small">Exemple : « Lever le blocus seulement si la présidence signe qu’il n’y aura pas d’examens pendant les vacances. »</span></div>';
+}
+function ensDrawCamp() {
+  const box = $('#ens-camp');
+  if (!box) return;
+  if (ens.myCamp) { box.innerHTML = `<p class="faint small">Tu t’es situé·e : <span class="pill ${ENS_CAMP[ens.myCamp].pill}">${esc(ENS_CAMP[ens.myCamp].label)}</span> · anonyme, ça sert juste à montrer les idées qui rassemblent.</p>`; return; }
+  box.innerHTML = `<div class="card"><b>Où te situes-tu aujourd’hui ?</b><div class="muted small" style="margin:4px 0 10px">Une seule fois, anonyme. Ça permet de voir les idées soutenues <b>des deux côtés</b>. Tout le monde peut proposer et soutenir, quel que soit son choix.</div>
+    <div class="grid cols-2">${Object.entries(ENS_CAMP).map(([k, c]) => `<button class="btn ghost" data-ecamp="${k}">${esc(c.label)}</button>`).join('')}</div></div>`;
+}
+async function ensLoad() {
+  try {
+    const r = await api('/api/ensemble');
+    ens.props = r.props;
+    if (r.myCamp) { ens.myCamp = r.myCamp; store.set('ens-camp', r.myCamp); }
+    ensDrawCamp(); ensDrawList();
+  } catch (e) { const b = $('#ens-list'); if (b) b.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; }
+}
+const ensNeedCamp = () => { if (ens.myCamp) return true; toast('Dis d’abord où tu te situes (en haut, une seule fois).'); $('#ens-camp')?.scrollIntoView({ behavior: 'smooth' }); return false; };
+
+const ENS_STEPS = [
+  { k: 'title', q: 'Ton idée en une phrase', hint: 'Commence par « Je propose que… ». Simple et concret.', ph: 'Je propose que…', input: true, min: 8 },
+  { k: 'text', q: 'Explique-la en quelques lignes', hint: 'Comment ça marcherait concrètement ? (facultatif)', ph: 'Concrètement…', min: 0 },
+  { k: 'gainB', q: 'Qu’est-ce que ça apporte à celles et ceux qui veulent continuer le blocus ?', hint: 'Mets-toi à leur place : qu’est-ce qui les rassurerait ?', ph: 'Pour eux, ça permet de…', min: 10 },
+  { k: 'gainA', q: 'Qu’est-ce que ça apporte à celles et ceux qui veulent reprendre les cours ?', hint: 'Pense aussi aux étudiant·es étrangers, aux boursiers, aux stages…', ph: 'Pour eux, ça permet de…', min: 10 },
+  { k: 'risk', q: 'Qu’est-ce que ça demande, ou qu’est-ce qui pourrait coincer ?', hint: 'Être honnête sur les limites rend l’idée plus crédible. (facultatif)', ph: 'Il faudrait que…', min: 0 },
+];
+function ensPropose() {
+  if (!ensNeedCamp()) return;
+  const data = {};
+  let i = 0;
+  sheet('', (root, close) => {
+    const step = () => {
+      const s = ENS_STEPS[i], last = i === ENS_STEPS.length - 1;
+      root.innerHTML = `<div class="grab"></div>
+        <div class="ens-steps">${ENS_STEPS.map((_, j) => `<i class="${j <= i ? 'on' : ''}"></i>`).join('')}</div>
+        <div class="notice">🕊️ <b>Mode calme</b> : une question à la fois. Écris comme si la personne en face était de l’autre camp, et que tu voulais la convaincre.</div>
+        <div class="form" style="margin-top:12px"><div class="field"><label>${esc(s.q)}</label><div class="faint small" style="margin:0 4px 6px">${esc(s.hint)}</div>
+          ${s.input ? `<input type="text" id="ef" maxlength="140" placeholder="${esc(s.ph)}" value="${esc(data[s.k] || '')}">` : `<textarea id="ef" maxlength="1500" placeholder="${esc(s.ph)}">${esc(data[s.k] || '')}</textarea>`}
+          <div class="ens-tone" hidden></div></div>
+        ${last ? '<label class="check small"><input type="checkbox" id="eok"> Je me suis relu·e : quelqu’un de l’autre camp peut lire ça sans se sentir attaqué.</label>' : ''}
+        <div class="btn-row"><button type="button" class="btn ghost" id="eback">${i ? '← Retour' : 'Annuler'}</button><button type="button" class="btn" id="enext">${last ? 'Publier' : 'Suivant →'}</button></div></div>`;
+      ensWatchTone(root);
+      const f = $('#ef', root); f.focus();
+      $('#eback', root).onclick = () => { data[s.k] = f.value; if (!i) return close(); i--; step(); };
+      $('#enext', root).onclick = async () => {
+        data[s.k] = f.value.trim();
+        if (data[s.k].length < s.min) return toast(s.min >= 10 ? 'Une ou deux phrases suffisent, mais c’est important 🙂' : 'Écris ton idée en une phrase.');
+        if (ensTone(data[s.k])) return toast('Reformule un peu avant de continuer 🕊️');
+        if (!last) { i++; return step(); }
+        if (!$('#eok', root).checked) return toast('Coche la case après t’être relu·e 🙂');
+        try { await api('/api/ensemble/props', { method: 'POST', body: { ...data, camp: ens.myCamp } }); close(); toast('Merci 🙏 Ton idée est en ligne.'); ens.sort = 'recent'; render(true); }
+        catch (e) { toast(e.message); }
+      };
+    };
+    step();
+  });
+}
+function ensAmend(id) {
+  if (!ensNeedCamp()) return;
+  const p = ens.props.find((x) => x.id === id);
+  if (!p) return;
+  sheet(`<div class="notice">🕊️ <b>Avant de modifier, on écoute.</b> Résume l’idée n°${p.num} avec tes mots : c’est la règle ici, et ça évite les malentendus.</div>
+    <p class="faint small">« ${esc(p.title)} »</p>
+    <div class="form">
+      <div class="field"><label>1. Si je comprends bien, cette idée propose…</label><textarea id="esum" maxlength="300" placeholder="Si je comprends bien, l’idée est de…"></textarea><div class="ens-tone" hidden></div></div>
+      <div class="field"><label>2. Ma modification</label><textarea id="etxt" maxlength="1200" placeholder="Je propose d’ajouter / de changer…"></textarea><div class="ens-tone" hidden></div></div>
+      <div class="field"><label>3. Pourquoi ça peut convenir aux deux camps ?</label><textarea id="ewhy" maxlength="600" placeholder="Pour ceux qui veulent continuer le blocus… et pour ceux qui veulent reprendre…"></textarea><div class="ens-tone" hidden></div></div>
+      <div class="btn-row"><button type="button" class="btn ghost" id="ecancel">Annuler</button><button type="button" class="btn" id="esend">Publier</button></div></div>`, (root, close) => {
+    ensWatchTone(root);
+    $('#ecancel', root).onclick = close;
+    $('#esend', root).onclick = async () => {
+      const body = { summary: $('#esum', root).value.trim(), text: $('#etxt', root).value.trim(), why: $('#ewhy', root).value.trim(), camp: ens.myCamp };
+      if ([body.summary, body.text, body.why].some(ensTone)) return toast('Reformule un peu avant de publier 🕊️');
+      try { await api(`/api/ensemble/props/${encodeURIComponent(id)}/amend`, { method: 'POST', body }); close(); ens.open.add(id); toast('Merci 🙏 Ta modification est en ligne.'); ensLoad(); }
+      catch (e) { toast(e.message); }
+    };
+  });
+}
+function viewEnsemble() {
+  view().innerHTML = `
+    <h1 class="large-title">On en parle</h1>
+    <p class="subtitle">Trouver ensemble une sortie qui convient à tout le monde. Anonyme, ouvert à toutes et tous. <b>Ici on ne vote pas</b> : on propose des idées, on les améliore, et on fait remonter celles qui conviennent <b>aux deux camps</b>.</p>
+    <details class="card"><summary><b>📜 La charte en 4 points</b></summary><ol class="small" style="margin:8px 0 0;padding-left:20px">
+      <li><b>On parle des idées, pas des personnes.</b> Pas d’étiquettes, pas d’insultes.</li>
+      <li><b>Chaque proposition dit ce qu’elle apporte aux deux camps.</b> C’est obligatoire.</li>
+      <li><b>Avant de modifier une idée, on la résume</b> en une phrase, pour montrer qu’on l’a comprise.</li>
+      <li><b>Anonyme et sans compte.</b> Ne donne jamais ton nom ni celui de quelqu’un d’autre.</li></ol>
+      <p class="faint small">Les modos ne jugent pas les idées : ils masquent seulement ce qui ne respecte pas la charte.</p></details>
+    <div id="ens-camp"></div>
+    <button class="btn" id="ens-new" style="width:100%;margin:12px 0">＋ Proposer une idée</button>
+    <div class="segmented" id="ens-sort">${[['bridge', '🌉 Qui rassemblent'], ['recent', '🆕 Récentes'], ['top', '🙌 Les plus soutenues']].map(([k, l]) => `<button data-s="${k}" class="${ens.sort === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <div id="ens-list"><div class="empty faint mono typing">chargement</div></div>`;
+  ensDrawCamp();
+  if (ens.props.length) ensDrawList();
+  ensLoad();
+  $('#ens-new').onclick = ensPropose;
+  $('#ens-sort').onclick = (e) => { const s = e.target.dataset?.s; if (!s) return; ens.sort = s; $$('#ens-sort button').forEach((b) => b.classList.toggle('on', b.dataset.s === s)); ensDrawList(); };
+  $('#ens-list').addEventListener('toggle', (e) => { const id = e.target.dataset?.eamends; if (id) (e.target.open ? ens.open.add(id) : ens.open.delete(id)); }, true);
+  view().onclick = async (e) => {
+    const c = e.target.closest('[data-ecamp]');
+    if (c) {
+      const k = c.dataset.ecamp;
+      if (!confirm(`Tu te situes « ${ENS_CAMP[k].label} » ? Ce choix ne pourra plus être changé (pour éviter les faux soutiens).`)) return;
+      ens.myCamp = k; store.set('ens-camp', k); ensDrawCamp(); return toast('Merci 🙏 Tu peux proposer et soutenir des idées.');
+    }
+    const r = e.target.closest('[data-ereact]');
+    if (r) {
+      if (!ensNeedCamp()) return;
+      const on = !r.classList.contains('ghost');
+      try { await api(`/api/ensemble/${encodeURIComponent(r.dataset.ereact)}/react`, { method: 'POST', body: { kind: on ? null : r.dataset.kind, camp: ens.myCamp } }); ensLoad(); } catch (err) { toast(err.message); }
+      return;
+    }
+    const a = e.target.closest('[data-eamend]');
+    if (a) return ensAmend(a.dataset.eamend);
+    const rep = e.target.closest('[data-ereport]');
+    if (rep && confirm('Signaler ce texte aux modos (insulte, attaque, info personnelle) ?')) {
+      try { await api(`/api/ensemble/${encodeURIComponent(rep.dataset.ereport)}/report`, { method: 'POST', body: {} }); toast('Merci, les modos vont regarder.'); } catch (err) { toast(err.message); }
+    }
+  };
+}
+
 // ===== Menu « Plus » (mobile) =====
 function viewPlus() {
   const items = NAV.filter((n) => !TABS.some((t) => t.id === n.id));
-  const sub = { votes: 'Donne ton avis, anonymement', blog: 'Articles et tribunes', temoignages: 'Violences : témoigner', frise: 'La mobilisation jour par jour', entraide: 'Je propose / je cherche', droits: 'Absences, examens, interpellation', cr: 'Les AG en flash infos', revendications: 'Soutiens les revendications', contacts: 'Syndicats, écoute, urgences', alertes: 'Notifs quand un bâtiment est bloqué', modo: 'Accès syndicats' };
+  const sub = { ensemble: 'Idées pour sortir du blocage, sans vote', votes: 'Donne ton avis, anonymement', blog: 'Articles et tribunes', temoignages: 'Violences : témoigner', frise: 'La mobilisation jour par jour', entraide: 'Je propose / je cherche', droits: 'Absences, examens, interpellation', cr: 'Les AG en flash infos', revendications: 'Soutiens les revendications', contacts: 'Syndicats, écoute, urgences', alertes: 'Notifs quand un bâtiment est bloqué', modo: 'Accès syndicats' };
   view().innerHTML = `<h1 class="large-title">Plus</h1><p class="subtitle">Tout ce qu’il faut savoir sur la mobilisation.</p>
     <div class="menu-grid">${items.map((n) => `<a href="#/${n.id}">${icon(n.icon)}<span>${n.label}<br><small>${sub[n.id] || ''}</small></span></a>`).join('')}</div>
-    <a class="card" href="/ensemble" style="display:flex;gap:12px;align-items:center;margin-top:14px;color:inherit;text-decoration:none"><span style="font-size:26px">🕊️</span><div class="grow"><b>On en parle</b><div class="muted small">Espace neutre et anonyme : propose et améliore des idées qui conviennent aux deux camps. Pas de vote.</div></div></a>
     ${notifCard()}
     ${tgLink('Les alertes sont aussi sur la chaîne Telegram')}`;
 }
@@ -2336,7 +2511,7 @@ async function modEnsemble(el) {
   const row = (x, kind) => `<div class="row" data-eid="${esc(x.id)}"><div class="grow"><div class="title">${kind === 'p' ? `n°${x.num} · ${esc(x.title)}` : `↳ modification : ${esc(x.text.slice(0, 140))}`}</div>
     <div class="sub">${esc(ago(x.at))} · ${x.reports} signalement(s) · pont ${x.bridge}${x.hidden ? ' · <b style="color:var(--red)">masqué</b>' : ''}</div></div>
     <button class="btn small ${x.hidden ? '' : 'red ghost'}" data-eh="${x.hidden ? 0 : 1}">${x.hidden ? 'Rétablir' : 'Masquer'}</button></div>`;
-  el.innerHTML = `<div class="card"><div class="kicker">🕊️ On en parle · <a href="/ensemble" target="_blank" rel="noopener">ouvrir la page</a></div>
+  el.innerHTML = `<div class="card"><div class="kicker">🕊️ On en parle · <a href="#/ensemble">ouvrir la page</a></div>
     <p class="muted small">Espace neutre : on ne masque <b>que</b> ce qui enfreint la charte (insulte, attaque contre des personnes, info personnelle). Une idée qui ne te plaît pas reste en ligne. 3 signalements de téléphones connus = masqué automatiquement en attendant un·e modo.</p></div>
     <div class="list">${list.map((p) => row(p, 'p') + p.amends.map((a) => row(a, 'a')).join('')).join('') || '<div class="empty">Aucune idée pour le moment.</div>'}</div>`;
   el.onclick = async (e) => {
@@ -2950,6 +3125,7 @@ function connectLive() {
     const y = window.scrollY; Promise.resolve(viewEntraide()).then(() => window.scrollTo(0, y));
   });
   es.addEventListener('pages', scheduleRefresh);
+  es.addEventListener('ensemble', () => { clearTimeout(ens.live); ens.live = setTimeout(() => { if (route().split('/')[0] === 'ensemble' && !$('.sheet')) ensLoad(); }, 1500); });
   es.addEventListener('poll', (e) => {
     let d = {}; try { d = JSON.parse(e.data || '{}'); } catch {}
     if (!d.vote) return scheduleRefresh(); // vote créé, clos, supprimé par un·e modo : tout se met à jour

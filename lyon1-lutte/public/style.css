@@ -797,3 +797,21 @@ html.no-select * { -webkit-tap-highlight-color: transparent; }
 .ord-bar.sel { outline: 2px solid #fff; opacity: .55; }
 .legend { display: flex; flex-wrap: wrap; gap: 10px; }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+
+/* On en parle : ce que l'idée apporte à chaque camp, soutiens par camp */
+.ens-gains { display: grid; gap: 8px; margin: 10px 0; }
+@media (min-width: 620px) { .ens-gains { grid-template-columns: 1fr 1fr; } }
+.ens-gain { border-radius: 14px; padding: 10px 12px; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ens-gain b { display: block; font-size: 12px; margin-bottom: 3px; }
+.ens-gain.bloc { background: rgba(191,90,242,.14); } .ens-gain.bloc b { color: var(--purple); }
+.ens-gain.anti { background: rgba(255,159,10,.14); } .ens-gain.anti b { color: var(--orange); }
+.ens-meter { display: grid; gap: 5px; margin: 8px 0; font-size: 13px; }
+.ens-row { display: grid; grid-template-columns: auto 1fr 28px; align-items: center; gap: 8px; }
+.ens-row .pill { white-space: nowrap; }
+.ens-bar { height: 8px; border-radius: 8px; background: rgba(118,118,128,.25); overflow: hidden; display: flex; }
+.ens-bar i { display: block; height: 100%; } .ens-bar .s { background: var(--blue); } .ens-bar .v { background: rgba(10,132,255,.4); }
+.ens-amends { margin-top: 10px; border-top: 0.5px dashed var(--sep); padding-top: 8px; }
+.ens-amends summary { cursor: pointer; font-weight: 600; font-size: 14px; color: var(--blue); }
+.ens-amend { border-left: 3px solid rgba(10,132,255,.35); padding: 6px 0 6px 10px; margin: 10px 0; }
+.ens-tone { background: rgba(255,159,10,.14); color: var(--orange); border-radius: 10px; padding: 8px 10px; font-size: 13px; margin-top: 6px; }
+.ens-steps { display: flex; gap: 4px; margin-bottom: 12px; } .ens-steps i { flex: 1; height: 4px; border-radius: 4px; background: rgba(118,118,128,.3); } .ens-steps i.on { background: var(--blue); }
