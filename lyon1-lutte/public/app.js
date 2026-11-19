@@ -959,6 +959,7 @@ function viewPlus() {
   const sub = { votes: 'Donne ton avis, anonymement', blog: 'Articles et tribunes', temoignages: 'Violences : témoigner', frise: 'La mobilisation jour par jour', entraide: 'Je propose / je cherche', droits: 'Absences, examens, interpellation', cr: 'Les AG en flash infos', revendications: 'Soutiens les revendications', contacts: 'Syndicats, écoute, urgences', alertes: 'Notifs quand un bâtiment est bloqué', modo: 'Accès syndicats' };
   view().innerHTML = `<h1 class="large-title">Plus</h1><p class="subtitle">Tout ce qu’il faut savoir sur la mobilisation.</p>
     <div class="menu-grid">${items.map((n) => `<a href="#/${n.id}">${icon(n.icon)}<span>${n.label}<br><small>${sub[n.id] || ''}</small></span></a>`).join('')}</div>
+    <a class="card" href="/ensemble" style="display:flex;gap:12px;align-items:center;margin-top:14px;color:inherit;text-decoration:none"><span style="font-size:26px">🕊️</span><div class="grow"><b>On en parle</b><div class="muted small">Espace neutre et anonyme : propose et améliore des idées qui conviennent aux deux camps. Pas de vote.</div></div></a>
     ${notifCard()}
     ${tgLink('Les alertes sont aussi sur la chaîne Telegram')}`;
 }
@@ -982,7 +983,7 @@ function sheet(html, setup) {
 // =====================================================================
 const MOD_TABS = [
   ['situation', '🚧 Bâtiments'], ['instagram', '📷 Instagram'], ['story', '📸 Story Insta'], ['agenda', '📅 Agenda'], ['cr', '🤖 CR + IA'], ['flash', '⚡ Flash'],
-  ['votes', '🗳️ Votes'], ['blog', '✍️ Blog'], ['temoignages', '🛡️ Témoignages'], ['entraide', '🤝 Entraide'], ['droits', '⚖️ Page droits'], ['revendications', '✊ Revendications'], ['contacts', '📇 Contacts'], ['chat', '🛡️ Chat'], ['comptes', '👥 Comptes'], ['sites', '📍 Sites'], ['audience', '📊 Audience'], ['journal', '📜 Journal'], ['moi', '🔑 Mon compte'],
+  ['votes', '🗳️ Votes'], ['ensemble', '🕊️ On en parle'], ['blog', '✍️ Blog'], ['temoignages', '🛡️ Témoignages'], ['entraide', '🤝 Entraide'], ['droits', '⚖️ Page droits'], ['revendications', '✊ Revendications'], ['contacts', '📇 Contacts'], ['chat', '🛡️ Chat'], ['comptes', '👥 Comptes'], ['sites', '📍 Sites'], ['audience', '📊 Audience'], ['journal', '📜 Journal'], ['moi', '🔑 Mon compte'],
 ];
 async function viewModo() {
   if (!state.me) {
@@ -1027,7 +1028,7 @@ async function viewModo() {
   showPresence();
   modPushCard();
   api('/api/mod/stats').then((s) => { const el = $('#mstats'); if (el) el.innerHTML = `${s.pushSubs} téléphone(s) · ${s.subscribers} email(s) · ${s.aiEnabled ? 'IA ' + esc(s.aiProviders.join(' → ')) : 'sans IA'} · emails ${s.mailProvider ? `${esc(s.mailProvider)} ${s.mailQuota.used}/${s.mailQuota.limit} aujourd’hui` : 'OFF'} · stockage ${s.storage === 'temporaire' ? '<b style="color:var(--red)">TEMPORAIRE (configure Supabase !)</b>' : esc(s.storage)}${s.reported ? ` · ${s.reported} msg signalé(s)` : ''}`; }).catch(() => {});
-  const fn = { story: modStory, instagram: modInstagram, votes: modPolls, blog: modBlog, temoignages: modTestimonies, entraide: modEntraide, droits: modDroits, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, sites: modSites, audience: modAudience, journal: modJournal, moi: modMe }[state.modTab] || modSituation;
+  const fn = { ensemble: modEnsemble, story: modStory, instagram: modInstagram, votes: modPolls, blog: modBlog, temoignages: modTestimonies, entraide: modEntraide, droits: modDroits, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, sites: modSites, audience: modAudience, journal: modJournal, moi: modMe }[state.modTab] || modSituation;
   try { await fn($('#mod')); } catch (err) { if (/Connexion modo/.test(err.message)) { state.me = null; render(true); } else toast(err.message); }
 }
 // Autres modos connectés sur les mêmes sites : on le voit pour ne pas se marcher dessus
@@ -2326,6 +2327,24 @@ async function modInstagram(el) {
       const storyCount = r.stories?.storyCount || 0;
       $('#instagram-status', el).innerHTML = `<div class="body">Canal : ${(ca.buildings || []).length} bâtiment(s), ${(ca.events || []).length} événement(s), ${(ca.flashes || []).length} flash(s).<br>Stories : ${storyCount} lue(s), ${(sa.buildings || []).length} bâtiment(s), ${(sa.events || []).length} événement(s), ${(sa.flashes || []).length} flash(s).<pre>${esc(JSON.stringify({ channel: ca, stories: sa }, null, 2))}</pre></div>`;
     } catch (e) { $('#instagram-status', el).innerHTML = `<div class="body" style="color:var(--red)">⚠ ${esc(e.message)}</div>`; }
+  };
+}
+
+// « On en parle » : la modération ne juge pas les idées, elle masque seulement ce qui ne respecte pas la charte
+async function modEnsemble(el) {
+  const list = await api('/api/mod/ensemble');
+  const row = (x, kind) => `<div class="row" data-eid="${esc(x.id)}"><div class="grow"><div class="title">${kind === 'p' ? `n°${x.num} · ${esc(x.title)}` : `↳ modification : ${esc(x.text.slice(0, 140))}`}</div>
+    <div class="sub">${esc(ago(x.at))} · ${x.reports} signalement(s) · pont ${x.bridge}${x.hidden ? ' · <b style="color:var(--red)">masqué</b>' : ''}</div></div>
+    <button class="btn small ${x.hidden ? '' : 'red ghost'}" data-eh="${x.hidden ? 0 : 1}">${x.hidden ? 'Rétablir' : 'Masquer'}</button></div>`;
+  el.innerHTML = `<div class="card"><div class="kicker">🕊️ On en parle · <a href="/ensemble" target="_blank" rel="noopener">ouvrir la page</a></div>
+    <p class="muted small">Espace neutre : on ne masque <b>que</b> ce qui enfreint la charte (insulte, attaque contre des personnes, info personnelle). Une idée qui ne te plaît pas reste en ligne. 3 signalements de téléphones connus = masqué automatiquement en attendant un·e modo.</p></div>
+    <div class="list">${list.map((p) => row(p, 'p') + p.amends.map((a) => row(a, 'a')).join('')).join('') || '<div class="empty">Aucune idée pour le moment.</div>'}</div>`;
+  el.onclick = async (e) => {
+    const b = e.target.closest('[data-eh]');
+    if (!b) return;
+    const id = b.closest('[data-eid]').dataset.eid;
+    await act(() => api(`/api/mod/ensemble/${encodeURIComponent(id)}`, { method: 'PUT', body: { hidden: b.dataset.eh === '1' } }), 'OK.');
+    modEnsemble(el);
   };
 }
 

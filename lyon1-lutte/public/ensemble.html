@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>On en parle · Lyon 1</title>
+  <meta name="description" content="Un espace calme et anonyme pour proposer des idées qui conviennent aux deux camps. Ici on ne vote pas.">
+  <meta name="theme-color" content="#f3f5f8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#14171c" media="(prefers-color-scheme: dark)">
+  <link rel="stylesheet" href="/ensemble.css">
+</head>
+<body>
+  <main id="app">
+    <header class="top">
+      <div class="brand">🕊️ On en parle <span>· Lyon 1</span></div>
+      <h1>Trouver ensemble une sortie qui convient à tout le monde</h1>
+      <p class="lead">Un espace <b>calme et anonyme</b>, ouvert à toutes et tous. <b>Ici on ne vote pas</b> : on propose des idées, on les améliore, et on fait remonter celles qui conviennent <b>aux deux camps</b>.</p>
+      <details class="charte">
+        <summary>📜 La charte en 4 points</summary>
+        <ol>
+          <li><b>On parle des idées, pas des personnes.</b> Pas d’étiquettes, pas d’insultes.</li>
+          <li><b>Chaque proposition dit ce qu’elle apporte aux deux camps.</b> C’est obligatoire.</li>
+          <li><b>Avant de modifier une idée, on la résume</b> en une phrase, pour montrer qu’on l’a comprise.</li>
+          <li><b>Anonyme et sans compte.</b> Ne donne jamais ton nom ni celui de quelqu’un d’autre.</li>
+        </ol>
+        <p class="small muted">Les modos ne jugent pas les idées : ils masquent seulement ce qui ne respecte pas la charte.</p>
+      </details>
+    </header>
+    <section id="camp"></section>
+    <section class="actions">
+      <button class="btn primary" id="new">＋ Proposer une idée</button>
+      <div class="sort" id="sort" role="tablist">
+        <button data-s="bridge" class="on">🌉 Qui rassemblent</button>
+        <button data-s="recent">🆕 Récentes</button>
+        <button data-s="top">🙌 Les plus soutenues</button>
+      </div>
+    </section>
+    <section id="list"><p class="muted">Chargement…</p></section>
+    <footer class="foot small muted">Espace neutre : aucun camp n’y a la main. Code ouvert, mêmes règles pour tout le monde.</footer>
+  </main>
+  <div id="sheet"></div>
+  <div id="toast" role="status"></div>
+  <script src="/ensemble.js"></script>
+</body>
+</html>

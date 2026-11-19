@@ -32,6 +32,7 @@ import { bannedList, findBanned, normalize as normalizeWord, BANNED_BASE } from 
 import { telegramEnabled, telegramUrl, postTelegram, tgEsc, telegramCheck, telegramTest, telegramStatus, normalizeChat } from './lib/telegram.js';
 import { DEFAULT_SITE, site, siteName, modSites, canSite, siteOf, migrateSites, effectiveBlocus, wantsSite, isAdmin, ALL_SITES, telegramChats } from './lib/sites.js';
 import { readDevice, deviceCookie, newDeviceId, setRequestDevice } from './lib/device.js';
+import { registerEnsemble } from './lib/ensemble.js';
 import { syncInstagram, syncInstagramStories, startInstagramSync, instagramEnabled, intervalMinutes as instagramInterval } from './lib/instagram.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -119,7 +120,7 @@ function deviceKey(req, res, stable = false) {
 // d'appareil déjà présent : sinon chaque requête sans cookie compterait comme un nouvel appareil.
 // Le site pose ce cookie dès l'ouverture (/api/hit) ; s'il manque, on le pose et l'app réessaie toute seule (428).
 const hasDevice = (req) => /^[A-Za-z0-9_-]{20,64}$/.test(parseCookies(req.headers.cookie).l1_dev || '');
-const DEVICE_ROUTES = /^(POST \/api\/mod\/terrain\/building\/[\w-]+\/photo|POST \/api\/mod\/terrain\/buildings|POST \/api\/hit|POST \/api\/chat(\/photo|\/[\w-]+\/(report|react))?|GET \/api\/chat\/photo\/[\w-]+|POST \/api\/sightings(\/photo)?|POST \/api\/events\/[\w-]+\/going|POST \/api\/polls\/[\w-]+\/vote|POST \/api\/demands\/[\w-]+\/support|POST \/api\/entraide(\/[\w-]+\/(report|reply))?)$/;
+const DEVICE_ROUTES = /^(POST \/api\/ensemble(\/props(\/[\w-]+\/amend)?|\/[\w-]+\/(react|report))|POST \/api\/mod\/terrain\/building\/[\w-]+\/photo|POST \/api\/mod\/terrain\/buildings|POST \/api\/hit|POST \/api\/chat(\/photo|\/[\w-]+\/(report|react))?|GET \/api\/chat\/photo\/[\w-]+|POST \/api\/sightings(\/photo)?|POST \/api\/events\/[\w-]+\/going|POST \/api\/polls\/[\w-]+\/vote|POST \/api\/demands\/[\w-]+\/support|POST \/api\/entraide(\/[\w-]+\/(report|reply))?)$/;
 
 // Limiteur simple en mémoire.
 const buckets = new Map();
@@ -1423,6 +1424,9 @@ mod.delete('/sites/:id', requireAdmin, (req, res) => {
 const community = registerCommunity(app, mod, { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, targetSite, stale, touch, sendModPush });
 // Signalements, « J'y vais », frise, page droits, entraide
 extras = registerExtras(app, mod, { broadcast, feed, audit, visitor, limited, clip, bad, oneOf, needSite, sendPush, postTelegram, tgEsc, sendModPush, deviceKey });
+// « On en parle » : espace neutre de propositions (page /ensemble)
+registerEnsemble(app, mod, { bad, clip, limited, visitor, audit, broadcast });
+app.get('/ensemble', (req, res) => res.sendFile(path.join(ROOT, 'public', 'ensemble.html')));
 
 // ---------- Site ----------
 // Le service worker doit toujours être relu, sinon les mises à jour de l'app n'arriveraient pas.
