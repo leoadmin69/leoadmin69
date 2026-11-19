@@ -2531,6 +2531,37 @@ async function modInstagram(el) {
     e.preventDefault();
     await act(() => api('/api/mod/instagram', { method: 'PUT', body: { url: $('#instagram-url', el).value, accountUrl: $('#instagram-account-url', el).value, site: $('#instagram-site', el).value, interval: Number($('#instagram-interval', el).value), enabled: $('#instagram-enabled', el).checked } }), 'Instagram enregistré.');
   };
+  // Coller un message du canal / envoyer une capture de story (marche toujours, sans cookie)
+  el.insertAdjacentHTML('afterbegin', `<div class="card" style="margin-bottom:14px"><div class="kicker">✍️ Le plus fiable : donner le contenu à l’IA</div>
+    <p class="muted small">Instagram ne laisse pas lire les canaux depuis un serveur. Copie le texte d’un message du canal, ou fais une capture d’écran d’une story : l’IA déduit les bâtiments, AG et infos, avec le même tri (sûr = publié, probable = à valider).</p>
+    <div class="field"><textarea id="ig-paste" placeholder="Colle ici un ou plusieurs messages du canal…" style="min-height:90px"></textarea></div>
+    <div class="btn-row"><button type="button" class="btn" id="ig-paste-go">🤖 Analyser le texte</button><button type="button" class="btn ghost" id="ig-cap-go">🖼️ Envoyer une capture</button><input type="file" id="ig-cap" accept="image/*" hidden></div>
+    <div id="ig-manual" class="small" style="margin-top:8px"></div></div>`);
+  const showManual = (r) => {
+    const f = r.found || {};
+    const line = (x, t) => `<div>• ${t} <span class="faint">(${Math.round((x.confidence || 0) * 100)} % · ${esc(x.evidence || '')})</span></div>`;
+    $('#ig-manual', el).innerHTML = `<b>L’IA a déduit :</b>${(f.buildings || []).map((x) => line(x, `🏢 ${esc(x.name)} → ${esc(x.status)}`)).join('')}${(f.events || []).map((x) => line(x, `📅 ${esc(x.title)} · ${esc(x.date)}`)).join('')}${(f.flashes || []).map((x) => line(x, `⚡ ${esc(x.title)}`)).join('') || ''}
+      <div style="margin-top:6px">✅ Publié : ${r.applied.buildings.length} bâtiment(s), ${r.applied.events.length} rendez-vous, ${r.applied.flashes.length} info(s) · 🤔 à valider : ${r.applied.queued || 0}</div>`;
+  };
+  $('#ig-paste-go', el).onclick = async () => {
+    const text = $('#ig-paste', el).value.trim();
+    if (!text) return toast('Colle d’abord le texte d’un message.');
+    $('#ig-manual', el).textContent = 'L’IA lit…';
+    try { const r = await api('/api/mod/instagram/paste', { method: 'POST', body: { text } }); showManual(r); setTimeout(() => modInstagram(el), 2500); } catch (e) { $('#ig-manual', el).textContent = `⚠ ${e.message}`; }
+  };
+  $('#ig-cap-go', el).onclick = () => $('#ig-cap', el).click();
+  $('#ig-cap', el).onchange = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    $('#ig-manual', el).textContent = 'L’IA regarde la capture…';
+    try {
+      const blob = await shrinkPhoto(f).catch(() => f);
+      const r = await fetch('/api/mod/instagram/capture', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': blob.type || 'image/jpeg' }, body: blob });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || 'Analyse impossible.');
+      showManual(j); setTimeout(() => modInstagram(el), 2500);
+    } catch (err) { $('#ig-manual', el).textContent = `⚠ ${err.message}`; }
+  };
   // Déductions « probables » de l'IA à valider
   const KIND = { building: '🏢 Bâtiment', event: '📅 Rendez-vous', flash: '⚡ Info' };
   const qtext = (q) => q.kind === 'building' ? `${esc(q.item.name)} → ${esc({ bloque: 'BLOQUÉ', partiel: 'PARTIEL', ouvert: 'OUVERT' }[q.item.status] || q.item.status)}${q.item.note ? ' · ' + esc(q.item.note) : ''}` : q.kind === 'event' ? `${esc(q.item.title)} · ${esc(q.item.date)}${q.item.place ? ' · ' + esc(q.item.place) : ''}` : `${esc(q.item.title)} · ${esc(q.item.text)}`;

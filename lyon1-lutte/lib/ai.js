@@ -379,6 +379,12 @@ export async function analyzeInstagramStoryImage(imageUrl, context = '') {
   const mime = ir.headers.get('content-type')?.split(';')[0] || 'image/jpeg';
   if (!/^image\/(jpeg|png|webp)$/.test(mime)) throw new Error(`Format de story non pris en charge : ${mime}`);
   const bytes = Buffer.from(await ir.arrayBuffer());
+  return analyzeInstagramImageBytes(bytes, mime, context);
+}
+
+// Image déjà en main (capture d'écran envoyée par un·e admin, ou story téléchargée)
+export async function analyzeInstagramImageBytes(bytes, mime, context = '') {
+  if (!process.env.GEMINI_API_KEY) throw new Error('Une clé Gemini est nécessaire pour lire une image.');
   if (bytes.length > 12e6) throw new Error('Story trop volumineuse.');
   const model = await geminiModel();
   const res = await fetch(`${GEMINI_BASE()}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {

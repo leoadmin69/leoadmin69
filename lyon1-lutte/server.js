@@ -33,7 +33,7 @@ import { telegramEnabled, telegramUrl, postTelegram, tgEsc, telegramCheck, teleg
 import { DEFAULT_SITE, site, siteName, modSites, canSite, siteOf, migrateSites, effectiveBlocus, wantsSite, isAdmin, ALL_SITES, telegramChats } from './lib/sites.js';
 import { readDevice, deviceCookie, newDeviceId, setRequestDevice } from './lib/device.js';
 import { registerEnsemble } from './lib/ensemble.js';
-import { syncInstagram, syncInstagramStories, startInstagramSync, instagramEnabled, intervalMinutes as instagramInterval, applyItem as applyIgItem } from './lib/instagram.js';
+import { syncInstagram, syncInstagramStories, startInstagramSync, instagramEnabled, intervalMinutes as instagramInterval, applyItem as applyIgItem, analyzeManual as igManual } from './lib/instagram.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -170,7 +170,7 @@ function requireMod(req, res, next) {
   const mod = currentMod(req);
   if (!mod) return bad(res, 'Connexion modo requise.', 401);
   // Protection CSRF : les requêtes d'écriture viennent du site lui-même (JSON ou PDF, jamais un formulaire externe).
-  if (req.method !== 'GET' && !/^(application\/json|application\/pdf|image\/jpeg)/.test(req.headers['content-type'] || '') && req.method !== 'DELETE') return bad(res, 'Type de contenu refusé.', 415);
+  if (req.method !== 'GET' && !/^(application\/json|application\/pdf|image\/(jpeg|png|webp))/.test(req.headers['content-type'] || '') && req.method !== 'DELETE') return bad(res, 'Type de contenu refusé.', 415);
   req.mod = mod;
   presence.set(mod.id, Date.now());
   // Compte « terrain » (personnes des piquets) : seulement les bâtiments et les signalements
@@ -1260,6 +1260,17 @@ mod.get('/instagram', requireAdmin, (req, res) => res.json({
  status: db.settings.instagram || {},
  queue: (db.settings.igQueue || []).slice(0, 40),
 }));
+// Coller un message du canal / envoyer une capture de story : l'IA déduit, même tri que la lecture automatique
+mod.post('/instagram/paste', requireAdmin, async (req, res) => {
+  const text = clip(req.body.text, 8000);
+  if (text.length < 5) return bad(res, 'Colle le texte du message.');
+  try { res.json(await igManual({ text }, instagramCtx())); } catch (e) { bad(res, e.message, 502); }
+});
+mod.post('/instagram/capture', requireAdmin, express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '8mb' }), async (req, res) => {
+  const mime = String(req.headers['content-type'] || '').split(';')[0];
+  if (!Buffer.isBuffer(req.body) || req.body.length < 100) return bad(res, 'Envoie une image (capture d’écran).');
+  try { res.json(await igManual({ image: req.body, mime }, instagramCtx())); } catch (e) { bad(res, /429/.test(e.message) ? 'Le quota gratuit de Gemini est atteint pour aujourd’hui : réessaie plus tard, ou colle le texte à la place.' : e.message, 502); }
+});
 // Déduction « probable » de l'IA : un·e admin la publie ou l'écarte
 mod.post('/instagram/queue/:id', requireAdmin, (req, res) => {
   const list = db.settings.igQueue || [];

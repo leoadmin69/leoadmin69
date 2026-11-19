@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { db, save, newId, now } from './store.js';
-import { analyzeInstagramText, analyzeInstagramStoryImage } from './ai.js';
+import { analyzeInstagramText, analyzeInstagramStoryImage, analyzeInstagramImageBytes } from './ai.js';
 import { DEFAULT_SITE, site, siteName } from './sites.js';
 
 const DEFAULT_CHANNEL = 'https://www.instagram.com/channel/UFc6KiIvKuUCSwgk/';
@@ -25,7 +25,9 @@ const stripHtml = (html) => {
     const s = decodeJsonText(match[1]).replace(/\\n/g, '\n').replace(/\\u([0-9a-f]{4})/gi, (_, h) => String.fromCharCode(parseInt(h, 16))).trim();
     if (s) out.push(s);
   }
-  return [...new Set(out)].filter((x) => !/^(js action|loading|log in|sign up|cookies|instagram)$/i.test(x));
+  // on écarte le code de la page (JSON, CSS, scripts) : seuls de vrais textes humains restent
+  const looksLikeCode = (x) => /^[\[{(@]|\brequire\b|qplTimings|__comet|sjsNonce|\{[^}]*:[^}]*\}|;\s*$|^[\w-]+\{/.test(x) || (x.match(/[{}\[\]":;=]/g) || []).length > x.length / 12;
+  return [...new Set(out)].filter((x) => !/^(js action|loading|log in|sign up|cookies|instagram)$/i.test(x) && !looksLikeCode(x) && /[a-zà-ÿ]{3,}\s+[a-zà-ÿ]{2,}/i.test(x));
 };
 
 export async function fetchInstagramChannel() {
@@ -44,7 +46,7 @@ export async function fetchInstagramChannel() {
     throw new Error('Instagram demande une connexion : le canal ne peut pas être lu automatiquement (cookie de session requis).');
   }
   const messages = stripHtml(html);
-  if (!messages.length) throw new Error('Aucun message exploitable : Instagram a demandé une connexion ou bloque la lecture automatique.');
+  if (!messages.length) throw new Error('Aucun message lisible : Instagram n’envoie le contenu des canaux qu’à l’application (la page web ne contient que du code). La lecture automatique du canal ne peut pas marcher : utilise « Coller un message » ou envoie une capture.');
   return { url, messages };
 }
 
@@ -206,6 +208,25 @@ export function applyItem(kind, item, siteId, ctx, label) {
   return null;
 }
 // Trie ce que l'IA a déduit : sûr → publié ; probable → à valider par un·e modo ; supposition → ignoré
+// Un·e admin colle le texte d'un message du canal, ou envoie une capture d'écran d'une story :
+// l'IA déduit, puis même tri que la lecture automatique (sûr → publié, probable → à valider)
+export async function analyzeManual({ text, image, mime }, ctx = {}) {
+  const siteId = site(db.settings.instagram?.site) ? db.settings.instagram.site : DEFAULT_SITE;
+  let data, source;
+  if (image) { data = await analyzeInstagramImageBytes(image, mime, aiContext(siteId)); source = 'gemini'; }
+  else {
+    const r = await analyzeInstagramText(String(text || '').slice(0, 8000), aiContext(siteId));
+    if (r.source === 'local') throw new Error('Clé IA (Gemini ou Groq) requise.');
+    data = r.data; source = r.source;
+  }
+  const applied = { buildings: [], events: [], flashes: [] };
+  applyAi(data, siteId, ctx, new Set(), applied, image ? 'capture Instagram' : 'message Instagram', newId());
+  save();
+  ctx.broadcast?.('buildings', {});
+  const seen = (k) => (data?.[k] || []).map((x) => ({ ...x }));
+  return { source, applied, found: { buildings: seen('buildings'), events: seen('events'), flashes: seen('flashes') } };
+}
+
 function applyAi(data, siteId, ctx, seen, applied, label, from = '') {
   applied.queued ||= 0;
   const groups = [['building', data?.buildings, 'buildings'], ['event', data?.events, 'events'], ['flash', data?.flashes, 'flashes']];
