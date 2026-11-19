@@ -641,6 +641,38 @@ function msgHtml(m) {
       <button class="act" data-reply="${esc(m.id)}" aria-label="Répondre">↩ répondre</button><button class="act" data-menu="${esc(m.id)}" aria-label="Réagir">＋ réagir</button>${me ? '' : ` <button class="act rep" data-rep="${esc(m.id)}">signaler</button>`}</div>
     ${m.photo ? snapHtml(m, me) : ''}<div class="bubble ${onlyEmotes(m.text) && !m.reply ? 'jumbo' : ''}" ${m.photo && !m.text && !m.reply ? 'hidden' : ''}>${m.reply ? `<div class="quote" data-goto="${esc(m.reply.id)}"><b>↩ ${esc(m.reply.nick)}</b><span>${withEmotes(esc(m.reply.text))}</span></div>` : ''}${withEmotes(esc(m.text))}</div>${reactsHtml(m)}<span class="swipe-ico" aria-hidden="true">↩</span></div>`;
 }
+// Clavier ouvert sur téléphone : on cale l'écran sur la partie visible (au-dessus du clavier).
+// iPhone ne réduit pas la page quand le clavier s'ouvre : sans ça, la zone d'écriture du chat monte et descend
+// et les champs des fenêtres se retrouvent cachés derrière le clavier.
+(function keyboardFit() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const de = document.documentElement;
+  let last = '';
+  const fit = () => {
+    const typing = /^(TEXTAREA|INPUT|SELECT)$/.test(document.activeElement?.tagName || '');
+    const open = typing && window.innerHeight - vv.height > 120;
+    const key = `${open}|${Math.round(vv.height)}|${Math.round(vv.offsetTop)}`;
+    if (key === last) return;
+    last = key;
+    de.style.setProperty('--vvh', `${Math.round(vv.height)}px`);
+    de.style.setProperty('--vv-top', `${Math.round(vv.offsetTop)}px`);
+    const was = de.classList.contains('kb-open');
+    de.classList.toggle('kb-open', open);
+    if (open && !was) {
+      // chat : on reste en bas de la conversation ; fenêtre : le champ en cours reste visible
+      const msgs = $('#msgs');
+      if (msgs && route().split('/')[0] === 'chat') requestAnimationFrame(() => { msgs.scrollTop = msgs.scrollHeight; });
+      const f = document.activeElement;
+      if (f?.closest('.sheet')) setTimeout(() => f.scrollIntoView({ block: 'center', behavior: 'smooth' }), 60);
+    }
+  };
+  vv.addEventListener('resize', fit);
+  vv.addEventListener('scroll', fit);
+  document.addEventListener('focusin', () => { setTimeout(fit, 50); setTimeout(fit, 350); });
+  document.addEventListener('focusout', () => setTimeout(fit, 80));
+})();
+
 async function viewChat() {
   const chans = state.data.channels;
   if (!chans.some((c) => c.id === state.chatChannel)) state.chatChannel = chans[0]?.id;

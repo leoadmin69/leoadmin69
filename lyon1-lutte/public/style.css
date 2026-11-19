@@ -815,3 +815,12 @@ html.no-select * { -webkit-tap-highlight-color: transparent; }
 .ens-amend { border-left: 3px solid rgba(10,132,255,.35); padding: 6px 0 6px 10px; margin: 10px 0; }
 .ens-tone { background: rgba(255,159,10,.14); color: var(--orange); border-radius: 10px; padding: 8px 10px; font-size: 13px; margin-top: 6px; }
 .ens-steps { display: flex; gap: 4px; margin-bottom: 12px; } .ens-steps i { flex: 1; height: 4px; border-radius: 4px; background: rgba(118,118,128,.3); } .ens-steps i.on { background: var(--blue); }
+
+/* Clavier ouvert (téléphone) : le chat occupe exactement la partie visible, la zone d'écriture reste collée au clavier */
+html.kb-open.no-select { overflow: hidden; }
+html.kb-open.no-select .chat { position: fixed; left: 0; right: 0; top: var(--vv-top, 0px); height: var(--vvh, 100dvh); z-index: 40; margin: 0; padding: max(6px, var(--safe-t)) 12px 6px; background: var(--bg); max-width: none; }
+html.kb-open.no-select .chat-head, html.kb-open.no-select .chat .notice, html.kb-open.no-select .tabbar { display: none; }
+html.kb-open.no-select .chat .msgs { min-height: 0; }
+/* Fenêtres (sheet) : calées sur la partie visible, le champ en cours n'est plus caché par le clavier */
+html.kb-open .sheet-backdrop { top: var(--vv-top, 0px); bottom: auto; height: var(--vvh, 100dvh); }
+html.kb-open .sheet { max-height: calc(var(--vvh, 100dvh) - 8px); padding-bottom: 12px; }
