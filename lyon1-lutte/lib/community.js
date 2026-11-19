@@ -358,6 +358,50 @@ export function registerCommunity(app, mod, ctx) {
     }
     return { slot: SLOT, undated, slots: Object.entries(slots).map(([m, n]) => [Number(m), n]).sort((a, b) => a[0] - b[0]) };
   }
+  // Ordre d'arrivée des bulletins (gardé par la base) : par paquets de 100, la part de chaque choix.
+  // Un robot qui vote des milliers de fois d'affilée laisse un long bloc presque 100 % sur le même choix.
+  const PACK = 100;
+  function orderPacks(p) {
+    const vals = Object.values(p.ballots), packs = [];
+    for (let i = 0; i < vals.length; i += PACK) {
+      const counts = p.options.map(() => 0);
+      for (const v of vals.slice(i, i + PACK)) if (counts[v] !== undefined) counts[v]++;
+      packs.push(counts);
+    }
+    // bloc suspect : au moins 5 paquets pleins à la suite à 95 % ou plus sur un même choix
+    const sus = packs.map((c) => { const n = c.reduce((a, b) => a + b, 0); const m = Math.max(...c); return n === PACK && m / n >= 0.95 ? c.indexOf(m) : -1; });
+    const flagged = new Set();
+    for (let i = 0; i < sus.length;) {
+      if (sus[i] < 0) { i++; continue; }
+      let j = i; while (j + 1 < sus.length && sus[j + 1] === sus[i]) j++;
+      if (j - i + 1 >= 5) for (let k = i; k <= j; k++) flagged.add(k);
+      i = j + 1;
+    }
+    return { pack: PACK, total: vals.length, packs, flagged: [...flagged] };
+  }
+  mod.get('/polls/:id/order', (req, res) => {
+    const p = db.polls.find((x) => x.id === req.params.id);
+    if (!p) return bad(res, 'Introuvable', 404);
+    if (!needSite(req, res, siteOf(p))) return;
+    res.json(orderPacks(p));
+  });
+  // Supprime les bulletins des paquets choisis (indices dans l'ordre d'arrivée). « seen » = total vu à l'analyse :
+  // les nouveaux votes s'ajoutent à la fin, donc les paquets déjà vus ne bougent pas, sauf si quelqu'un a supprimé entre-temps.
+  mod.post('/polls/:id/purge-order', (req, res) => {
+    const p = db.polls.find((x) => x.id === req.params.id);
+    if (!p) return bad(res, 'Introuvable', 404);
+    if (!needSite(req, res, siteOf(p))) return;
+    const keys = Object.keys(p.ballots);
+    if (Number(req.body.seen) > keys.length) return bad(res, 'Les votes ont changé depuis l’analyse : relance l’analyse.', 409);
+    const packs = new Set((Array.isArray(req.body.packs) ? req.body.packs : []).map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n * PACK < Number(req.body.seen)));
+    if (!packs.size) return bad(res, 'Choisis au moins un paquet.');
+    let n = 0;
+    keys.forEach((k, i) => { if (i < Number(req.body.seen) && packs.has(Math.floor(i / PACK))) { delete p.ballots[k]; if (p.times) delete p.times[k]; if (p.suspect) delete p.suspect[k]; n++; } });
+    p.purged = (p.purged || 0) + n;
+    save(); audit(req.mod, 'votes de robot retirés (ordre d’arrivée)', `${n} · ${p.question}`, siteOf(p)); broadcast('poll', { id: p.id });
+    res.json({ ok: true, n });
+  });
+
   // Retirer les votes d'une ou plusieurs tranches de 10 min (pic de bourrage)
   mod.post('/polls/:id/purge-window', (req, res) => {
     const p = db.polls.find((x) => x.id === req.params.id);

@@ -789,3 +789,11 @@ html.no-select * { -webkit-tap-highlight-color: transparent; }
 .tl-bar.peak { background: var(--orange, #ff9f0a); }
 .tl-bar.sel { background: var(--red-strong); outline: 2px solid #fff; }
 .tl-axis { display: flex; justify-content: space-between; }
+
+/* Analyse de l'ordre d'arrivée des votes (robots) */
+.ord { display: flex; align-items: stretch; gap: 1px; height: 120px; overflow-x: auto; margin: 10px 0; padding: 2px; }
+.ord-bar { flex: 0 0 6px; min-width: 6px; display: flex; flex-direction: column-reverse; padding: 0; border: 0; background: rgba(255,255,255,.06); cursor: pointer; }
+.ord-bar span { display: block; width: 100%; }
+.ord-bar.sel { outline: 2px solid #fff; opacity: .55; }
+.legend { display: flex; flex-wrap: wrap; gap: 10px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }

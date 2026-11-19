@@ -2432,6 +2432,35 @@ function remaining(iso) {
   if (s < 86400) return `${Math.floor(s / 3600)} h ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}`;
   return `${Math.floor(s / 86400)} j ${Math.floor((s % 86400) / 3600)} h`;
 }
+// Analyse de l'ordre d'arrivée : paquets de 100 bulletins, en couleurs par choix ; le bloc d'un robot ressort d'un seul tenant
+async function pollOrder(id, p) {
+  const r = await act(() => api(`/api/mod/polls/${id}/order`));
+  const colors = ['#0a84ff', '#ff453a', '#30d158', '#ff9f0a', '#bf5af2', '#64d2ff', '#ffd60a', '#ac8e68'];
+  const sel = new Set(r.flagged);
+  sheet(`<h3>🤖 Votes de robot ? · ${esc(p.question)}</h3>
+    <p class="muted small">Chaque barre = ${r.pack} votes, dans l’ordre où ils sont arrivés (${r.total} au total). De vrais votes sont mélangés ; un robot laisse un <b>long bloc d’une seule couleur</b>. ${r.flagged.length ? `<b>${r.flagged.length} paquet(s) suspect(s) déjà sélectionné(s)</b> (au moins 5 paquets d’affilée à 95 % sur le même choix).` : 'Aucun bloc suspect détecté automatiquement.'} Touche une barre pour l’ajouter ou l’enlever.</p>
+    <div class="legend small">${p.options.map((o, i) => `<span><i style="background:${colors[i % 8]}"></i>${esc(o)}</span>`).join('')}</div>
+    <div class="ord" id="ord">${r.packs.map((c, i) => { const n = c.reduce((a, b) => a + b, 0) || 1; return `<button type="button" class="ord-bar ${sel.has(i) ? 'sel' : ''}" data-i="${i}" title="Votes ${i * r.pack + 1} à ${i * r.pack + c.reduce((a, b) => a + b, 0)}">${c.map((v, j) => (v ? `<span style="height:${(v / n) * 100}%;background:${colors[j % 8]}"></span>` : '')).join('')}</button>`; }).join('')}</div>
+    <p class="small" id="ordsum"></p>
+    <button class="btn red" id="ordgo" style="width:100%">Supprimer les votes sélectionnés</button>
+    <p class="faint small">Pense à vérifier : un vrai moment de forte affluence peut aussi pencher d’un côté. Supprimé = définitif (noté dans le journal).</p>`, (root, close) => {
+    const sum = () => {
+      const counts = p.options.map(() => 0);
+      for (const i of sel) r.packs[i].forEach((v, j) => (counts[j] += v));
+      const n = counts.reduce((a, b) => a + b, 0);
+      $('#ordsum', root).innerHTML = n ? `Sélection : <b>${n} votes</b> (${p.options.map((o, j) => `${esc(o)} ${counts[j]}`).join(' · ')}). Après suppression : ${p.options.map((o, j) => `${esc(o)} ${p.counts[j] - counts[j]}`).join(' · ')}.` : 'Rien de sélectionné.';
+      $('#ordgo', root).disabled = !n;
+    };
+    sum();
+    $('#ord', root).onclick = (e) => { const b = e.target.closest('[data-i]'); if (!b) return; const i = Number(b.dataset.i); sel.has(i) ? sel.delete(i) : sel.add(i); b.classList.toggle('sel', sel.has(i)); sum(); };
+    $('#ordgo', root).onclick = async () => {
+      if (!confirm('Supprimer définitivement ces votes ?')) return;
+      const out = await act(() => api(`/api/mod/polls/${id}/purge-order`, { method: 'POST', body: { packs: [...sel], seen: r.total } }));
+      toast(`🤖 ${out.n} vote(s) de robot supprimé(s).`); close(); render(true);
+    };
+  });
+}
+
 // Graphique des votes par tranche de 10 min (côté modo) : un pic anormal = bourrage probable, à retirer en 2 taps
 function pollTimeline(p) {
   const t = p.timeline;
@@ -2722,6 +2751,7 @@ async function modPolls(el) {
       <b style="display:block;margin:4px 0 8px">${esc(p.question)}</b>
       ${p.options.map((o, i) => `<div class="kv"><span>${esc(o)}</span><b class="mono">${p.counts[i]}${p.suspectCounts?.[i] ? ` <span class="faint">(dont ${p.suspectCounts[i]} suspects)</span>` : ''}</b></div>`).join('')}
       ${pollTimeline(p)}
+      ${p.total >= 500 ? '<button class="btn small ghost" data-a="order" style="margin-top:8px">🤖 Chercher des votes de robot (ordre d’arrivée)</button>' : ''}
       ${p.suspect ? `<div class="card" style="background:rgba(255,159,10,.12);margin-top:8px">⚠ <b>${p.suspect} vote(s) suspect(s)</b> : téléphones tout neufs arrivés en rafale depuis un même réseau (bourrage possible). <button class="btn small ghost" data-a="purge">Retirer les votes suspects</button></div>` : ''}
       <div class="btn-row" style="margin-top:8px"><button class="btn small ghost" data-a="link">🔗 Lien</button>${p.open ? '<button class="btn small ghost" data-a="story">📸 Story du vote</button>' : ''}${p.total ? '<button class="btn small ghost" data-a="res">📊 Story résultats</button>' : ''}${p.open ? '<button class="btn small red" data-a="close">Clore maintenant</button>' : ''}<button class="btn small ghost" data-a="extend">+24 h</button><button class="btn small ghost" data-a="hide">${p.hidden ? 'Afficher' : 'Masquer'}</button><button class="btn small ghost" data-a="del">Supprimer</button></div>
       <div class="field" style="margin-top:8px"><label>Résultats</label><select data-a="results">${POLL_RESULTS.map(([k, l]) => `<option value="${k}" ${k === (p.results || 'live') ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
@@ -2750,6 +2780,7 @@ async function modPolls(el) {
     if (a === 'close' && confirm('Clore ce vote maintenant ?')) await act(() => api(`/api/mod/polls/${id}`, { method: 'PUT', body: { close: true } }), 'Clos.');
     if (a === 'extend') await act(() => api(`/api/mod/polls/${id}`, { method: 'PUT', body: { extendHours: 24 } }), 'Prolongé de 24 h.');
     if (a === 'slot') { e.target.classList.toggle('sel'); const sel = $$('.tl-bar.sel', card); const n = sel.reduce((s, x) => s + Number(x.dataset.n), 0); const btn = $('[data-a="purgeslots"]', card); btn.hidden = !sel.length; btn.textContent = `Retirer les ${n} vote(s) de ${sel.length} tranche(s)`; return; }
+    if (a === 'order') return pollOrder(id, p);
     if (a === 'purgeslots') {
       const slots = $$('.tl-bar.sel', card).map((x) => Number(x.dataset.slot));
       if (!slots.length || !confirm('Retirer tous les votes de ces tranches horaires ? (vrais et faux : à utiliser sur un pic de bourrage)')) return;
