@@ -146,10 +146,88 @@ const parisIso = (value) => {
 };
 
 const IG = { username: 'instagram', org: 'Canal Instagram' };
+
+// Seuils : déduction sûre = publiée ; déduction probable = proposée aux modos ; supposition = ignorée
+const AUTO_MIN = () => Number(process.env.IG_AUTO_MIN || 0.85);
+const QUEUE_MIN = () => Number(process.env.IG_QUEUE_MIN || 0.5);
+const conf = (x) => { const c = Number(x?.confidence); return Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 0; };
+const parisNowText = () => new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date());
+export function aiContext(siteId) {
+  const names = db.buildings.filter((b) => (b.site || DEFAULT_SITE) === siteId).map((b) => b.name);
+  return `Date courante (heure de Paris) : ${parisNowText()} (${new Date().toISOString()}).\nBâtiments connus de ce site : ${names.join(', ') || 'aucun'}.`;
+}
+// bâtiment : nom exact, sinon un seul bâtiment qui ressemble (≥ 4 lettres) → seulement proposé aux modos
+function findBuilding(siteId, name) {
+  const needle = norm(name);
+  if (!needle) return { b: null };
+  const list = db.buildings.filter((x) => (x.site || DEFAULT_SITE) === siteId);
+  const exact = list.find((x) => norm(x.name) === needle);
+  if (exact) return { b: exact, exact: true };
+  if (needle.length < 4) return { b: null };
+  const near = list.filter((x) => { const n = norm(x.name); return n.includes(needle) || needle.includes(n); });
+  return near.length === 1 ? { b: near[0], exact: false } : { b: null };
+}
+function queue(kind, item, siteId, label, evidence, c) {
+  db.settings.igQueue ||= [];
+  const key = hash(`${kind}:${JSON.stringify(item)}`);
+  if (db.settings.igQueue.some((q) => q.key === key)) return;
+  db.settings.igQueue.unshift({ id: newId(), key, kind, item, site: siteId, label, evidence: String(evidence || '').slice(0, 300), confidence: c, at: now() });
+  db.settings.igQueue = db.settings.igQueue.slice(0, 60);
+}
+// Publie un élément (bâtiment, événement, flash) ; renvoie un résumé ou null
+export function applyItem(kind, item, siteId, ctx, label) {
+  const tag = ` · ${label} (déduit par l’IA)`;
+  if (kind === 'building') {
+    const { b } = findBuilding(siteId, item.name);
+    const status = ['bloque', 'partiel', 'ouvert'].includes(item.status) ? item.status : null;
+    if (!b || !status || b.status === status) return null;
+    b.status = status; b.note = String(item.note || '').slice(0, 240); b.updatedAt = now(); b.by = label;
+    delete b.yesterday; delete b.resetAt;
+    ctx.audit?.(IG, `${label} : bâtiment`, `${b.name} → ${status} · ${item.evidence || ''}`.slice(0, 280), siteId);
+    ctx.feed?.(`${b.name} (${b.campus}) → ${status === 'bloque' ? 'BLOQUÉ' : status === 'partiel' ? 'PARTIEL' : 'OUVERT'}${b.note ? ' · ' + b.note : ''}${tag}`, status === 'bloque' ? 'alert' : status === 'partiel' ? 'warn' : 'ok');
+    ctx.onBuilding?.(b); ctx.queueBuildingAlert?.(b); ctx.broadcast?.('buildings', { id: b.id });
+    return { name: b.name, status };
+  }
+  if (kind === 'event') {
+    const start = parisIso(item.date), title = String(item.title || '').trim().slice(0, 120);
+    if (!start || !title || db.events.some((e) => e.title === title && e.start === start && (e.site || DEFAULT_SITE) === siteId)) return null;
+    db.events.push({ id: newId(), site: siteId, type: ['AG', 'manif', 'rassemblement', 'action', 'autre'].includes(item.type) ? item.type : 'autre', title, start, place: String(item.place || '').slice(0, 140), address: '', description: String(item.description || '').slice(0, 1500), org: label, createdAt: now() });
+    ctx.audit?.(IG, `${label} : événement`, title, siteId); ctx.broadcast?.('events', {});
+    return { title, start };
+  }
+  if (kind === 'flash') {
+    const title = String(item.title || '').trim().slice(0, 120), text = String(item.text || '').trim().slice(0, 500);
+    if (!title || !text) return null;
+    db.flashes.unshift({ id: newId(), site: siteId, level: { alert: 'alerte', warn: 'alerte', ok: 'ok' }[item.tone] || 'info', text: `${title} · ${text}`.slice(0, 500), at: now(), expiresAt: new Date(Date.now() + 24 * 3600e3).toISOString(), org: label, official: false });
+    db.flashes = db.flashes.slice(0, 100);
+    ctx.audit?.(IG, `${label} : flash`, title, siteId); ctx.broadcast?.('flashes', {});
+    return { title, text };
+  }
+  return null;
+}
+// Trie ce que l'IA a déduit : sûr → publié ; probable → à valider par un·e modo ; supposition → ignoré
+function applyAi(data, siteId, ctx, seen, applied, label, from = '') {
+  applied.queued ||= 0;
+  const groups = [['building', data?.buildings, 'buildings'], ['event', data?.events, 'events'], ['flash', data?.flashes, 'flashes']];
+  for (const [kind, list, out] of groups) {
+    for (const item of list || []) {
+      const c = conf(item);
+      if (c < QUEUE_MIN()) continue;
+      const key = hash(`${kind}:${item.name || item.title || ''}:${item.status || item.date || item.text || ''}:${from}`);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      let sure = c >= AUTO_MIN();
+      if (kind === 'building') { const f = findBuilding(siteId, item.name); if (!f.b) continue; if (!f.exact) sure = false; item.name = f.b.name; }
+      if (sure) { const r = applyItem(kind, item, siteId, ctx, label); if (r) applied[out].push(r); }
+      else { queue(kind, item, siteId, label, item.evidence, c); applied.queued++; }
+    }
+  }
+}
 export async function syncInstagram(ctx = {}) {
   const channel = await fetchInstagramChannel();
   const text = channel.messages.slice(0, 30).join('\n\n');
-  const result = await analyzeInstagramText(text);
+  const siteForAi = site(db.settings.instagram?.site) ? db.settings.instagram.site : DEFAULT_SITE;
+  const result = await analyzeInstagramText(text, aiContext(siteForAi));
   if (result.source === 'local') throw new Error('Clé IA (Gemini ou Groq) requise : sans IA, rien n’est publié automatiquement.');
   db.settings.instagram ||= {};
   db.settings.instagram.lastCheck = now();
@@ -164,76 +242,7 @@ export async function syncInstagram(ctx = {}) {
   const siteId = db.settings.instagram?.site || DEFAULT_SITE;
   if (!site(siteId)) db.settings.instagram.site = DEFAULT_SITE;
 
-  for (const item of result.data.buildings || []) {
-    const needle = norm(item.name);
-    if (!needle) continue;
-    const b = db.buildings.find((x) => {
-      const sameSite = (x.site || DEFAULT_SITE) === siteId;
-      const name = norm(x.name);
-      return sameSite && name === needle;
-    });
-    if (!b) continue;
-    const status = ['bloque', 'partiel', 'ouvert'].includes(item.status) ? item.status : null;
-    if (!status) continue;
-    const key = `building:${b.id}:${status}:${String(item.note || '').slice(0, 80)}`;
-    if (seen.has(hash(key))) continue;
-    seen.add(hash(key));
-    if (b.status !== status) {
-      b.status = status;
-      b.note = String(item.note || '').slice(0, 240);
-      b.updatedAt = now();
-      b.by = 'Instagram';
-      delete b.yesterday;
-      delete b.resetAt;
-      ctx.audit?.(IG, 'mise à jour Instagram', `${b.name} → ${status}`, siteId);
-      ctx.feed?.(`${b.name} (${b.campus}) → ${status === 'bloque' ? 'BLOQUÉ' : status === 'partiel' ? 'PARTIEL' : 'OUVERT'}${b.note ? ' · ' + b.note : ''} · canal Instagram`, status === 'bloque' ? 'alert' : status === 'partiel' ? 'warn' : 'ok');
-      ctx.onBuilding?.(b);
-      ctx.queueBuildingAlert?.(b);
-      ctx.broadcast?.('buildings', { id: b.id });
-      applied.buildings.push({ name: b.name, status });
-    }
-  }
-
-  for (const item of result.data.events || []) {
-    const start = parisIso(item.date);
-    const title = String(item.title || '').trim().slice(0, 120);
-    if (!start || !title) continue;
-    const key = hash(`event:${title}:${start}:${item.place || ''}`);
-    if (seen.has(key) || db.events.some((e) => e.title === title && e.start === start && (e.site || DEFAULT_SITE) === siteId)) continue;
-    seen.add(key);
-    db.events.push({
-      id: newId(),
-      site: siteId,
-      type: ['AG', 'manif', 'rassemblement', 'action', 'autre'].includes(item.type) ? item.type : 'autre',
-      title,
-      start,
-      place: String(item.place || '').slice(0, 140),
-      address: '',
-      description: String(item.description || '').slice(0, 1500),
-      org: 'Canal Instagram',
-      createdAt: now(),
-    });
-    ctx.audit?.(IG, 'événement Instagram', title, siteId);
-    ctx.broadcast?.('events', {});
-    ctx.notifyEvent?.({ site: siteId, title, start, place: item.place || '' });
-    applied.events.push({ title, start });
-  }
-
-  for (const item of result.data.flashes || []) {
-    const title = String(item.title || '').trim().slice(0, 120);
-    const text = String(item.text || '').trim().slice(0, 500);
-    if (!title || !text) continue;
-    const key = hash(`flash:${title}:${text}`);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const expiresAt = new Date(Date.now() + 24 * 3600e3).toISOString();
-    db.flashes.unshift({ id: newId(), site: siteId, level: { alert: 'alerte', warn: 'alerte', ok: 'ok' }[item.tone] || 'info', text: `${title} · ${text}`.slice(0, 500), at: now(), expiresAt, org: 'Canal Instagram', official: false });
-    db.flashes = db.flashes.slice(0, 100);
-    ctx.audit?.(IG, 'flash Instagram', title, siteId);
-    ctx.broadcast?.('flashes', {});
-    ctx.notifyFlash?.({ site: siteId, title, text, tone: item.tone });
-    applied.flashes.push({ title, text });
-  }
+  applyAi(result.data, siteId, ctx, seen, applied, 'canal Instagram');
 
   db.settings.instagramSeen = [...seen].slice(-500);
   db.settings.instagram.lastApplied = now();
@@ -258,7 +267,7 @@ export async function syncInstagramStories(ctx = {}) {
     if (seen.has(story.id)) continue;
     let result;
     try {
-      result = await analyzeInstagramStoryImage(story.imageUrl);
+      result = await analyzeInstagramStoryImage(story.imageUrl, aiContext(siteId));
     } catch (e) {
       db.settings.instagram.lastStoryError = e.message;
       db.settings.instagram.lastStoryErrorAt = now();
@@ -266,62 +275,7 @@ export async function syncInstagramStories(ctx = {}) {
     }
     seen.add(story.id);
 
-    for (const item of result.buildings || []) {
-      const needle = norm(item.name);
-      if (!needle) continue;
-      // nom exact seulement (« A » ne doit pas toucher tous les bâtiments)
-      const b = db.buildings.find((x) => (x.site || DEFAULT_SITE) === siteId && norm(x.name) === needle);
-      if (!b) continue;
-      const status = ['bloque', 'partiel', 'ouvert'].includes(item.status) ? item.status : null;
-      if (!status || b.status === status) continue;
-      b.status = status;
-      b.note = String(item.note || '').slice(0, 240);
-      b.updatedAt = now();
-      b.by = 'Story Instagram';
-      delete b.yesterday;
-      delete b.resetAt;
-      ctx.audit?.(IG, 'story Instagram : bâtiment', `${b.name} → ${status}`, siteId);
-      ctx.feed?.(`${b.name} (${b.campus}) → ${status === 'bloque' ? 'BLOQUÉ' : status === 'partiel' ? 'PARTIEL' : 'OUVERT'}${b.note ? ' · ' + b.note : ''} · story Instagram`, status === 'bloque' ? 'alert' : status === 'partiel' ? 'warn' : 'ok');
-      ctx.onBuilding?.(b);
-      ctx.queueBuildingAlert?.(b);
-      ctx.broadcast?.('buildings', { id: b.id });
-      applied.buildings.push({ name: b.name, status });
-    }
-
-    for (const item of result.events || []) {
-      const start = parisIso(item.date);
-      const title = String(item.title || '').trim().slice(0, 120);
-      if (!start || !title) continue;
-      if (db.events.some((e) => e.title === title && e.start === start && (e.site || DEFAULT_SITE) === siteId)) continue;
-      db.events.push({
-        id: newId(), site: siteId,
-        type: ['AG', 'manif', 'rassemblement', 'action', 'autre'].includes(item.type) ? item.type : 'autre',
-        title, start, place: String(item.place || '').slice(0, 140), address: '',
-        description: String(item.description || '').slice(0, 1500),
-        org: 'Story Instagram', createdAt: now(),
-      });
-      ctx.audit?.(IG, 'story Instagram : événement', title, siteId);
-      ctx.notifyEvent?.({ site: siteId, title, start, place: item.place || '' });
-      ctx.broadcast?.('events', {});
-      applied.events.push({ title, start });
-    }
-
-    for (const item of result.flashes || []) {
-      const title = String(item.title || '').trim().slice(0, 120);
-      const text = String(item.text || '').trim().slice(0, 500);
-      if (!title || !text) continue;
-      const expiresAt = new Date(Date.now() + 24 * 3600e3).toISOString();
-      const key = `story-flash:${title}:${text}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      // même format que les flashs des modos (niveau, texte, plus récent en premier)
-      db.flashes.unshift({ id: newId(), site: siteId, level: { alert: 'alerte', warn: 'alerte', ok: 'ok' }[item.tone] || 'info', text: `${title} · ${text}`.slice(0, 500), at: now(), expiresAt, org: 'Story Instagram', official: false });
-      db.flashes = db.flashes.slice(0, 100);
-      ctx.audit?.(IG, 'story Instagram : flash', title, siteId);
-      ctx.notifyFlash?.({ site: siteId, title, text, tone: item.tone });
-      ctx.broadcast?.('flashes', {});
-      applied.flashes.push({ title, text });
-    }
+    applyAi(result, siteId, ctx, seen, applied, 'story Instagram', story.id);
   }
 
   db.settings.instagramStorySeen = [...seen].slice(-500);

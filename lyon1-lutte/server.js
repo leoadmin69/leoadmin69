@@ -33,7 +33,7 @@ import { telegramEnabled, telegramUrl, postTelegram, tgEsc, telegramCheck, teleg
 import { DEFAULT_SITE, site, siteName, modSites, canSite, siteOf, migrateSites, effectiveBlocus, wantsSite, isAdmin, ALL_SITES, telegramChats } from './lib/sites.js';
 import { readDevice, deviceCookie, newDeviceId, setRequestDevice } from './lib/device.js';
 import { registerEnsemble } from './lib/ensemble.js';
-import { syncInstagram, syncInstagramStories, startInstagramSync, instagramEnabled, intervalMinutes as instagramInterval } from './lib/instagram.js';
+import { syncInstagram, syncInstagramStories, startInstagramSync, instagramEnabled, intervalMinutes as instagramInterval, applyItem as applyIgItem } from './lib/instagram.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -1258,7 +1258,20 @@ mod.get('/instagram', requireAdmin, (req, res) => res.json({
  interval: instagramInterval(),
  site: db.settings.instagram?.site || DEFAULT_SITE,
  status: db.settings.instagram || {},
+ queue: (db.settings.igQueue || []).slice(0, 40),
 }));
+// Déduction « probable » de l'IA : un·e admin la publie ou l'écarte
+mod.post('/instagram/queue/:id', requireAdmin, (req, res) => {
+  const list = db.settings.igQueue || [];
+  const q = list.find((x) => x.id === req.params.id);
+  if (!q) return bad(res, 'Déjà traité.', 404);
+  db.settings.igQueue = list.filter((x) => x.id !== q.id);
+  let r = null;
+  if (req.body.ok) r = applyIgItem(q.kind, q.item, q.site, instagramCtx(), q.label);
+  save();
+  audit(req.mod, req.body.ok ? 'déduction Instagram publiée' : 'déduction Instagram écartée', (q.item.name || q.item.title || '').slice(0, 80), q.site);
+  res.json({ ok: true, applied: r });
+});
 mod.put('/instagram', requireAdmin, (req, res) => {
  db.settings.instagram ||= {};
   if (req.body.url !== undefined) {

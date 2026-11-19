@@ -237,11 +237,13 @@ const INSTAGRAM_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['name', 'status', 'note'],
+        required: ['name', 'status', 'note', 'confidence', 'evidence'],
         properties: {
           name: str,
           status: { type: 'string', enum: ['bloque', 'partiel', 'ouvert', 'inconnu'] },
           note: str,
+          confidence: { type: 'number' },
+          evidence: str,
         },
       },
     },
@@ -250,13 +252,15 @@ const INSTAGRAM_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['type', 'title', 'date', 'place', 'description'],
+        required: ['type', 'title', 'date', 'place', 'description', 'confidence', 'evidence'],
         properties: {
           type: { type: 'string', enum: ['AG', 'manif', 'rassemblement', 'action', 'autre'] },
           title: str,
           date: str,
           place: str,
           description: str,
+          confidence: { type: 'number' },
+          evidence: str,
         },
       },
     },
@@ -265,27 +269,37 @@ const INSTAGRAM_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['title', 'text', 'tone'],
+        required: ['title', 'text', 'tone', 'confidence', 'evidence'],
         properties: {
           title: str,
           text: str,
           tone: { type: 'string', enum: ['info', 'warn', 'alert', 'ok'] },
+          confidence: { type: 'number' },
+          evidence: str,
         },
       },
     },
   },
 };
 
-const INSTAGRAM_SYSTEM = `Tu lis uniquement des messages publics d'un canal officiel de mobilisation étudiante.
-Extrais uniquement les informations factuelles et vérifiables destinées aux étudiant·es de Lyon 1.
-Autorisé : état d'un bâtiment, AG, manifestation, rassemblement, action, horaire, lieu, flash urgent.
-Interdit : rumeur, date ou lieu absent, nom complet de personne, humiliation, appel à la violence, donnée personnelle.
-Si une information est incertaine, utilise une chaîne vide, un tableau vide ou "inconnu".
-Quand le message dit « aujourd'hui », utilise la date courante donnée dans le prompt.
-Dates au format ISO AAAA-MM-JJTHH:mm:ss.000Z si l'heure est connue. Sinon garde AAAA-MM-JJ.
-Tout en français. Ne publie rien d'autre que le JSON demandé.`;
+const INSTAGRAM_SYSTEM = `Tu aides un site d'information étudiante (Lyon 1) à suivre la situation sur le campus à partir
+de messages et de stories Instagram publics d'un compte de la mobilisation.
+DÉDUIS ce que tu vois, lis ou détectes, même si ce n'est pas écrit mot pour mot :
+- texte, légendes, affiches, banderoles, captures d'écran, horaires écrits sur une photo ;
+- indices visuels : chaînes, barricades, tables ou poubelles devant une porte, piquet de personnes devant une entrée,
+  portes fermées avec affiche « bloqué », foule en AG dans un amphi, cortège dans la rue ;
+- dates relatives (« aujourd'hui », « demain », « lundi », « ce midi ») à convertir avec la date courante donnée ;
+- noms de bâtiments écrits autrement (abréviation, faute, surnom) : rends le nom EXACT de la liste des bâtiments connus,
+  ou laisse vide si tu ne peux pas le relier sans hésiter.
+Pour CHAQUE élément, donne :
+- confidence : de 0 à 1. 0,9 ou plus = écrit clairement ou visible sans doute possible ; 0,6 à 0,8 = déduit d'indices
+  solides ; moins de 0,5 = simple supposition (dans ce cas, ne le mets pas).
+- evidence : en une phrase courte, ce qui te fait dire ça (« photo de chaînes sur la porte de Thémis, légende "on tient" »).
+Interdit : nom ou visage identifiable d'une personne, donnée personnelle, rumeur sans indice, appel à la violence.
+Dates au format ISO AAAA-MM-JJTHH:mm:ss.000Z si l'heure est connue, sinon AAAA-MM-JJ.
+Tout en français. Réponds uniquement avec le JSON demandé.`;
 
-async function instagramWithGemini(text) {
+async function instagramWithGemini(text, context = '') {
   const model = await geminiModel();
   const res = await fetch(`${GEMINI_BASE()}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
@@ -293,7 +307,7 @@ async function instagramWithGemini(text) {
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: INSTAGRAM_SYSTEM }] },
-      contents: [{ role: 'user', parts: [{ text: `Date courante : ${new Date().toISOString()}.\nMessages récents du canal officiel :\n"""\n${text.slice(0, 30000)}\n"""` }] }],
+      contents: [{ role: 'user', parts: [{ text: `${context || `Date courante : ${new Date().toISOString()}.`}\nMessages récents du canal :\n"""\n${text.slice(0, 30000)}\n"""` }] }],
       generationConfig: { responseMimeType: 'application/json', responseSchema: geminiSchema(INSTAGRAM_SCHEMA), temperature: 0.1, maxOutputTokens: 12000 },
     }),
   });
@@ -302,7 +316,7 @@ async function instagramWithGemini(text) {
   return parseJson((j.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join(''));
 }
 
-async function instagramWithGroq(text) {
+async function instagramWithGroq(text, context = '') {
   const model = await groqModel();
   const res = await fetch(`${GROQ_BASE()}/chat/completions`, {
     method: 'POST',
@@ -315,7 +329,7 @@ async function instagramWithGroq(text) {
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: `${INSTAGRAM_SYSTEM}\n\nSchéma JSON exact :\n${JSON.stringify(INSTAGRAM_SCHEMA)}` },
-        { role: 'user', content: `Date courante : ${new Date().toISOString()}.\n${text.slice(0, 30000)}` },
+        { role: 'user', content: `${context || `Date courante : ${new Date().toISOString()}.`}\n${text.slice(0, 30000)}` },
       ],
     }),
   });
@@ -339,10 +353,10 @@ async function instagramLocally(text) {
   return data;
 }
 
-export async function analyzeInstagramText(text) {
+export async function analyzeInstagramText(text, context = '') {
   for (const p of order()) {
     try {
-      const data = p === 'gemini' ? await instagramWithGemini(text) : p === 'groq' ? await instagramWithGroq(text) : null;
+      const data = p === 'gemini' ? await instagramWithGemini(text, context) : p === 'groq' ? await instagramWithGroq(text, context) : null;
       if (data) return { data, source: p };
     } catch (e) {
       console.error(`[ia] Instagram ${p}:`, e.message);
@@ -351,7 +365,7 @@ export async function analyzeInstagramText(text) {
   return { data: await instagramLocally(text), source: 'local' };
 }
 
-export async function analyzeInstagramStoryImage(imageUrl) {
+export async function analyzeInstagramStoryImage(imageUrl, context = '') {
   if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY est nécessaire pour lire une story par vision.');
   const ir = await fetch(imageUrl, {
     headers: {
@@ -375,7 +389,7 @@ export async function analyzeInstagramStoryImage(imageUrl) {
       systemInstruction: { parts: [{ text: INSTAGRAM_SYSTEM }] },
       contents: [{ role: 'user', parts: [
         { inlineData: { mimeType: mime, data: bytes.toString('base64') } },
-        { text: 'Lis cette story Instagram officielle. Extrais uniquement les bâtiments bloqués/partiels/ouverts, les AG, manifestations, rassemblements, actions, horaires, lieux et flashs factuels. Réponds en JSON.' },
+        { text: `${context}\nRegarde cette story : déduis l'état des bâtiments (chaînes, barricades, piquets, affiches…), les AG, manifs, rassemblements, actions, horaires, lieux et infos urgentes. Pour chaque élément, donne confidence et evidence. Réponds en JSON.` },
       ] }],
       generationConfig: { responseMimeType: 'application/json', responseSchema: geminiSchema(INSTAGRAM_SCHEMA), temperature: 0.1, maxOutputTokens: 12000 },
     }),

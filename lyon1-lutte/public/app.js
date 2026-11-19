@@ -2514,7 +2514,7 @@ async function modInstagram(el) {
   el.innerHTML = `
     <div class="card">
       <div class="kicker">📷 Canal Instagram officiel</div>
-      <p class="muted small">Le canal est lu périodiquement et analysé par l’IA (clé Gemini ou Groq obligatoire). Seuls les bâtiments au nom exact, les AG/manifs datées et les flashs sont publiés, sans doublon. ⚠ Instagram bloque souvent la lecture sans connexion : si une erreur s’affiche, ça ne marchera pas sans cookie de session.</p>
+      <p class="muted small">Le canal et les stories sont lus régulièrement par l’IA (clé Gemini ou Groq obligatoire). Elle <b>déduit</b> ce qu’elle voit et lit (chaînes ou barricades sur une photo, affiche, légende, « demain midi »…) et donne un niveau de confiance : <b>sûr</b> = publié sur le site (sans notification) ; <b>probable</b> = proposé ci-dessous pour que tu valides ; <b>supposition</b> = ignoré. ⚠ Instagram bloque souvent la lecture sans connexion : si une erreur s’affiche, ça ne marchera pas sans cookie de session.</p>
       <form class="form" id="instagram-config">
         <div class="field"><label>URL du canal</label><input type="url" id="instagram-url" value="${esc(cfg.url)}" required></div>
         <div class="field"><label>Compte Instagram des stories</label><input type="url" id="instagram-account-url" value="${esc(cfg.accountUrl)}" required></div>
@@ -2531,6 +2531,20 @@ async function modInstagram(el) {
     e.preventDefault();
     await act(() => api('/api/mod/instagram', { method: 'PUT', body: { url: $('#instagram-url', el).value, accountUrl: $('#instagram-account-url', el).value, site: $('#instagram-site', el).value, interval: Number($('#instagram-interval', el).value), enabled: $('#instagram-enabled', el).checked } }), 'Instagram enregistré.');
   };
+  // Déductions « probables » de l'IA à valider
+  const KIND = { building: '🏢 Bâtiment', event: '📅 Rendez-vous', flash: '⚡ Info' };
+  const qtext = (q) => q.kind === 'building' ? `${esc(q.item.name)} → ${esc({ bloque: 'BLOQUÉ', partiel: 'PARTIEL', ouvert: 'OUVERT' }[q.item.status] || q.item.status)}${q.item.note ? ' · ' + esc(q.item.note) : ''}` : q.kind === 'event' ? `${esc(q.item.title)} · ${esc(q.item.date)}${q.item.place ? ' · ' + esc(q.item.place) : ''}` : `${esc(q.item.title)} · ${esc(q.item.text)}`;
+  el.insertAdjacentHTML('beforeend', `<div class="card" style="margin-top:14px"><div class="kicker">🤔 À valider · déductions probables de l’IA</div>
+    ${(cfg.queue || []).map((q) => `<div class="row" data-q="${esc(q.id)}"><div class="grow"><div class="title">${KIND[q.kind] || ''} · ${qtext(q)}</div>
+      <div class="sub">${esc(q.label)} · confiance ${Math.round((q.confidence || 0) * 100)} % · ${esc(ago(q.at))}${q.evidence ? `<br>🔎 ${esc(q.evidence)}` : ''}</div></div>
+      <div class="btn-row"><button class="btn small" data-qok="1">Publier</button><button class="btn small ghost" data-qok="0">Écarter</button></div></div>`).join('') || '<p class="faint small">Rien à valider pour le moment.</p>'}</div>`);
+  el.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-qok]');
+    if (!b) return;
+    const id = b.closest('[data-q]').dataset.q;
+    await act(() => api(`/api/mod/instagram/queue/${encodeURIComponent(id)}`, { method: 'POST', body: { ok: b.dataset.qok === '1' } }), b.dataset.qok === '1' ? 'Publié.' : 'Écarté.');
+    b.closest('[data-q]').remove();
+  });
   $('#instagram-sync', el).onclick = async () => {
     $('#instagram-status', el).innerHTML = '<div class="body">Lecture du canal…</div>';
     try {
