@@ -2518,6 +2518,8 @@ async function modInstagram(el) {
       <form class="form" id="instagram-config">
         <div class="field"><label>URL du canal</label><input type="url" id="instagram-url" value="${esc(cfg.url)}" required></div>
         <div class="field"><label>Compte Instagram des stories</label><input type="url" id="instagram-account-url" value="${esc(cfg.accountUrl)}" required></div>
+        <div class="field"><label>ID numérique du compte (facultatif, si Instagram ne trouve pas le compte)</label><input type="text" inputmode="numeric" id="instagram-account-id" value="${esc(cfg.accountId || '')}" placeholder="ex. 51234567890"></div>
+        <p class="small" style="margin:0">📖 Stories : <b>lecture automatique en priorité</b>${cfg.storiesReady ? '' : ' · ⚠ aucun cookie Instagram sur Render'}${cfg.status.lastStoryError ? ` · <span style="color:var(--red)">⚠ ${esc(cfg.status.lastStoryError)}</span>` : cfg.status.lastStoryCheck ? ` · dernière lecture ${esc(ago(cfg.status.lastStoryCheck))}, ${cfg.status.lastStoryCount || 0} story(s)` : ''}</p>
         <div class="grid cols-2">
           <div class="field"><label>Site ciblé</label><select id="instagram-site">${siteList().map((x) => `<option value="${esc(x.id)}" ${x.id === cfg.site ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
           <div class="field"><label>Lecture toutes les (minutes)</label><input type="number" id="instagram-interval" min="5" max="1440" value="${esc(cfg.interval)}"></div>
@@ -2529,7 +2531,7 @@ async function modInstagram(el) {
     </div>`;
   $('#instagram-config', el).onsubmit = async (e) => {
     e.preventDefault();
-    await act(() => api('/api/mod/instagram', { method: 'PUT', body: { url: $('#instagram-url', el).value, accountUrl: $('#instagram-account-url', el).value, site: $('#instagram-site', el).value, interval: Number($('#instagram-interval', el).value), enabled: $('#instagram-enabled', el).checked } }), 'Instagram enregistré.');
+    await act(() => api('/api/mod/instagram', { method: 'PUT', body: { url: $('#instagram-url', el).value, accountUrl: $('#instagram-account-url', el).value, accountId: $('#instagram-account-id', el).value, site: $('#instagram-site', el).value, interval: Number($('#instagram-interval', el).value), enabled: $('#instagram-enabled', el).checked } }), 'Instagram enregistré.');
   };
   // Coller un message du canal / envoyer une capture de story (marche toujours, sans cookie)
   el.insertAdjacentHTML('afterbegin', `<div class="card" style="margin-bottom:14px"><div class="kicker">✍️ Le plus fiable : donner le contenu à l’IA</div>

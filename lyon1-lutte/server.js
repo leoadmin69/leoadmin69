@@ -1255,6 +1255,8 @@ mod.get('/instagram', requireAdmin, (req, res) => res.json({
  enabled: instagramEnabled(),
  url: db.settings.instagram?.url || process.env.INSTAGRAM_CHANNEL_URL || 'https://www.instagram.com/channel/UFc6KiIvKuUCSwgk/',
  accountUrl: db.settings.instagram?.accountUrl || process.env.INSTAGRAM_ACCOUNT_URL || 'https://www.instagram.com/lyon1_ladoua.enlutte/',
+ accountId: db.settings.instagram?.accountId || '',
+ storiesReady: !!(process.env.INSTAGRAM_STORIES_COOKIES || process.env.INSTAGRAM_CHANNEL_COOKIES),
  interval: instagramInterval(),
  site: db.settings.instagram?.site || DEFAULT_SITE,
  status: db.settings.instagram || {},
@@ -1290,6 +1292,7 @@ mod.put('/instagram', requireAdmin, (req, res) => {
     if (!/^https:\/\/(www\.)?instagram\.com\//i.test(u)) return bad(res, 'Lien Instagram attendu (https://www.instagram.com/…).');
     db.settings.instagram.url = u;
   }
+ if (req.body.accountId !== undefined) { const id = String(req.body.accountId).replace(/\D/g, '').slice(0, 30); db.settings.instagram.accountId = id; }
  if (req.body.accountUrl !== undefined) {
    const u = String(req.body.accountUrl).trim().slice(0, 500);
    if (u && !/^https:\/\/(www\.)?instagram\.com\/[\w.]+\/?$/i.test(u)) return bad(res, 'Lien de compte Instagram attendu (https://www.instagram.com/nom_du_compte/).');
@@ -1305,16 +1308,20 @@ mod.put('/instagram', requireAdmin, (req, res) => {
 // (une erreur de lecture ne doit pas partir sur 150 téléphones). Les modos relaient s'ils le jugent utile.
 const instagramCtx = () => ({ broadcast, feed, audit, queueBuildingAlert, onBuilding: (b) => extras?.onBuilding(b) });
 mod.post('/instagram/sync', requireAdmin, async (req, res) => {
+ db.settings.instagram ||= {};
  let channel = null, stories = null;
- try { channel = await syncInstagram(instagramCtx()); } catch (e) {
-   db.settings.instagram ||= {}; db.settings.instagram.lastError = e.message; db.settings.instagram.lastErrorAt = now(); save();
-   channel = { error: e.message, applied: {} };
- }
+ // stories d'abord (prioritaires)
  if (process.env.INSTAGRAM_STORIES_COOKIES || process.env.INSTAGRAM_CHANNEL_COOKIES) {
-   try { stories = await syncInstagramStories(instagramCtx()); } catch (e) { stories = { error: e.message, applied: {}, storyCount: 0 }; }
- }
- if (channel.error && (!stories || stories.error)) return bad(res, [channel.error, stories?.error].filter(Boolean).join(' · '), 502);
- audit(req.mod, 'Instagram synchronisé', `${channel.source || 'canal : erreur'}${stories ? ` · ${stories.storyCount} stories` : ''}`, db.settings.instagram?.site || DEFAULT_SITE);
+   try { stories = await syncInstagramStories(instagramCtx()); delete db.settings.instagram.lastStoryError; }
+   catch (e) { stories = { error: e.message, applied: {}, storyCount: 0 }; db.settings.instagram.lastStoryError = e.message; db.settings.instagram.lastStoryErrorAt = now(); }
+ } else stories = { error: 'Aucun cookie Instagram sur Render (INSTAGRAM_STORIES_COOKIES).', applied: {}, storyCount: 0 };
+ // canal : ignoré si c'est un canal de diffusion (illisible hors de l'appli)
+ const url = db.settings.instagram.url || process.env.INSTAGRAM_CHANNEL_URL || '';
+ if (/instagram\.com\/channel\//i.test(url)) channel = { skipped: true, applied: {} };
+ else { try { channel = await syncInstagram(instagramCtx()); } catch (e) { channel = { error: e.message, applied: {} }; db.settings.instagram.lastError = e.message; } }
+ save();
+ if (stories.error && (channel.error || channel.skipped)) return bad(res, stories.error, 502);
+ audit(req.mod, 'Instagram synchronisé', `${stories.storyCount || 0} stories`, db.settings.instagram?.site || DEFAULT_SITE);
  res.json({ channel, stories });
 });
 

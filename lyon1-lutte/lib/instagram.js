@@ -76,22 +76,38 @@ export async function fetchInstagramStories() {
     throw new Error('INSTAGRAM_STORIES_COOKIES est requis pour lire les stories du compte.');
   }
   const username = accountUsername();
-  const profile = await fetch(`https://www.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(username)}`, {
-    headers: instagramHeaders(),
-    redirect: 'follow',
-    signal: AbortSignal.timeout(30000),
-  });
-  if (!profile.ok) throw new Error(`Profil Instagram HTTP ${profile.status}`);
-  const profileJson = await profile.json();
-  const userId = profileJson?.data?.user?.id || profileJson?.user?.pk;
-  if (!userId) throw new Error('Identifiant Instagram du compte introuvable.');
+  // 1. ID numérique du compte : donné par l'admin (le plus sûr), sinon gardé de la dernière fois, sinon cherché
+  let userId = String(db.settings.instagram?.accountId || process.env.INSTAGRAM_ACCOUNT_ID || '').trim()
+    || (db.settings.instagram?.resolvedFor === username ? db.settings.instagram?.resolvedId : '');
+  const tries = [];
+  if (!userId) {
+    const ways = [
+      ['web', `https://www.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(username)}`, instagramHeaders()],
+      ['app', `https://i.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(username)}`, instagramHeaders({ 'User-Agent': 'Instagram 309.1.0.41.113 Android (33/13; 420dpi; 1080x2340; samsung; SM-S911B; dm1q; qcom; fr_FR; 541635890)', 'X-IG-App-ID': '567067343352427' })],
+    ];
+    for (const [how, url, headers] of ways) {
+      try {
+        const r = await fetch(url, { headers, redirect: 'manual', signal: AbortSignal.timeout(30000) });
+        if (r.status >= 300 && r.status < 400) { tries.push(`${how} : redirigé vers la connexion (cookie expiré ?)`); continue; }
+        if (!r.ok) { tries.push(`${how} : HTTP ${r.status}`); continue; }
+        const j = await r.json();
+        userId = j?.data?.user?.id || j?.user?.pk || '';
+        if (userId) break;
+        tries.push(`${how} : compte introuvable`);
+      } catch (e) { tries.push(`${how} : ${e.message}`); }
+    }
+    if (!userId) throw new Error(`Instagram ne donne pas le compte « ${username} » (${tries.join(' · ')}). Vérifie le nom du compte, ou mets son ID numérique dans l’onglet Instagram. Si c’est « redirigé vers la connexion », le cookie a expiré.`);
+    db.settings.instagram.resolvedFor = username; db.settings.instagram.resolvedId = String(userId);
+  }
 
-  const reel = await fetch(`https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=${encodeURIComponent(userId)}&media_type=all`, {
-    headers: instagramHeaders(),
-    redirect: 'follow',
-    signal: AbortSignal.timeout(30000),
-  });
-  if (!reel.ok) throw new Error(`Stories Instagram HTTP ${reel.status}`);
+  // 2. stories du compte (web, puis version appli en secours)
+  let reel = null;
+  for (const [how, host, extra] of [['web', 'www.instagram.com', {}], ['app', 'i.instagram.com', { 'User-Agent': 'Instagram 309.1.0.41.113 Android (33/13; 420dpi; 1080x2340; samsung; SM-S911B; dm1q; qcom; fr_FR; 541635890)', 'X-IG-App-ID': '567067343352427' }]]) {
+    const r = await fetch(`https://${host}/api/v1/feed/reels_media/?reel_ids=${encodeURIComponent(userId)}&media_type=all`, { headers: instagramHeaders(extra), redirect: 'manual', signal: AbortSignal.timeout(30000) }).catch((e) => ({ ok: false, status: e.message }));
+    if (r.ok) { reel = r; break; }
+    tries.push(`stories ${how} : ${r.status >= 300 && r.status < 400 ? 'redirigé vers la connexion (cookie expiré ?)' : `HTTP ${r.status}`}`);
+  }
+  if (!reel) throw new Error(`Stories illisibles (${tries.join(' · ')}).`);
   const reelJson = await reel.json();
   const groups = reelJson?.reels ? Object.values(reelJson.reels) : reelJson?.reels_media || reelJson?.tray || [];
   const items = groups.flatMap((group) => group?.items || group?.media || (group?.item ? [group.item] : [])).filter(Boolean);
@@ -317,19 +333,29 @@ export function startInstagramSync(ctx = {}) {
   const run = async () => {
     if (running || !instagramEnabled() || Date.now() - lastRun < intervalMinutes() * 60e3) return;
     running = true; lastRun = Date.now();
+    db.settings.instagram ||= {};
     try {
-      const r = await syncInstagram(ctx);
-      let stories = null;
+      // 1. Stories d'abord (prioritaires)
       if (process.env.INSTAGRAM_STORIES_COOKIES || process.env.INSTAGRAM_CHANNEL_COOKIES) {
-        try { stories = await syncInstagramStories(ctx); } catch (e) { console.error('[instagram stories]', e.message); }
+        try {
+          const st = await syncInstagramStories(ctx);
+          delete db.settings.instagram.lastStoryError;
+          console.log(`[instagram stories] ${st.storyCount} story(s) · ${st.applied.buildings.length} bâtiment(s), ${st.applied.events.length} événement(s), ${st.applied.flashes.length} info(s), ${st.applied.queued || 0} à valider`);
+        } catch (e) {
+          db.settings.instagram.lastStoryError = e.message; db.settings.instagram.lastStoryErrorAt = now(); save();
+          console.error('[instagram stories]', e.message);
+        }
+      } else {
+        db.settings.instagram.lastStoryError = 'Aucun cookie Instagram : ajoute INSTAGRAM_STORIES_COOKIES sur Render pour lire les stories automatiquement.';
       }
-      console.log(`[instagram] canal lu : ${r.sourceCount} message(s), ${r.applied.buildings.length} bâtiment(s), ${r.applied.events.length} événement(s), ${r.applied.flashes.length} flash(s)${stories ? ` · stories : ${stories.storyCount}` : ''}`);
-    } catch (e) {
-      db.settings.instagram ||= {};
-      db.settings.instagram.lastError = e.message;
-      db.settings.instagram.lastErrorAt = now();
+      // 2. Canal : seulement si ce n'est pas un canal de diffusion (ceux-là ne se lisent que dans l'appli)
+      if (!/instagram\.com\/channel\//i.test(channelUrl())) {
+        try {
+          const r = await syncInstagram(ctx);
+          console.log(`[instagram] canal lu : ${r.sourceCount} message(s), ${r.applied.buildings.length} bâtiment(s), ${r.applied.events.length} événement(s), ${r.applied.flashes.length} flash(s)`);
+        } catch (e) { db.settings.instagram.lastError = e.message; db.settings.instagram.lastErrorAt = now(); save(); console.error('[instagram]', e.message); }
+      } else delete db.settings.instagram.lastError;
       save();
-      console.error('[instagram]', e.message);
     } finally { running = false; }
   };
   setTimeout(run, 5000).unref();
