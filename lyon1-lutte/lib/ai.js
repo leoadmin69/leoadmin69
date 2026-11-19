@@ -24,12 +24,14 @@ export const aiProviders = () => order().map((p) => ({ openrouter: `OpenRouter (
 // OpenRouter : une seule clé pour de nombreux modèles (OPENROUTER_MODEL, ex. google/gemini-2.5-flash ou un modèle « :free »)
 const OPENROUTER_BASE = () => (process.env.OPENROUTER_BASE || 'https://openrouter.ai/api/v1').replace(/\/$/, '');
 const OPENROUTER_MODEL = () => (process.env.OPENROUTER_MODEL || 'openrouter/auto').trim();
-async function openRouterChat(messages, { maxTokens = 6000, json = true } = {}) {
+// Modèle pour les images (stories, captures) : celui choisi peut ne lire que du texte
+const OPENROUTER_VISION_MODEL = () => (process.env.OPENROUTER_VISION_MODEL || 'google/gemma-4-31b-it:free').trim();
+async function openRouterChat(messages, { maxTokens = 6000, json = true, model = OPENROUTER_MODEL() } = {}) {
   const res = await fetch(`${OPENROUTER_BASE()}/chat/completions`, {
     method: 'POST',
     signal: AbortSignal.timeout(120000),
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, 'X-Title': 'Lyon 1 · La Doua au courant' },
-    body: JSON.stringify({ model: OPENROUTER_MODEL(), temperature: 0.1, max_tokens: maxTokens, messages, ...(json ? { response_format: { type: 'json_object' } } : {}) }),
+    body: JSON.stringify({ model, temperature: 0.1, max_tokens: maxTokens, messages, ...(json ? { response_format: { type: 'json_object' } } : {}) }),
   });
   if (!res.ok) throw await httpError(res, 'OpenRouter');
   const j = await res.json();
@@ -421,7 +423,7 @@ export async function analyzeInstagramImageBytes(bytes, mime, context = '') {
           { type: 'text', text: `${context}\nRegarde cette image (story ou capture Instagram) : déduis l'état des bâtiments (chaînes, barricades, piquets, affiches…), les AG, manifs, rassemblements, actions, horaires, lieux et infos urgentes. Pour chaque élément, donne confidence et evidence. Réponds en JSON.` },
           { type: 'image_url', image_url: { url: `data:${mime};base64,${bytes.toString('base64')}` } },
         ] },
-      ]);
+      ], { model: OPENROUTER_VISION_MODEL() });
       return parseJson(out);
     } catch (e) {
       console.error('[ia] OpenRouter image :', e.message);
