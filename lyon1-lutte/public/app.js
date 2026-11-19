@@ -2794,6 +2794,7 @@ function scheduleRefresh() {
     const r = route().split('/')[0];
     if (r === 'chat') { renderNav(); renderAlertBar(); return; }
     if (r === 'modo' && state.me) { renderNav(); renderAlertBar(); if (state.me.role === 'terrain') { if (!$('.sheet') && !$('.cam') && !view().contains(document.activeElement)) render(true); return; } if (state.modTab === 'situation') { window.drawTiles?.(); const h = $('#bhint'); if (h && state.data.blocus.auto) h.textContent = `Automatique : le titre suit les bâtiments (actuellement « ${BLOCUS[blocusNow(state.data.blocus)]} »).`; } return; }
+    if ($('.sheet') || $('.cam') || view().contains(document.activeElement)) return;
     render();
   }, 250);
 }
