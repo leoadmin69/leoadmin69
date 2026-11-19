@@ -271,20 +271,23 @@ export function registerCommunity(app, mod, ctx) {
     const list = db.polls.filter((p) => !p.hidden).sort((a, b) => (isOpen(b) - isOpen(a)) || b.createdAt.localeCompare(a.createdAt)).slice(0, 40);
     res.json(list.map((p) => publicPoll(p, dev)));
   });
+  const pollTimers = new Map();
+  const pollPing = (id) => { if (pollTimers.has(id)) return; pollTimers.set(id, setTimeout(() => { pollTimers.delete(id); broadcast('poll', { id, vote: 1 }); }, 5000)); };
   app.post('/api/polls/:id/vote', (req, res) => {
     const p = db.polls.find((x) => x.id === req.params.id && !x.hidden);
     if (!p) return bad(res, 'Vote introuvable.', 404);
     if (!isOpen(p)) return bad(res, 'Ce vote est clos.');
     const choice = Number(req.body.option);
     if (!Number.isInteger(choice) || choice < 0 || choice >= p.options.length) return bad(res, 'Choix invalide.');
-    // Garde-fou contre le bourrage : 40 votes max par réseau et par heure sur un même scrutin (wifi du campus partagé).
-    if (limited(`vote:${p.id}:${visitor(req)}`, Number(process.env.VOTES_PER_NETWORK_HOUR || 40), 3600e3)) return bad(res, 'Trop de votes depuis ce réseau, réessaie plus tard.', 429);
+    // Garde-fou très large contre le bourrage : en AG, des centaines de personnes votent depuis le MÊME wifi du campus
+    // (et beaucoup de forfaits 4G partagent aussi une adresse). Le vrai contrôle est « 1 vote par appareil » ci-dessous.
+    if (limited(`vote:${p.id}:${visitor(req)}`, Number(process.env.VOTES_PER_NETWORK_HOUR || 3000), 3600e3)) return bad(res, 'Trop de votes depuis ce réseau, réessaie dans quelques minutes.', 429);
     const dev = deviceId(req, res);
     const b = ballot(p.id, dev);
     if (p.ballots[b] !== undefined) return bad(res, 'Tu as déjà voté sur cet appareil.', 409);
     p.ballots[b] = choice;
     save();
-    broadcast('poll', { id: p.id });
+    pollPing(p.id);
     res.json(publicPoll(p, dev));
   });
 

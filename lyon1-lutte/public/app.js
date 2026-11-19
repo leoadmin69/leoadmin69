@@ -2476,12 +2476,20 @@ async function viewPolls(focusId) {
       const opt = e.target.closest('[data-opt]');
       if (!opt) return;
       const card = opt.closest('[data-poll]');
+      if (state.voting) return;
+      state.voting = true;
+      const pid = card.dataset.poll;
       $$('button', card).forEach((b) => (b.disabled = true));
       try {
-        const p = await api(`/api/polls/${card.dataset.poll}/vote`, { method: 'POST', body: { option: Number(opt.dataset.opt) } });
-        card.outerHTML = pollHtml(p);
+        const p = await api(`/api/polls/${pid}/vote`, { method: 'POST', body: { option: Number(opt.dataset.opt) } });
+        // la carte a pu être redessinée entre-temps : on reprend la carte affichée
+        const now = $(`[data-poll="${CSS.escape(pid)}"]`) || card;
+        now.outerHTML = pollHtml(p);
         toast('A voté ✊');
-      } catch (err) { toast(err.message); $$('button', card).forEach((b) => (b.disabled = false)); }
+      } catch (err) {
+        toast(/fetch|network|load failed/i.test(err.message) ? 'Pas de réseau : ton vote n’est pas parti, réessaie.' : err.message);
+        $$(`[data-poll="${CSS.escape(pid)}"] button`).forEach((b) => (b.disabled = false));
+      } finally { state.voting = false; }
     };
   } catch (err) { $('#polls').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
 }
@@ -2843,7 +2851,13 @@ function connectLive() {
     const y = window.scrollY; Promise.resolve(viewEntraide()).then(() => window.scrollTo(0, y));
   });
   es.addEventListener('pages', scheduleRefresh);
-  es.addEventListener('poll', () => scheduleRefresh());
+  es.addEventListener('poll', (e) => {
+    let d = {}; try { d = JSON.parse(e.data || '{}'); } catch {}
+    if (!d.vote) return scheduleRefresh(); // vote créé, clos, supprimé par un·e modo : tout se met à jour
+    // simple bulletin : seulement la page des votes, au plus toutes les 10 s, jamais pendant qu'on vote
+    if (route().split('/')[0] !== 'votes' || state.pollRefresh) return;
+    state.pollRefresh = setTimeout(() => { state.pollRefresh = null; if (route().split('/')[0] === 'votes' && !state.voting && !$('.sheet')) render(); }, 10000);
+  });
   for (const [ev, r] of [['blog', 'blog'], ['testimonies', 'temoignages']]) es.addEventListener(ev, () => { if (route() === r && !$('.sheet')) render(); });
   es.addEventListener('chat-react', (e) => { const { id, reactions } = JSON.parse(e.data); updateReacts(id, reactions); });
   es.addEventListener('chat-del', (e) => { const id = JSON.parse(e.data).id; $(`.msg[data-id="${CSS.escape(id)}"]`)?.remove(); });
