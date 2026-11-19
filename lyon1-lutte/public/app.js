@@ -1439,7 +1439,11 @@ function editBuilding(id) {
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Photo expirée.');
         const url = URL.createObjectURL(await r.blob());
         close();
-        sheet(`<h3>📷 ${esc(x.name)}</h3><p class="faint small">Photo prise sur place par le compte piquet · effacée après 24 h.</p><img src="${url}" alt="Photo du piquet" style="display:block;width:100%;border-radius:16px">`);
+        sheet(`<h3>📷 ${esc(x.name)}</h3><p class="faint small">Photo prise sur place par un compte piquet · effacée après 24 h.</p><img src="${url}" alt="Photo du piquet" style="display:block;width:100%;border-radius:16px">
+          <button type="button" class="btn red ghost" id="pblock" style="width:100%;margin-top:10px">🚫 Fausse info : bloquer ce téléphone</button>
+          <p class="faint small">Les comptes piquet sont partagés : ça bloque seulement le téléphone qui a envoyé cette photo. Remets ensuite le bon état du bâtiment.</p>`, (r2, close2) => {
+          $('#pblock', r2).onclick = async () => { if (!confirm('Bloquer le téléphone qui a envoyé cette photo ? Il ne pourra plus mettre à jour les bâtiments.')) return; await act(() => api(`/api/mod/buildings/${encodeURIComponent(id)}/proof/block`, { method: 'POST' }), '🚫 Téléphone bloqué.'); close2(); };
+        });
         setTimeout(() => URL.revokeObjectURL(url), 5 * 60e3);
       } catch (err) { toast(err.message); }
     };
@@ -2258,6 +2262,9 @@ async function modAccounts(el) {
       if ($('#lshare', root)) $('#lshare', root).onclick = () => navigator.share({ title: 'Accès piquet · La Doua en lutte', text: 'Ton accès piquet pour mettre à jour les bâtiments :', url: m.link }).catch(() => {});
     });
   const showPw = (m) => sheet(`<h3>Accès pour ${esc(m.username)}</h3><p class="muted">Transmets-le en main propre ou par messagerie chiffrée (Signal). Il ne sera plus affiché.</p><div class="secret">${esc(m.password)}</div><p class="faint small">La personne pourra le changer dans « Mon compte ».</p>`);
+  // comptes piquet partagés : l'admin peut débloquer tous les téléphones bloqués par les modos
+  el.insertAdjacentHTML('beforeend', `<div class="card" style="margin-top:14px"><div class="kicker">📍 Comptes piquet partagés</div><p class="muted small">Un même lien peut servir à plusieurs personnes. Chaque mise à jour est tracée par téléphone (« tél. ab12cd » dans le journal) ; un·e modo peut bloquer un téléphone qui envoie de fausses infos depuis la photo du piquet.</p><button type="button" class="btn ghost small" id="unblock">Débloquer tous les téléphones bloqués</button></div>`);
+  $('#unblock', el).onclick = async () => { if (!confirm('Débloquer tous les téléphones piquet bloqués ?')) return; const r = await act(() => api('/api/mod/blocked-devices', { method: 'DELETE' })); toast(`${r.n} téléphone(s) débloqué(s).`); };
   $('#mf').onsubmit = async (e) => { e.preventDefault(); const m = await act(() => api('/api/mod/mods', { method: 'POST', body: { username: $('#mu').value, org: $('#mo').value, role: $('#ma').checked ? 'admin' : $('#mt').checked ? 'terrain' : 'mod', sites: $$('input[name=ns]:checked').map((x) => x.value) } })); m.link ? showLink(m) : showPw(m); await modAccounts(el); };
   el.querySelector('.list').onclick = async (e) => {
     const r = e.target.dataset.reset; const o = e.target.dataset.off; const ed = e.target.dataset.edit; const lk = e.target.dataset.link;

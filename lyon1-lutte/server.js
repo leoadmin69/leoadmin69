@@ -776,6 +776,9 @@ mod.post('/terrain/buildings', (req, res) => {
   if (req.mod.role !== 'terrain') return bad(res, 'Réservé aux comptes piquet.', 403);
   const name = clip(req.body.name, 80);
   if (!name) return bad(res, 'Nom du bâtiment requis.');
+  const dev = deviceKey(req, res, true);
+  if ((db.settings.blockedDevices || []).includes(dev)) return bad(res, 'Ce téléphone a été bloqué par les modos.', 403);
+  if (limited(`terrainadd:${dev}`, 5, 24 * 3600e3)) return bad(res, 'Limite d’ajouts atteinte pour aujourd’hui : demande à un·e modo.', 429);
   const sid = targetSite(req);
   if (!needSite(req, res, sid)) return;
   const normalizeName = (s) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
@@ -785,7 +788,7 @@ mod.post('/terrain/buildings', (req, res) => {
   const b = { id: newId(), name, site: sid, campus: siteName(sid), status: 'inconnu', note: '', updatedAt: null, by: '' };
   db.buildings.push(b);
   save();
-  audit(req.mod, 'bâtiment piquet ajouté', name, sid);
+  audit(req.mod, 'bâtiment piquet ajouté', `${name} · tél. ${dev.slice(0, 6)}`, sid);
   broadcast('buildings', {});
   res.json(b);
 });
@@ -833,18 +836,21 @@ mod.post('/terrain/building/:id/photo', express.raw({ type: 'image/jpeg', limit:
   if (!needSite(req, res, siteOf(b))) return;
   const clean = stripJpeg(req.body);
   if (!clean) return bad(res, 'Photo illisible.');
-  if (limited(`terrainph:${req.mod.id}`, 1, 5000)) return bad(res, 'Attends quelques secondes entre deux mises à jour.', 429);
+  // les comptes piquet sont partagés : on limite et on trace par téléphone, pas par compte
+  const dev = deviceKey(req, res, true);
+  if ((db.settings.blockedDevices || []).includes(dev)) return bad(res, 'Ce téléphone a été bloqué par les modos.', 403);
+  if (limited(`terrainph:${dev}`, 1, 5000) || limited(`terrainphh:${dev}`, 60, 3600e3)) return bad(res, 'Attends quelques secondes entre deux mises à jour.', 429);
   const pid = `terrain-${newId()}${newId()}`;
   try { await saveSnap(pid, clean); } catch (e) { return bad(res, 'Enregistrement de la photo impossible.', 500); }
   if (b.terrainProof?.id) deleteSnap(b.terrainProof.id);
   const prev = b.status;
   b.status = status;
-  b.terrainProof = { id: pid, at: now(), status, by: req.mod.org };
+  b.terrainProof = { id: pid, at: now(), status, by: req.mod.org, dev };
   delete b.yesterday;
   delete b.resetAt;
   touch(req, b);
   save();
-  audit(req.mod, 'bâtiment piquet', `${b.name} → ${STATUS_LABEL[status]}`, siteOf(b));
+  audit(req.mod, 'bâtiment piquet', `${b.name} → ${STATUS_LABEL[status]} · tél. ${dev.slice(0, 6)}`, siteOf(b));
   if (prev !== status) {
     feed(`${b.name} (${b.campus}) → ${STATUS_LABEL[status]} · confirmé sur place avec photo`, status === 'bloque' ? 'alert' : status === 'partiel' ? 'warn' : 'ok');
     if (status !== 'inconnu') queueBuildingAlert(b);
@@ -862,6 +868,22 @@ mod.get('/buildings/:id/proof', async (req, res) => {
   const buf = await readSnap(b.terrainProof.id).catch(() => null);
   if (!buf) return bad(res, 'Photo expirée.', 404);
   res.set({ 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, no-store' }).send(buf);
+});
+
+mod.post('/buildings/:id/proof/block', (req, res) => {
+  const b = db.buildings.find((x) => x.id === req.params.id);
+  if (!b?.terrainProof?.dev) return bad(res, 'Pas de photo récente pour ce bâtiment.', 404);
+  if (!needSite(req, res, siteOf(b))) return;
+  db.settings.blockedDevices = [...new Set([...(db.settings.blockedDevices || []), b.terrainProof.dev])].slice(-500);
+  save();
+  audit(req.mod, 'téléphone piquet bloqué', `${b.name} · tél. ${b.terrainProof.dev.slice(0, 6)}`, siteOf(b));
+  res.json({ ok: true });
+});
+mod.delete('/blocked-devices', requireAdmin, (req, res) => {
+  const n = (db.settings.blockedDevices || []).length;
+  db.settings.blockedDevices = []; save();
+  audit(req.mod, 'téléphones piquet débloqués', `${n}`);
+  res.json({ ok: true, n });
 });
 
 // Plusieurs bâtiments d'un coup (sélection multiple, saisie rapide, dictée) : une seule ligne dans le fil, un seul email.

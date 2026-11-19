@@ -114,5 +114,6 @@ PWA gratuite « Lyon 1 · La Doua en lutte » (dossier `lyon1-lutte/`) : infos d
 - 2026-11 : remise à zéro déplacée de 5 h à 22 h (elle effaçait les statuts de la journée).
 - 2026-11 : comptes piquet avec photo obligatoire, recherche et ajout de bâtiments (Copilot), écran corrigé (Claude).
 - 2026-11 : compte piquet = écran calqué sur la page publique Bâtiments (pas d'onglets ni d'en-tête modo) ; toucher un bâtiment ouvre la caméra, puis on choisit l'état sur la photo. Aucun import possible.
+- 2026-11 : comptes piquet PARTAGÉS (l'admin a diffusé 5 liens à tout le monde) : limites et traçage par téléphone (pas par compte), un·e modo peut bloquer le téléphone d'une photo fausse, l'admin débloque tout dans 👥 Comptes.
 - 2026-11 : lecture du canal Instagram (Copilot) : désactivée par défaut, clé IA obligatoire, noms de bâtiments exacts
   seulement, rien n'est publié si Instagram demande une connexion.
