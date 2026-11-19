@@ -1040,15 +1040,15 @@ const act = async (fn, ok) => { try { const r = await fn(); if (ok) toast(ok); r
 async function viewTerrain() {
   const el = view();
   if (!el.querySelector('#terrain-grid')) el.innerHTML = '<div class="empty mono typing">Chargement des bâtiments…</div>';
-  let list;
-  try { list = (await api('/api/mod/terrain/buildings')).buildings || []; }
+  let list, notes = [];
+  try { const r = await api('/api/mod/terrain/buildings'); list = r.buildings || []; notes = r.notes || []; }
   catch (e) { if (/Connexion modo/.test(e.message)) { state.me = null; return render(true); } el.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   const campuses = ['Tous', ...new Set(list.map((b) => b.campus))];
   if (!campuses.includes(state.tcampus)) state.tcampus = 'Tous';
   const count = (st) => list.filter((b) => b.status === st).length;
   el.innerHTML = `
     <h1 class="large-title">Bâtiments</h1>
-    <p class="subtitle">📍 Compte piquet · ${esc(state.me.org)}. Touche un bâtiment, prends l’entrée en photo, choisis l’état. ${count('bloque')} bloqué(s), ${count('partiel')} partiel(s), ${count('ouvert')} ouvert(s).</p>
+    <p class="subtitle">📍 Compte piquet · ${esc(state.me.org)}. Touche un bâtiment, vise l’entrée et touche 🔴 🟠 🟢 : photo et envoi en un seul geste. ${count('bloque')} bloqué(s), ${count('partiel')} partiel(s), ${count('ouvert')} ouvert(s).</p>
     <div class="bsearch"><span aria-hidden="true">🔎</span><input type="search" id="terrain-search" placeholder="Chercher un bâtiment…" autocomplete="off" enterkeyhint="search" value="${esc(state.tsearch || '')}" aria-label="Chercher un bâtiment"><button type="button" id="terrain-clear" aria-label="Effacer" ${state.tsearch ? '' : 'hidden'}>✕</button></div>
     ${campuses.length > 2 ? `<div class="segmented" id="terrain-campus">${campuses.map((c) => `<button data-c="${esc(c)}" class="${c === state.tcampus ? 'on' : ''}">${esc(c)}</button>`).join('')}</div>` : ''}
     <div class="grid cols-3" id="terrain-grid"></div>
@@ -1065,6 +1065,7 @@ async function viewTerrain() {
         <div class="name">${esc(b.name)}</div>
         <div class="campus">${esc(b.campus)}</div>
         ${b.yesterday && b.status === 'inconnu' ? `<div class="yday">Dernière info : ${STATUS[b.yesterday].dot} ${esc(STATUS[b.yesterday].label.toLowerCase())} · à reconfirmer</div>` : ''}
+        ${b.note ? `<div class="note">${esc(b.note)}</div>` : ''}
         <div class="when">${b.updatedAt ? 'MAJ ' + esc(ago(b.updatedAt)) : ''}</div>
         <button class="see-btn" data-update="${esc(b.id)}">📷 Mettre à jour</button>
       </div>`).join('') || `<div class="card empty">${words.length ? 'Aucun bâtiment ne correspond.' : 'Aucun bâtiment.'}</div>`;
@@ -1091,10 +1092,80 @@ async function viewTerrain() {
     const b = id && list.find((x) => x.id === id);
     if (!b || state.terrainBusy || $('.cam')) return;
     // 1. la caméra s'ouvre tout de suite
-    openTerrainCamera((blob) => { if (blob) terrainChoose(b, blob, draw); });
+    terrainQuick(b, notes, draw);
   };
 }
-// 2. la photo est affichée, on choisit l'état ; rien ne part sans photo
+// Caméra du piquet : une note toute prête (facultative), puis 🔴 🟠 🟢 = photo + envoi en un seul geste
+function terrainQuick(b, notes, draw) {
+  if (!navigator.mediaDevices?.getUserMedia) return toast('Caméra indisponible sur ce téléphone.');
+  const ov = document.createElement('div');
+  ov.className = 'cam quick';
+  ov.innerHTML = `<div class="cam-frame"><video autoplay playsinline muted></video><div class="cam-flash"></div></div>
+    <div class="cam-top"><button class="cam-x" aria-label="Fermer">✕</button><span>📍 ${esc(b.name)}</span><button class="cam-flip" aria-label="Changer de caméra">🔄</button></div>
+    <div class="cam-bottom">
+      ${notes.length ? `<div class="qnotes" role="group" aria-label="Précision (facultatif)">${notes.map((n) => `<button type="button" data-n="${esc(n)}">${esc(n)}</button>`).join('')}</div>` : ''}
+      <p id="qmsg">Vise l’entrée, puis touche ce que tu vois</p>
+      <div class="qst"><button class="red" data-st="bloque">🔴<b>Bloqué</b></button><button class="orange" data-st="partiel">🟠<b>Partiel</b></button><button class="green" data-st="ouvert">🟢<b>Ouvert</b></button></div>
+    </div>`;
+  document.body.appendChild(ov);
+  const video = $('video', ov), msg = $('#qmsg', ov);
+  let stream = null, facing = 'environment', closed = false, seq = 0, note = '', busy = false;
+  const stop = () => { stream?.getTracks().forEach((t) => t.stop()); stream = null; };
+  const close = () => { closed = true; stop(); ov.remove(); };
+  const start = async () => {
+    stop();
+    const my = ++seq;
+    try {
+      const st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 1440 }, height: { ideal: 1440 } }, audio: false });
+      if (closed || my !== seq) { st.getTracks().forEach((t) => t.stop()); return; }
+      stream = st; video.srcObject = st; video.classList.toggle('mirror', facing === 'user');
+    } catch (e) { close(); toast(e.name === 'NotAllowedError' ? 'Autorise la caméra pour mettre à jour le bâtiment.' : 'Caméra indisponible.'); }
+  };
+  $('.cam-x', ov).onclick = close;
+  $('.cam-flip', ov).onclick = () => { facing = facing === 'user' ? 'environment' : 'user'; start(); };
+  $('.qnotes', ov)?.addEventListener('click', (e) => {
+    const n = e.target.closest('[data-n]')?.dataset.n;
+    if (n === undefined) return;
+    note = note === n ? '' : n;
+    $$('.qnotes button', ov).forEach((x) => x.classList.toggle('on', x.dataset.n === note));
+  });
+  $('.qst', ov).onclick = async (e) => {
+    const status = e.target.closest('[data-st]')?.dataset.st;
+    if (!status || busy || !video.videoWidth) return;
+    busy = true;
+    // photo au format 3:4 (comme le cadre)
+    const vw = video.videoWidth, vh = video.videoHeight;
+    let sx = 0, sy = 0, sw = vw, sh = vh;
+    if (vw / vh > 3 / 4) { sw = Math.round(vh * 3 / 4); sx = Math.round((vw - sw) / 2); } else { sh = Math.round(vw * 4 / 3); sy = Math.round((vh - sh) / 2); }
+    const k = Math.min(1, 1280 / sh);
+    const cv = document.createElement('canvas'); cv.width = Math.round(sw * k); cv.height = Math.round(sh * k);
+    const c = cv.getContext('2d');
+    if (facing === 'user') { c.translate(cv.width, 0); c.scale(-1, 1); }
+    c.drawImage(video, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+    $('.cam-flash', ov).classList.add('on'); navigator.vibrate?.(20);
+    video.pause();
+    msg.textContent = '⏳ Envoi…';
+    ov.classList.add('sending');
+    try {
+      const blob = await new Promise((r, j) => cv.toBlob((x) => (x ? r(x) : j(new Error('Photo illisible, réessaie.'))), 'image/jpeg', 0.8));
+      const r = await fetch(`/api/mod/terrain/building/${encodeURIComponent(b.id)}/photo?${new URLSearchParams({ status, note })}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'image/jpeg' }, body: blob });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || 'Mise à jour impossible.');
+      Object.assign(b, { status, note, updatedAt: j.updatedAt || new Date().toISOString(), by: j.by }); delete b.yesterday;
+      close(); navigator.vibrate?.([15, 60, 15]);
+      toast(`✅ ${b.name} : ${STATUS[status].label}${note ? ' · ' + note : ''}`);
+      draw();
+    } catch (err) {
+      msg.textContent = `⚠ ${err.message}`;
+      ov.classList.remove('sending'); $('.cam-flash', ov).classList.remove('on');
+      video.play().catch(() => {});
+      busy = false;
+    }
+  };
+  start();
+}
+
+// (ancien écran : la photo est affichée, puis on choisit l'état) — gardé pour « Reprendre la photo »
 async function terrainChoose(b, blob, draw) {
   let photo;
   try { photo = await shrinkPhoto(blob); } catch { return toast('📷 Photo illisible, réessaie.'); }

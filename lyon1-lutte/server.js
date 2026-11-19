@@ -763,13 +763,15 @@ mod.put('/blocus', (req, res) => {
 });
 
 // Bâtiments
+// Notes toutes prêtes pour les comptes piquet (partagés) : pas de texte libre, pas d'info tactique
+const TERRAIN_NOTES = ['Toutes les entrées bloquées', 'Entrée principale bloquée', 'Une seule entrée ouverte', 'Accès PMR ouvert', 'Barricade levée', 'Cours annulés', 'Cours maintenus', 'Police présente'];
 mod.get('/terrain/buildings', (req, res) => {
   if (req.mod.role !== 'terrain') return bad(res, 'Réservé aux comptes piquet.', 403);
   const buildings = db.buildings
     .filter((b) => canSite(req.mod, siteOf(b)))
     .sort((a, b) => a.campus.localeCompare(b.campus) || a.name.localeCompare(b.name))
     .map(({ terrainProof, ...b }) => b);
-  res.json({ buildings, sites: modSites(req.mod).map((id) => ({ id, name: siteName(id) })) });
+  res.json({ buildings, notes: TERRAIN_NOTES, sites: modSites(req.mod).map((id) => ({ id, name: siteName(id) })) });
 });
 
 mod.post('/terrain/buildings', (req, res) => {
@@ -845,6 +847,8 @@ mod.post('/terrain/building/:id/photo', express.raw({ type: 'image/jpeg', limit:
   if (b.terrainProof?.id) deleteSnap(b.terrainProof.id);
   const prev = b.status;
   b.status = status;
+  // note : une des notes toutes prêtes, sinon effacée (l'ancienne ne correspond plus à la photo)
+  b.note = TERRAIN_NOTES.includes(String(req.query.note || '')) ? String(req.query.note) : '';
   b.terrainProof = { id: pid, at: now(), status, by: req.mod.org, dev };
   delete b.yesterday;
   delete b.resetAt;
@@ -852,7 +856,7 @@ mod.post('/terrain/building/:id/photo', express.raw({ type: 'image/jpeg', limit:
   save();
   audit(req.mod, 'bâtiment piquet', `${b.name} → ${STATUS_LABEL[status]} · tél. ${dev.slice(0, 6)}`, siteOf(b));
   if (prev !== status) {
-    feed(`${b.name} (${b.campus}) → ${STATUS_LABEL[status]} · confirmé sur place avec photo`, status === 'bloque' ? 'alert' : status === 'partiel' ? 'warn' : 'ok');
+    feed(`${b.name} (${b.campus}) → ${STATUS_LABEL[status]}${b.note ? ' · ' + b.note : ''} · confirmé sur place avec photo`, status === 'bloque' ? 'alert' : status === 'partiel' ? 'warn' : 'ok');
     if (status !== 'inconnu') queueBuildingAlert(b);
     extras?.onBuilding(b);
   }

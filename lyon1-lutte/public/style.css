@@ -756,3 +756,18 @@ html.no-select * { -webkit-tap-highlight-color: transparent; }
 
 /* iOS zoome sur les champs de moins de 16 px */
 @media (hover: none) { input, select, textarea { font-size: max(16px, 1em); } }
+
+/* Compte piquet : caméra « un geste » (note facultative + 🔴 🟠 🟢 = photo et envoi) */
+.cam.quick .cam-frame { top: calc(50% - 70px + var(--safe-t) / 2); width: min(92vw, calc((100dvh - 360px - var(--safe-t) - var(--safe-b)) * 3 / 4)); }
+.qnotes { display: flex; gap: 6px; overflow-x: auto; max-width: 100%; padding: 0 12px; scrollbar-width: none; }
+.qnotes::-webkit-scrollbar { display: none; }
+.qnotes button { flex: 0 0 auto; border: 1px solid rgba(255,255,255,.35); background: rgba(0,0,0,.55); color: #fff; border-radius: 999px; padding: 7px 12px; font: 600 13px var(--font); cursor: pointer; }
+.qnotes button.on { background: #fff; color: #000; border-color: #fff; }
+.qst { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: min(100%, 440px); padding: 0 12px; box-sizing: border-box; }
+.qst button { display: grid; justify-items: center; gap: 2px; border: 0; border-radius: 18px; padding: 12px 4px; font-size: 26px; color: #fff; cursor: pointer; transition: transform .1s; }
+.qst button b { font: 800 15px var(--font); }
+.qst button:active { transform: scale(.94); }
+.qst .red { background: var(--red-strong); }
+.qst .orange { background: #c25e00; }
+.qst .green { background: #1e7d34; }
+.cam.sending .qst { opacity: .5; pointer-events: none; }
