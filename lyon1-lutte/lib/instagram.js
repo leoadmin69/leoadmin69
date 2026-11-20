@@ -304,7 +304,9 @@ function applyAi(data, siteId, ctx, seen, applied, label, from = '') {
       const key = hash(`${kind}:${item.name || item.title || ''}:${item.status || item.date || item.text || ''}:${from}`);
       if (seen.has(key)) continue;
       seen.add(key);
-      let sure = c >= AUTO_MIN();
+      // par défaut l'IA ne publie plus rien toute seule : tout passe par « À valider » (un modo confirme en 1 tap).
+      // réactivable avec IG_AUTO_PUBLISH=1 sur Render.
+      let sure = process.env.IG_AUTO_PUBLISH === '1' && c >= AUTO_MIN();
       if (kind === 'building') { const f = findBuilding(siteId, item.name); if (!f.b) continue; if (!f.exact) sure = false; item.name = f.b.name; }
       if (sure) { const r = applyItem(kind, item, siteId, ctx, label); if (r) applied[out].push(r); }
       else { queue(kind, item, siteId, label, item.evidence, c); applied.queued++; }
