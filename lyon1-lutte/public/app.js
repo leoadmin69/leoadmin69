@@ -1259,7 +1259,7 @@ async function viewModo() {
   // Le code des onglets modo déplacés vit dans ui/mod.js, chargé seulement après connexion (jamais envoyé aux visiteurs anonymes).
   if (!isTerrain) { try { await ensureModUI(); } catch (e) { $('#mod').innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; } }
   // Fonctions encore dans le code public (à déplacer peu à peu vers ui/mod.js) :
-  const localFn = { ensemble: modEnsemble, story: modStory, instagram: modInstagram, votes: modPolls, blog: modBlog, temoignages: modTestimonies, entraide: modEntraide, droits: modDroits, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, sites: modSites, audience: modAudience };
+  const localFn = { ensemble: modEnsemble, story: modStory, instagram: modInstagram, votes: modPolls, blog: modBlog, temoignages: modTestimonies, entraide: modEntraide, droits: modDroits, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, chat: modChat, comptes: modAccounts, sites: modSites, audience: modAudience };
   const fn = (window.MODV && window.MODV[state.modTab]) || localFn[state.modTab] || modSituation;
   try { await fn($('#mod')); } catch (err) { if (/Connexion modo/.test(err.message)) { state.me = null; render(true); } else toast(err.message); }
 }
@@ -2462,47 +2462,7 @@ async function drawFlashList() {
   box.innerHTML = (on.length ? on.map(row).join('') : '<div class="empty">Aucun flash en ligne.</div>') + (off.length ? `<div class="kicker" style="padding:12px 16px 4px">Expirés (plus sur l’accueil)</div>${off.slice(0, 30).map(row).join('')}` : '');
 }
 
-function modDemands(el) {
-  const ctx = state.data.context || {};
-  el.innerHTML = `
-    <details class="card"><summary class="kicker" style="cursor:pointer">✍️ Texte « ${esc(ctx.title || 'Le contexte')} » (en haut de la page)</summary>
-      <form class="form" id="ctxf" style="margin-top:10px">
-        <div class="field"><label>Titre</label><input type="text" id="cxt" maxlength="80" value="${esc(ctx.title || 'Le contexte')}"></div>
-        <div class="field"><label>Texte (une ligne vide entre deux paragraphes)</label><textarea id="cxx" style="min-height:220px">${esc(ctx.text || '')}</textarea></div>
-        <div class="field"><label>Appel en gros (bandeau rouge)</label><input type="text" id="cxc" maxlength="300" value="${esc(ctx.call || '')}"></div>
-        <div class="field"><label>Texte de fin</label><textarea id="cxe">${esc(ctx.closing || '')}</textarea></div>
-        <div class="field"><label>Source / précision</label><input type="text" id="cxs" maxlength="600" value="${esc(ctx.source || '')}"></div>
-        <button class="btn small">Enregistrer</button>
-      </form></details>
-    <div class="card"><form class="form" id="df">
-      <div class="kicker">Nouvelle revendication</div>
-      <div class="field"><input type="text" id="dt" maxlength="160" required placeholder="Intitulé court"></div>
-      <div class="field"><input type="text" id="dc" maxlength="60" list="dcats" placeholder="Catégorie (ex : Bourses, Logement, Examens)"><datalist id="dcats">${[...new Set(state.data.demands.map((d) => d.category))].map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>
-      <div class="field"><textarea id="dx" maxlength="2000" placeholder="Explication (facultatif)"></textarea></div>
-      <button class="btn">Ajouter</button></form></div>
-    <h2 class="section">Revendications</h2>
-    <div class="list">${state.data.demands.map((d) => `<div class="row" data-id="${esc(d.id)}"><div class="grow"><div class="title">${esc(d.title)}</div><div class="sub">${esc(d.category)} · ✊ ${d.support}</div></div>
-      <select data-status style="width:auto">${Object.entries(DEMAND_STATUS).map(([k, [l]]) => `<option value="${k}" ${k === d.status ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      <button class="icon-btn" data-del>${icon('trash', 18)}</button></div>`).join('') || '<div class="empty">Aucune.</div>'}</div>`;
-  $('#ctxf').onsubmit = async (e) => { e.preventDefault(); await act(() => api('/api/mod/context', { method: 'PUT', body: { title: $('#cxt').value, text: $('#cxx').value, call: $('#cxc').value, closing: $('#cxe').value, source: $('#cxs').value } }), 'Texte enregistré.'); await refresh(); };
-  $('#df').onsubmit = async (e) => { e.preventDefault(); await act(() => api('/api/mod/demands', { method: 'POST', body: { title: $('#dt').value, category: $('#dc').value, text: $('#dx').value } }), 'Ajoutée.'); await refresh(); render(true); };
-  el.querySelector('.list').onchange = (e) => { if (e.target.matches('[data-status]')) act(() => api(`/api/mod/demands/${e.target.closest('.row').dataset.id}`, { method: 'PUT', body: { status: e.target.value, version: state.raw.demands.find((x) => x.id === e.target.closest('.row').dataset.id)?.updatedAt } }), 'Statut mis à jour.'); };
-  el.querySelector('.list').onclick = async (e) => { if (e.target.closest('[data-del]') && confirm('Supprimer ?')) { await act(() => api(`/api/mod/demands/${e.target.closest('.row').dataset.id}`, { method: 'DELETE' }), 'Supprimée.'); await refresh(); render(true); } };
-}
 
-function modContacts(el) {
-  el.innerHTML = `
-    <div class="card"><form class="form" id="cf">
-      <div class="kicker">Ajouter un contact (« Parler à qui ? »)</div>
-      <div class="field"><input type="text" id="cn" maxlength="100" required placeholder="Nom du syndicat / collectif"></div>
-      <div class="field"><input type="text" id="cr" maxlength="160" placeholder="Rôle (ex : aide juridique, permanence, soutien psy)"></div>
-      <div class="field"><input type="text" id="ch" maxlength="300" placeholder="Comment les joindre (ex : permanence lundi 12h, local Thémis)"></div>
-      <div class="field"><input type="text" id="cl" maxlength="300" placeholder="Lien : https://…, mailto:… ou tel:…"></div>
-      <button class="btn">Ajouter</button></form></div>
-    <div class="list" style="margin-top:14px">${state.data.contacts.map((c) => `<div class="row"><div class="grow"><div class="title">${esc(c.name)}</div><div class="sub">${esc(c.role)} ${esc(c.how)}</div></div><button class="icon-btn" data-del="${esc(c.id)}">${icon('trash', 18)}</button></div>`).join('') || '<div class="empty">Aucun.</div>'}</div>`;
-  $('#cf').onsubmit = async (e) => { e.preventDefault(); await act(() => api('/api/mod/contacts', { method: 'POST', body: { name: $('#cn').value, role: $('#cr').value, how: $('#ch').value, link: $('#cl').value } }), 'Ajouté.'); await refresh(); render(true); };
-  el.querySelector('.list').onclick = async (e) => { const id = e.target.closest('[data-del]')?.dataset.del; if (id && confirm('Supprimer ?')) { await act(() => api(`/api/mod/contacts/${id}`, { method: 'DELETE' }), 'Supprimé.'); await refresh(); render(true); } };
-}
 
 async function modChat(el) {
   const [list, bl] = await Promise.all([api('/api/mod/chat/reported'), api('/api/mod/chat-banned')]);
@@ -4209,5 +4169,5 @@ Object.assign(window, {
   defaultSite, unified, showUndo, applyChanges, buildingIndex, parseQuick,
   openStory, editBuilding, pollHtml, pollTimeline, remaining, mediaHtml,
   cleanImage, prepareAndUpload, uploadFile, drawFlashList, analyze, openEditor,
-  pollOrder, votePow,
+  pollOrder, votePow, refresh, DEMAND_STATUS,
 });
