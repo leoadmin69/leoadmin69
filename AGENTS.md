@@ -32,8 +32,8 @@ dans le même commit que le code.
   (2) la liste noire ajoutée par les modos n'est plus envoyée aux téléphones (route `/api/chat-rules` = mots de base seuls) ;
   (3) texte d'anonymat plus exact ; (4) `/pow-worker.js` remis dans le cache hors-ligne.
 - **IA Instagram ne publie plus rien toute seule** : tout passe par « À valider » (`IG_AUTO_PUBLISH=1` pour réactiver).
-- **Séparation code modo / code public** (voir chantier ci-dessous) : 18 onglets sur 20 sortis du code public, dont
-  toute la détection anti-bot des votes. Reste 2 onglets entremêlés avec le public (story, situation), qui peuvent rester.
+- **Séparation code modo / code public** (voir chantier ci-dessous) : 17 onglets sortis du code public, dont toute la
+  détection anti-bot des votes. Restent dans le public : story, instagram (demande admin : ne pas déplacer) et situation.
 
 ### CHANTIER EN COURS À FINIR (relais Claude → Copilot) : séparer le code modo du code public
 **But (demande admin) :** ne plus envoyer aux visiteurs anonymes tout le code de l'espace modo/admin.
@@ -51,10 +51,14 @@ navigateur) ; la vraie sécurité reste côté serveur. C'est juste : ne pas don
 - app.js est un **module** : ses fonctions sont privées. Un `Object.assign(window, {...})` à la fin d'app.js expose
   les outils partagés (`$`, `api`, `esc`, `act`, `state`, `render`, `sheet`, `allSitesBox`, `pollHtml`…) pour qu'une
   fonction déplacée marche **sans être réécrite**.
-- **Déjà migrés par Claude (18 onglets sur 20)** : journal, moi, contacts, revendications, sites, audience, flash
-  (+ `drawFlashList`), chat, entraide, droits, agenda, cr, ensemble, blog, temoignages, instagram, comptes
+- **Déjà migrés par Claude (17 onglets)** : journal, moi, contacts, revendications, sites, audience, flash
+  (+ `drawFlashList`), chat, entraide, droits, agenda, cr, ensemble, blog, temoignages, comptes
   (+ `modPushSummary`, `qrImg`), **votes (`modPolls` + `pollOrder` + `pollTimeline` = toute la détection anti-bot)**.
   Le gros gain sécurité (la « carte des radars » anti-bourrage) est donc déjà hors du code public.
+- **Volontairement LAISSÉS dans le code public** (`localFn` d'app.js) : `story` (📸 Story Insta) et `instagram`
+  (📷 Instagram / lecture IA) — **demande admin : ne pas les déplacer**. Plus `situation` (🚧 Bâtiments), entremêlé
+  avec l'écran piquet. Rappel : la lecture des stories et l'IA tournent sur le SERVEUR (`lib/instagram.js`, `lib/ai.js`),
+  jamais dans le code public ; l'onglet n'est que l'affichage.
 - **Il reste 2 onglets dans `localFn` (app.js), volontairement non déplacés car ENTREMÊLÉS avec des fonctions publiques :**
   - `modStory` : le moteur canvas (`openStory`, `storyCampus`, `storyFrame`, `story*`, `promo*`, `tuto*`, `SF`, `MONO`,
     `drawQR`…) est **aussi utilisé par des boutons publics** (partage/aperçu de story dans Live/Bâtiments : app.js
