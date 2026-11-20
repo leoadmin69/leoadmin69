@@ -701,6 +701,12 @@ app.get('/api/auth/me', (req, res) => { const m = currentMod(req); res.json(m ? 
 const mod = express.Router();
 mod.use(requireMod);
 app.use('/api/mod', mod);
+// Code de l'espace modo : servi UNIQUEMENT aux comptes connectés (hors terrain), jamais aux visiteurs anonymes.
+mod.get('/ui.js', (req, res) => {
+  if (req.mod.role === 'terrain') return bad(res, 'Réservé aux modos.', 403);
+  res.type('application/javascript'); res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(ROOT, 'ui', 'mod.js'));
+});
 // Alertes modo sur le téléphone (signalements des étudiant·es à vérifier…)
 mod.post('/push/subscribe', (req, res) => {
   try { modSubscribe(req.mod.id, req.body.subscription); } catch (e) { return bad(res, e.message); }

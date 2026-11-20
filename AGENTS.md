@@ -19,8 +19,46 @@ dans le même commit que le code.
 7. Copilot (agent cloud) travaille dans une PR dont la **base est la branche de travail** ; la PR est fusionnée
    dans cette branche (jamais dans la branche par défaut du dépôt, qui est celle d'un autre projet).
 
-## Passation (2026-11-19, mise à jour par Claude)
+## Passation (2026-11-20, mise à jour par Claude)
 **Dernier commit de Claude : voir `git log -15`.** Tout est poussé, rien en cours de modification.
+
+### CHANTIER EN COURS À FINIR (relais Claude → Copilot) : séparer le code modo du code public
+**But (demande admin) :** ne plus envoyer aux visiteurs anonymes tout le code de l'espace modo/admin.
+Seul l'essentiel public reste dans `public/app.js` ; les onglets modo migrent vers `ui/mod.js`, servi **uniquement
+après connexion** par la route protégée `mod.get('/ui.js')` (server.js, juste après `app.use('/api/mod', mod)`).
+Les visiteurs anonymes reçoivent 401 et ne voient jamais ce code. **Ce n'est PAS du chiffrement** (impossible côté
+navigateur) ; la vraie sécurité reste côté serveur. C'est juste : ne pas donner la carte de nos radars anti-bot.
+
+**Mécanisme déjà en place et testé (ne pas le refaire) :**
+- `ui/mod.js` : fichier classique (IIFE) chargé par `ensureModUI()` dans app.js, qui enregistre les vues dans
+  `window.MODV` (ex. `MODV.journal`, `MODV.moi`).
+- `viewModo()` (app.js) : garde le login, le shell (onglets, sites), `showPresence`, `modPushCard`. Avant de rendre
+  un onglet, il fait `await ensureModUI()` puis `const fn = window.MODV[tab] || localFn[tab] || modSituation`.
+  `localFn` = les onglets **pas encore déplacés** (encore dans app.js).
+- app.js est un **module** : ses fonctions sont privées. Un `Object.assign(window, {...})` à la fin d'app.js expose
+  les outils partagés (`$`, `api`, `esc`, `act`, `state`, `render`, `sheet`, `allSitesBox`, `pollHtml`…) pour qu'une
+  fonction déplacée marche **sans être réécrite**.
+- **Déjà migrés :** `modJournal` (onglet journal), `modMe` (onglet moi).
+
+**Pour Copilot — déplacer les onglets restants, un par un, sans rien casser :**
+1. Choisir UNE fonction `mod*` encore dans app.js (voir `localFn` dans viewModo). Commence par les simples et
+   autonomes : `modContacts`, `modDemands`, `modSites`, `modChat`, `modFlash`, `modAudience`, `modEnsemble`.
+   Garde pour la fin les grosses avec beaucoup de sous-fonctions : `modSituation` (+ editBuilding, applyChanges,
+   parseQuick, buildingIndex, showUndo), `modStory`/`openStory` (+ tous les générateurs canvas story*/promo*/tuto*),
+   `modPolls` (+ pollOrder, pollTimeline…), `modReports`/`analyze`/`openEditor`, `modInstagram`.
+2. **Couper** la définition entière depuis `public/app.js`, la **coller** dans l'IIFE de `ui/mod.js`.
+3. Ajouter la fonction dans `Object.assign(MODV, { <onglet>: <fn> })` (en bas de mod.js).
+4. **Retirer** son entrée de l'objet `localFn` dans `viewModo` (app.js).
+5. Si la fonction déplacée appelle un outil d'app.js pas encore exposé → ajouter son nom dans le `Object.assign(window, {…})`
+   à la fin d'app.js. NE PAS exposer une fonction mod qui ne vit plus dans app.js (sinon ReferenceError au chargement :
+   retire-la aussi du `Object.assign(window,…)`). Attention : certaines fonctions sont partagées public+modo
+   (`pollHtml`, `pollTimeline`, `remaining`, `mediaHtml`, `cleanImage`, `prepareAndUpload`, `uploadFile`, `votePow`) :
+   **elles RESTENT dans app.js** et restent exposées sur window ; ne les déplace pas.
+6. Monter `VERSION` dans `public/sw.js`. Vérifier (règle 2) + test navigateur : connexion modo, l'onglet déplacé rend
+   quelque chose, et une page publique marche (le test Playwright de Claude est le modèle ; headless chromium dispo via
+   `/opt/node-tools/node_modules/playwright`). Zéro `pageerror`.
+7. Vérifier qu'un visiteur **anonyme** reçoit 401 sur `/api/mod/ui.js` et ne le charge jamais (déjà le cas).
+Fais-le par petits lots (2–3 onglets par commit), pas tout d'un coup. Ne touche pas au serveur sauf la route déjà posée.
 
 ### En ligne
 - Production : **https://leoadmin69.onrender.com** (Render « Lyon1-ladoua-en-lutte », `srv-dbu3je68bjmc73a7vt1g`,

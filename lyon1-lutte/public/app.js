@@ -1199,6 +1199,20 @@ const MOD_TABS = [
   ['situation', '🚧 Bâtiments'], ['instagram', '📷 Instagram'], ['story', '📸 Story Insta'], ['agenda', '📅 Agenda'], ['cr', '🤖 CR + IA'], ['flash', '⚡ Flash'],
   ['votes', '🗳️ Votes'], ['ensemble', '🕊️ On en parle'], ['blog', '✍️ Blog'], ['temoignages', '🛡️ Témoignages'], ['entraide', '🤝 Entraide'], ['droits', '⚖️ Page droits'], ['revendications', '✊ Revendications'], ['contacts', '📇 Contacts'], ['chat', '🛡️ Chat'], ['comptes', '👥 Comptes'], ['sites', '📍 Sites'], ['audience', '📊 Audience'], ['journal', '📜 Journal'], ['moi', '🔑 Mon compte'],
 ];
+// Charge une seule fois le code de l'espace modo (ui/mod.js), servi par une route protégée.
+let modUIPromise = null;
+function ensureModUI() {
+  if (window.MODV && window.MODV.__ready) return Promise.resolve();
+  if (modUIPromise) return modUIPromise;
+  modUIPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = '/api/mod/ui.js';
+    s.onload = () => { (window.MODV = window.MODV || {}).__ready = true; resolve(); };
+    s.onerror = () => { modUIPromise = null; reject(new Error('Espace modo : chargement impossible. Vérifie ta connexion puis réessaie.')); };
+    document.head.appendChild(s);
+  });
+  return modUIPromise;
+}
 async function viewModo() {
   if (!state.me) {
     view().innerHTML = `
@@ -1242,7 +1256,11 @@ async function viewModo() {
   showPresence();
   modPushCard();
   api('/api/mod/stats').then((s) => { const el = $('#mstats'); if (el) el.innerHTML = `${s.pushSubs} téléphone(s) · ${s.subscribers} email(s) · ${s.aiEnabled ? 'IA ' + esc(s.aiProviders.join(' → ')) : 'sans IA'} · emails ${s.mailProvider ? `${esc(s.mailProvider)} ${s.mailQuota.used}/${s.mailQuota.limit} aujourd’hui` : 'OFF'} · stockage ${s.storage === 'temporaire' ? '<b style="color:var(--red)">TEMPORAIRE (configure Supabase !)</b>' : esc(s.storage)}${s.reported ? ` · ${s.reported} msg signalé(s)` : ''}`; }).catch(() => {});
-  const fn = { ensemble: modEnsemble, story: modStory, instagram: modInstagram, votes: modPolls, blog: modBlog, temoignages: modTestimonies, entraide: modEntraide, droits: modDroits, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, sites: modSites, audience: modAudience, journal: modJournal, moi: modMe }[state.modTab] || modSituation;
+  // Le code des onglets modo déplacés vit dans ui/mod.js, chargé seulement après connexion (jamais envoyé aux visiteurs anonymes).
+  if (!isTerrain) { try { await ensureModUI(); } catch (e) { $('#mod').innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; } }
+  // Fonctions encore dans le code public (à déplacer peu à peu vers ui/mod.js) :
+  const localFn = { ensemble: modEnsemble, story: modStory, instagram: modInstagram, votes: modPolls, blog: modBlog, temoignages: modTestimonies, entraide: modEntraide, droits: modDroits, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, revendications: modDemands, contacts: modContacts, chat: modChat, comptes: modAccounts, sites: modSites, audience: modAudience };
+  const fn = (window.MODV && window.MODV[state.modTab]) || localFn[state.modTab] || modSituation;
   try { await fn($('#mod')); } catch (err) { if (/Connexion modo/.test(err.message)) { state.me = null; render(true); } else toast(err.message); }
 }
 // Autres modos connectés sur les mêmes sites : on le voit pour ne pas se marcher dessus
@@ -2683,23 +2701,6 @@ async function modSites(el) {
       $('#esf', root).onsubmit = async (ev) => { ev.preventDefault(); await act(() => api(`/api/mod/sites/${x.id}`, { method: 'PUT', body: { name: $('#esn', root).value, short: $('#ess', root).value, telegramChatId: $('#est', root).value.trim() } }), 'Site mis à jour.'); close(); await refresh(); render(true); };
     });
   };
-}
-
-async function modJournal(el) {
-  const list = await api('/api/mod/audit');
-  el.innerHTML = `<div class="terminal"><div class="bar"><i></i><i></i><i></i><span>audit.log</span></div><div class="body" style="max-height:none">${list.map((a) => `<div class="line"><span class="t">[${esc(fmt(a.at, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}]</span> ${a.siteName ? `<b>[${esc(a.siteName)}]</b> ` : ''}${esc(a.by)} (${esc(a.org)}) · ${esc(a.action)} · ${esc(a.detail)}</div>`).join('') || '<div class="line">vide</div>'}</div></div>`;
-}
-
-function modMe(el) {
-  el.innerHTML = `
-    <div class="card" style="max-width:460px"><form class="form" id="pw">
-      <div class="kicker">Changer mon mot de passe</div>
-      <div class="field"><input type="password" id="pc" autocomplete="current-password" placeholder="Mot de passe actuel" required></div>
-      <div class="field"><input type="password" id="pn" autocomplete="new-password" minlength="10" placeholder="Nouveau (10 caractères min.)" required></div>
-      <button class="btn">Changer</button></form></div>
-    <button class="btn ghost" id="logout" style="margin-top:14px">Se déconnecter</button>`;
-  $('#pw').onsubmit = async (e) => { e.preventDefault(); await act(() => api('/api/mod/password', { method: 'POST', body: { current: $('#pc').value, next: $('#pn').value } }), 'Mot de passe changé.'); e.target.reset(); };
-  $('#logout').onclick = async () => { await api('/api/auth/logout', { method: 'POST' }); state.me = null; render(true); };
 }
 
 // =====================================================================
@@ -4195,3 +4196,18 @@ async function showSightPhotos(ids, name) {
   sheet(`<h3>📷 ${esc(name)} · ${urls.length} photo${urls.length > 1 ? 's' : ''}</h3><p class="faint small">Envoyées par les étudiant·es qui ont signalé. Effacées avec le signalement (2 h max ou dès ta confirmation).</p>
     <div class="sight-photos">${urls.map((u) => `<img src="${u}" alt="Photo du signalement">`).join('')}</div>`);
 }
+
+// ===== Pont vers le code de l'espace modo (ui/mod.js) =====
+// app.js est un module : ses fonctions sont privées. On expose ici les outils
+// partagés dont le code modo (chargé après connexion) a besoin, pour qu'une
+// fonction déplacée depuis ce fichier marche SANS être réécrite.
+// Copilot : si une fonction déplacée utilise un autre outil d'app.js, ajoute
+// simplement son nom dans cette liste.
+Object.assign(window, {
+  $, $$, esc, api, act, fmt, hhmm, ago, icon, store, toast, sheet, view, route,
+  state, render, applyScope, scopeSite, allSitesBox, siteList, siteShort,
+  defaultSite, unified, showUndo, applyChanges, buildingIndex, parseQuick,
+  openStory, editBuilding, pollHtml, pollTimeline, remaining, mediaHtml,
+  cleanImage, prepareAndUpload, uploadFile, drawFlashList, analyze, openEditor,
+  pollOrder, votePow,
+});
