@@ -1259,7 +1259,7 @@ async function viewModo() {
   // Le code des onglets modo déplacés vit dans ui/mod.js, chargé seulement après connexion (jamais envoyé aux visiteurs anonymes).
   if (!isTerrain) { try { await ensureModUI(); } catch (e) { $('#mod').innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; } }
   // Fonctions encore dans le code public (à déplacer peu à peu vers ui/mod.js) :
-  const localFn = { story: modStory, votes: modPolls, situation: modSituation };
+  const localFn = { story: modStory, situation: modSituation };
   const fn = (window.MODV && window.MODV[state.modTab]) || localFn[state.modTab] || modSituation;
   try { await fn($('#mod')); } catch (err) { if (/Connexion modo/.test(err.message)) { state.me = null; render(true); } else toast(err.message); }
 }
@@ -2367,48 +2367,8 @@ function remaining(iso) {
   return `${Math.floor(s / 86400)} j ${Math.floor((s % 86400) / 3600)} h`;
 }
 // Analyse de l'ordre d'arrivée : paquets de 100 bulletins, en couleurs par choix ; le bloc d'un robot ressort d'un seul tenant
-async function pollOrder(id, p) {
-  const r = await act(() => api(`/api/mod/polls/${id}/order`));
-  const colors = ['#0a84ff', '#ff453a', '#30d158', '#ff9f0a', '#bf5af2', '#64d2ff', '#ffd60a', '#ac8e68'];
-  const sel = new Set(r.flagged);
-  sheet(`<h3>🤖 Votes de robot ? · ${esc(p.question)}</h3>
-    <p class="muted small">Chaque barre = ${r.pack} votes, dans l’ordre où ils sont arrivés (${r.total} au total). De vrais votes sont mélangés ; un robot laisse un <b>long bloc d’une seule couleur</b>. ${r.flagged.length ? `<b>${r.flagged.length} paquet(s) suspect(s) déjà sélectionné(s)</b> (au moins 5 paquets d’affilée à 95 % sur le même choix).` : 'Aucun bloc suspect détecté automatiquement.'} Touche une barre pour l’ajouter ou l’enlever.</p>
-    <div class="legend small">${p.options.map((o, i) => `<span><i style="background:${colors[i % 8]}"></i>${esc(o)}</span>`).join('')}</div>
-    <div class="ord" id="ord">${r.packs.map((c, i) => { const n = c.reduce((a, b) => a + b, 0) || 1; return `<button type="button" class="ord-bar ${sel.has(i) ? 'sel' : ''}" data-i="${i}" title="Votes ${i * r.pack + 1} à ${i * r.pack + c.reduce((a, b) => a + b, 0)}">${c.map((v, j) => (v ? `<span style="height:${(v / n) * 100}%;background:${colors[j % 8]}"></span>` : '')).join('')}</button>`; }).join('')}</div>
-    <p class="small" id="ordsum"></p>
-    <button class="btn red" id="ordgo" style="width:100%">Supprimer les votes sélectionnés</button>
-    <p class="faint small">Pense à vérifier : un vrai moment de forte affluence peut aussi pencher d’un côté. Supprimé = définitif (noté dans le journal).</p>`, (root, close) => {
-    const sum = () => {
-      const counts = p.options.map(() => 0);
-      for (const i of sel) r.packs[i].forEach((v, j) => (counts[j] += v));
-      const n = counts.reduce((a, b) => a + b, 0);
-      $('#ordsum', root).innerHTML = n ? `Sélection : <b>${n} votes</b> (${p.options.map((o, j) => `${esc(o)} ${counts[j]}`).join(' · ')}). Après suppression : ${p.options.map((o, j) => `${esc(o)} ${p.counts[j] - counts[j]}`).join(' · ')}.` : 'Rien de sélectionné.';
-      $('#ordgo', root).disabled = !n;
-    };
-    sum();
-    $('#ord', root).onclick = (e) => { const b = e.target.closest('[data-i]'); if (!b) return; const i = Number(b.dataset.i); sel.has(i) ? sel.delete(i) : sel.add(i); b.classList.toggle('sel', sel.has(i)); sum(); };
-    $('#ordgo', root).onclick = async () => {
-      if (!confirm('Supprimer définitivement ces votes ?')) return;
-      const out = await act(() => api(`/api/mod/polls/${id}/purge-order`, { method: 'POST', body: { packs: [...sel], seen: r.total } }));
-      toast(`🤖 ${out.n} vote(s) de robot supprimé(s).`); close(); render(true);
-    };
-  });
-}
 
 // Graphique des votes par tranche de 10 min (côté modo) : un pic anormal = bourrage probable, à retirer en 2 taps
-function pollTimeline(p) {
-  const t = p.timeline;
-  if (!t || !t.slots.length) return t?.undated ? `<p class="faint small">${t.undated} vote(s) d’avant le suivi horaire (non datés).</p>` : '';
-  const max = Math.max(...t.slots.map((x) => x[1]));
-  const sorted = t.slots.map((x) => x[1]).sort((a, b) => a - b);
-  const median = sorted[Math.floor(sorted.length / 2)] || 1;
-  const hm = (m) => new Date(m * 60e3).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' });
-  return `<div class="tl"><div class="faint small">Votes par tranche de 10 min${t.undated ? ` · ${t.undated} non datés (avant le suivi)` : ''}${p.purged ? ` · ${p.purged} déjà retirés` : ''} · touche une barre pour la sélectionner</div>
-    <div class="tl-bars">${t.slots.map(([m, n]) => `<button type="button" class="tl-bar ${n >= 50 && n > median * 5 ? 'peak' : ''}" data-a="slot" data-slot="${m}" data-n="${n}" title="${hm(m)} : ${n} vote(s)" style="height:${Math.max(4, Math.round((n / max) * 60))}px"></button>`).join('')}</div>
-    <div class="tl-axis faint small"><span>${hm(t.slots[0][0])}</span><span>${hm(t.slots[t.slots.length - 1][0] + t.slot)}</span></div>
-    ${t.slots.some(([, n]) => n >= 50 && n > median * 5) ? '<div class="small" style="color:var(--orange)">⚠ Pic anormal en orange : bourrage probable.</div>' : ''}
-    <button type="button" class="btn small red ghost" data-a="purgeslots" hidden></button></div>`;
-}
 const POLL_RESULTS = [['live', 'Visibles par tout le monde pendant le vote'], ['voted', 'Visibles seulement après avoir voté'], ['after', 'Cachés jusqu’à la clôture']];
 function pollHtml(p) {
   const voted = p.myVote !== null;
@@ -2663,72 +2623,6 @@ function openTestimonyForm(cats) {
 }
 
 // ----- Modos : votes -----
-async function modPolls(el) {
-  const polls = (await api('/api/mod/polls')).filter((x) => inScope(x));
-  el.innerHTML = `
-    <div class="card"><form class="form" id="pf">
-      <div class="kicker">Nouveau vote anonyme · ${esc(siteShort(state.modSite))}</div>
-      <div class="field"><label>Qui lance ce vote (facultatif, affiché au-dessus)</label><input type="text" id="pag" maxlength="80" value="${esc(store.get('l1-ag2-' + state.modSite, ''))}" placeholder="Ex : Collectif ${esc(siteShort(state.modSite))} en lutte"></div>
-      <div class="field"><label>Question</label><input type="text" id="pq" maxlength="200" required placeholder="Faut-il reconduire le blocus demain ?"></div>
-      <div class="field"><label>Précision (facultatif)</label><input type="text" id="pd" maxlength="600"></div>
-      <div class="field"><label>Choix (un par ligne, 2 à 8)</label><textarea id="po" required>Pour\nContre\nAbstention</textarea></div>
-      <div class="grid cols-2">
-        <div class="field"><label>Durée</label><select id="pdur"><option value="1h">1 heure</option><option value="3h">3 heures</option><option value="6h">6 heures</option><option value="12h">12 heures</option><option value="24h" selected>24 heures</option><option value="48h">48 heures</option><option value="72h">3 jours</option><option value="7j">7 jours</option><option value="custom">Date précise…</option></select></div>
-        <div class="field" id="pcw" hidden><label>Clôture le</label><input type="datetime-local" id="pc"></div>
-      </div>
-      <div class="field"><label>Résultats</label><select id="pres">${POLL_RESULTS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></div>
-      <button class="btn">Lancer le vote</button></form></div>
-    <h2 class="section">Votes</h2>
-    ${polls.map((p) => `<div class="card" data-id="${esc(p.id)}">
-      <div class="chips"><span class="pill ${p.open ? 'red' : 'grey'}">${p.open ? 'En cours · ' + esc(remaining(p.closesAt)) : 'Clos'}</span>${p.hidden ? '<span class="pill grey">masqué</span>' : ''}<span class="pill grey">${p.total} votes</span></div>
-      <div class="faint small" style="margin-top:6px">${esc(p.ag || '')} · ${esc(p.org)}</div>
-      <b style="display:block;margin:4px 0 8px">${esc(p.question)}</b>
-      ${p.options.map((o, i) => `<div class="kv"><span>${esc(o)}</span><b class="mono">${p.counts[i]}${p.suspectCounts?.[i] ? ` <span class="faint">(dont ${p.suspectCounts[i]} suspects)</span>` : ''}</b></div>`).join('')}
-      ${p.botRemoved ? `<div class="card" style="background:rgba(191,90,242,.12);margin-top:8px">🤖 <b>${p.botRemoved} vote(s) de robot retirés automatiquement</b>${(p.botLog || []).map((l) => `<div class="faint small">${esc(ago(l.at))} · ${l.n} · ${esc(l.why)}</div>`).join('')}<button class="btn small ghost" data-a="restorebot" style="margin-top:6px">Annuler (remettre ces votes)</button></div>` : ''}
-      ${pollTimeline(p)}
-      ${p.total >= 500 ? '<button class="btn small ghost" data-a="order" style="margin-top:8px">🤖 Chercher des votes de robot (ordre d’arrivée)</button>' : ''}
-      ${p.suspect ? `<div class="card" style="background:rgba(255,159,10,.12);margin-top:8px">⚠ <b>${p.suspect} vote(s) suspect(s)</b> : téléphones tout neufs arrivés en rafale depuis un même réseau (bourrage possible). <button class="btn small ghost" data-a="purge">Retirer les votes suspects</button></div>` : ''}
-      <div class="btn-row" style="margin-top:8px"><button class="btn small ghost" data-a="link">🔗 Lien</button>${p.open ? '<button class="btn small ghost" data-a="story">📸 Story du vote</button>' : ''}${p.total ? '<button class="btn small ghost" data-a="res">📊 Story résultats</button>' : ''}${p.open ? '<button class="btn small red" data-a="close">Clore maintenant</button>' : ''}<button class="btn small ghost" data-a="extend">+24 h</button><button class="btn small ghost" data-a="hide">${p.hidden ? 'Afficher' : 'Masquer'}</button><button class="btn small ghost" data-a="del">Supprimer</button></div>
-      <div class="field" style="margin-top:8px"><label>Résultats</label><select data-a="results">${POLL_RESULTS.map(([k, l]) => `<option value="${k}" ${k === (p.results || 'live') ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-    </div>`).join('') || '<div class="empty">Aucun vote.</div>'}`;
-  $('#pdur').onchange = (e) => ($('#pcw').hidden = e.target.value !== 'custom');
-  $('#pf').onsubmit = async (e) => {
-    e.preventDefault();
-    const custom = $('#pdur').value === 'custom';
-    await act(() => api('/api/mod/polls', { method: 'POST', body: { ag: (store.set('l1-ag2-' + state.modSite, $('#pag').value), $('#pag').value), question: $('#pq').value, description: $('#pd').value, options: $('#po').value.split('\n'), duration: $('#pdur').value, closesAt: custom && $('#pc').value ? new Date($('#pc').value).toISOString() : undefined, results: $('#pres').value } }), 'Vote lancé.');
-    render(true);
-  };
-  el.onchange = async (e) => {
-    if (e.target.dataset.a !== 'results') return;
-    const id = e.target.closest('[data-id]')?.dataset.id;
-    if (id) await act(() => api(`/api/mod/polls/${id}`, { method: 'PUT', body: { results: e.target.value } }), 'Affichage des résultats modifié.');
-  };
-  el.onclick = async (e) => {
-    const a = e.target.dataset.a;
-    const card = e.target.closest('[data-id]');
-    if (!a || !card || a === 'results') return;
-    const id = card.dataset.id;
-    const p = polls.find((x) => x.id === id);
-    if (a === 'link') { try { await navigator.clipboard.writeText(voteUrl(p)); toast('Lien du vote copié : colle-le dans un sticker « Lien » de ta story.'); } catch { prompt('Lien du vote :', voteUrl(p)); } return; }
-    if (a === 'story') return openStory(`vote:${id}`);
-    if (a === 'res') return openStory(`res:${id}`);
-    if (a === 'close' && confirm('Clore ce vote maintenant ?')) await act(() => api(`/api/mod/polls/${id}`, { method: 'PUT', body: { close: true } }), 'Clos.');
-    if (a === 'extend') await act(() => api(`/api/mod/polls/${id}`, { method: 'PUT', body: { extendHours: 24 } }), 'Prolongé de 24 h.');
-    if (a === 'slot') { e.target.classList.toggle('sel'); const sel = $$('.tl-bar.sel', card); const n = sel.reduce((s, x) => s + Number(x.dataset.n), 0); const btn = $('[data-a="purgeslots"]', card); btn.hidden = !sel.length; btn.textContent = `Retirer les ${n} vote(s) de ${sel.length} tranche(s)`; return; }
-    if (a === 'order') return pollOrder(id, p);
-    if (a === 'restorebot' && confirm('Remettre tous les votes retirés comme « robot » ?')) { const r = await act(() => api(`/api/mod/polls/${id}/restore-bot`, { method: 'POST' })); toast(`${r.n} vote(s) remis.`); }
-    if (a === 'purgeslots') {
-      const slots = $$('.tl-bar.sel', card).map((x) => Number(x.dataset.slot));
-      if (!slots.length || !confirm('Retirer tous les votes de ces tranches horaires ? (vrais et faux : à utiliser sur un pic de bourrage)')) return;
-      const r = await act(() => api(`/api/mod/polls/${id}/purge-window`, { method: 'POST', body: { slots } }));
-      toast(`${r.n} vote(s) retiré(s).`);
-    }
-    if (a === 'purge' && confirm('Retirer les votes suspects de ce vote ? Les vrais votes restent.')) { const r = await act(() => api(`/api/mod/polls/${id}/purge-suspects`, { method: 'POST' })); toast(`${r.n} vote(s) suspect(s) retiré(s).`); }
-    if (a === 'hide') await act(() => api(`/api/mod/polls/${id}`, { method: 'PUT', body: { hidden: !p.hidden } }), 'OK.');
-    if (a === 'del' && confirm('Supprimer ce vote et ses résultats ?')) await act(() => api(`/api/mod/polls/${id}`, { method: 'DELETE' }), 'Supprimé.');
-    render(true);
-  };
-}
 
 // ----- Modos : blog -----
 
@@ -3648,9 +3542,9 @@ Object.assign(window, {
   $, $$, esc, api, act, fmt, hhmm, ago, icon, store, toast, sheet, view, route,
   state, render, applyScope, scopeSite, allSitesBox, siteList, siteShort,
   defaultSite, unified, showUndo, applyChanges, buildingIndex, parseQuick,
-  openStory, editBuilding, pollHtml, pollTimeline, remaining, mediaHtml,
+  openStory, editBuilding, pollHtml, remaining, mediaHtml, voteUrl, POLL_RESULTS,
   cleanImage, prepareAndUpload, uploadFile, analyze, openEditor,
-  pollOrder, votePow, refresh, DEMAND_STATUS, telegramCard,
+  votePow, refresh, DEMAND_STATUS, telegramCard,
   openSnap, reachText, inScope, linkify, dayLabel,
   EVENT_TYPE, ALL_SITES, ENT_KIND, shrinkPhoto,
 });
