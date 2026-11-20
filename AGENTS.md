@@ -196,6 +196,13 @@ PWA gratuite « Lyon 1 · La Doua au courant » (anciennement « La Doua en lutt
 - Données personnelles : rien d'identifiant en public, cookies anonymes, pas de secrets dans le dépôt (variables Render).
 
 ## Journal des décisions
+- 2026-11-20 : Render suspendu (« Monthly Quota Exceeded » : heures gratuites du mois épuisées, sûrement à cause du
+  service en double du Blueprint). L'admin a ajouté une carte (facturation ~0,15 €/Go). Économie de données faite :
+  `/api/state` renvoie un ETag STABLE (le compteur `online`, qui bouge sans cesse et est déjà poussé par le SSE, est
+  sorti du calcul de l'empreinte) + `Cache-Control: no-cache` → « 304 Non modifié » quand rien n'a changé ; le service
+  worker envoie l'`If-None-Match` et réutilise sa copie sur 304 (plus de retéléchargement inutile de l'état). Les
+  rafraîchissements rapprochés sont regroupés (scheduleRefresh 250 ms → 1500 ms) : une rafale de changements = 1 seul
+  téléchargement par téléphone. Garder UN SEUL service Render et déconnecter le Blueprint « Lyon1 » (sinon re-doublon).
 - 2026-11-20 : chat, photos éphémères « 1 vue » : faille corrigée. Sans cookie d'appareil établi, chaque requête
   recevait une identité neuve → la photo pouvait être revue à l'infini. Désormais `GET /api/chat/photo/:id` refuse (428)
   un appareil fabriqué à l'instant (`req.deviceMinted`, posé dans le middleware quand aucun cookie n'est reçu) ; l'app

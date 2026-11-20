@@ -2638,6 +2638,8 @@ async function refresh() {
   setOnline(state.raw.online);
 }
 let refreshTimer = null;
+// On attend un peu avant de retélécharger l'état : plusieurs changements rapprochés (un·e modo qui met à jour
+// plusieurs bâtiments, la remise à zéro de 22 h…) ne provoquent alors qu'UN seul téléchargement par téléphone.
 function scheduleRefresh() {
   clearTimeout(refreshTimer);
   refreshTimer = setTimeout(async () => {
@@ -2647,7 +2649,7 @@ function scheduleRefresh() {
     if (r === 'modo' && state.me) { renderNav(); renderAlertBar(); if (state.me.role === 'terrain') { if (!$('.sheet') && !$('.cam') && !view().contains(document.activeElement)) render(true); else state.terrainStale = true; return; } if (state.modTab === 'situation') { window.drawTiles?.(); const h = $('#bhint'); if (h && state.data.blocus.auto) h.textContent = `Automatique : le titre suit les bâtiments (actuellement « ${BLOCUS[blocusNow(state.data.blocus)]} »).`; } return; }
     if ($('.sheet') || $('.cam') || view().contains(document.activeElement)) return;
     render();
-  }, 250);
+  }, 1500);
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && state.raw) scheduleRefresh(); });
 function connectLive() {

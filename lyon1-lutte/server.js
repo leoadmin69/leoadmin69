@@ -231,7 +231,7 @@ app.post('/api/hit', (req, res) => {
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
 app.get('/api/state', (req, res) => {
-  res.json({
+  const payload = {
     defaultSite: DEFAULT_SITE,
     sites: db.sites.map(({ id, name, short }) => ({ id, name, short })),
     siteStatus: Object.fromEntries(db.sites.map((x) => { const st = db.siteStatus[x.id] || {}; return [x.id, { ...st, effective: effectiveBlocus(x.id), auto: !st.state || ['auto', 'inconnu'].includes(st.state) }]; })),
@@ -261,7 +261,17 @@ app.get('/api/state', (req, res) => {
     droitsPublished: !!db.pages?.droits?.published,
     mailEnabled: mailEnabled(),
     aiEnabled: aiEnabled(),
-  });
+  };
+  // ETag + revalidation : si l'état n'a pas changé, le navigateur reçoit « 304 » (quelques octets) au lieu de
+  // retélécharger tout l'état. Grosse économie de données quand beaucoup de monde est connecté. Le nombre de
+  // personnes en ligne (online) change en permanence et est déjà poussé en direct par le SSE : on le sort du calcul
+  // de l'ETag pour que le 304 fonctionne vraiment (sinon l'empreinte changerait à chaque arrivée/départ).
+  const body = JSON.stringify(payload);
+  const etag = 'W/"' + crypto.createHash('sha1').update(JSON.stringify({ ...payload, online: 0 })).digest('base64').slice(0, 27) + '"';
+  res.set('Cache-Control', 'no-cache');
+  res.set('ETag', etag);
+  if (req.headers['if-none-match'] === etag) return res.status(304).end();
+  res.type('application/json').send(body);
 });
 app.get('/api/reports/:id', (req, res) => {
   const r = db.reports.find((x) => x.id === req.params.id && x.status === 'published');

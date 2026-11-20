@@ -1,6 +1,6 @@
 // Service worker : installation sur l'écran d'accueil, ouverture même sans réseau (dernières infos connues),
 // et réception des notifications (bâtiment bloqué, alerte, AG…).
-const VERSION = 'v82'; // à changer à chaque mise à jour importante : force les téléphones à recharger l'app
+const VERSION = 'v83'; // à changer à chaque mise à jour importante : force les téléphones à recharger l'app
 const SHELL = `shell-${VERSION}`;
 const DATA = 'data';
 const SHELL_FILES = ['/', '/style.css', '/app.js', '/nicks.js', '/emotes.js', '/vendor/qrcode.js', '/pow-worker.js', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/badge-96.png'];
@@ -19,9 +19,21 @@ self.addEventListener('fetch', (e) => {
   if (url.origin !== location.origin) return;
   // Direct (SSE), médias, espace modo : jamais de cache
   if (url.pathname === '/api/live' || url.pathname.startsWith('/media/') || url.pathname.startsWith('/api/mod') || url.pathname.startsWith('/api/auth')) return;
-  // Dernier état connu : réseau d'abord, sinon la copie (utile sans réseau dans un amphi ou une manif)
+  // Dernier état connu : réseau d'abord, sinon la copie (utile sans réseau dans un amphi ou une manif).
+  // Économie de données : on envoie l'ETag de la dernière copie ; si rien n'a changé, le serveur répond
+  // « 304 » (quelques octets) et on réutilise la copie — au lieu de retélécharger tout l'état à chaque événement.
   if (url.pathname === '/api/state') {
-    e.respondWith(fetch(req).then((res) => { const copy = res.clone(); caches.open(DATA).then((c) => c.put('/api/state', copy)); return res; }).catch(() => caches.match('/api/state')));
+    e.respondWith((async () => {
+      const c = await caches.open(DATA);
+      const cached = await c.match('/api/state');
+      const etag = cached && cached.headers.get('ETag');
+      try {
+        const res = await fetch(req, { headers: etag ? { 'If-None-Match': etag } : {} });
+        if (res.status === 304 && cached) return cached;
+        if (res.ok) c.put('/api/state', res.clone());
+        return res;
+      } catch { return cached || Response.error(); }
+    })());
     return;
   }
   if (url.pathname.startsWith('/api/')) return;
