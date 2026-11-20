@@ -1,9 +1,9 @@
 // Service worker : installation sur l'écran d'accueil, ouverture même sans réseau (dernières infos connues),
 // et réception des notifications (bâtiment bloqué, alerte, AG…).
-const VERSION = 'v71'; // à changer à chaque mise à jour importante : force les téléphones à recharger l'app
+const VERSION = 'v72'; // à changer à chaque mise à jour importante : force les téléphones à recharger l'app
 const SHELL = `shell-${VERSION}`;
 const DATA = 'data';
-const SHELL_FILES = ['/', '/style.css', '/app.js', '/nicks.js', '/emotes.js', '/vendor/qrcode.js', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/badge-96.png'];
+const SHELL_FILES = ['/', '/style.css', '/app.js', '/nicks.js', '/emotes.js', '/vendor/qrcode.js', '/pow-worker.js', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/badge-96.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(SHELL).then((c) => c.addAll(SHELL_FILES.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));

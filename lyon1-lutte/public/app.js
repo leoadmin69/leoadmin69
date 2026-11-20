@@ -2928,9 +2928,9 @@ async function viewTestimonies() {
     <div class="card" style="border-color:rgba(255,69,58,0.4)">
       <div class="kicker" style="color:var(--red)">Avant de déposer</div>
       <ul class="safe">
-        <li>🕶️ <b>Anonyme</b> : pas de compte, ton IP n’est pas enregistrée.</li>
+        <li>🕶️ <b>Anonyme</b> : pas de compte, le site n’enregistre pas ton IP (l’hébergeur garde, comme partout, des journaux techniques temporaires). Pour des preuves très sensibles, passe plutôt par une legal team ou un syndicat sur Signal.</li>
         <li>🛡️ <b>Relu par les modos</b> avant toute publication. Rien n’est public automatiquement.</li>
-        <li>📍 Les <b>métadonnées</b> des photos et vidéos (position GPS, modèle de téléphone, heure) sont <b>supprimées</b>.</li>
+        <li>📍 Les <b>métadonnées</b> (position GPS, modèle de téléphone, heure) sont retirées par le serveur. Une photo ou vidéo dont elles n’ont pas pu être retirées n’est <b>jamais publiée</b> (seuls les modos la voient).</li>
         <li>👤 Évite les <b>visages reconnaissables</b> d’autres manifestant·es : les modos peuvent publier ton texte sans tes images.</li>
         <li>⚖️ Pour porter plainte, <b>garde l’original</b> de tes fichiers sur ton téléphone et note la date, l’heure et le lieu exacts.</li>
       </ul>
@@ -3133,7 +3133,7 @@ async function modTestimonies(el) {
         ${t.contact ? `<div class="notice" style="margin-top:8px">📇 Contact privé : <b>${esc(t.contact)}</b> <button class="btn small ghost" data-a="rmcontact">Effacer</button></div>` : ''}
         ${t.media.length ? `<div class="media-grid" style="margin-top:8px">${t.media.map((m) => `<div><div class="media">${m.kind === 'video' ? `<video src="${esc(m.url)}" controls preload="metadata" playsinline></video>` : `<img src="${esc(m.url)}" alt="">`}</div>
           <label class="check small"><input type="checkbox" data-m="${esc(m.id)}" ${m.public || t.status !== 'published' ? 'checked' : ''}> publier</label>
-          <div class="small ${m.cleaned ? 'faint' : ''}" style="${m.cleaned ? '' : 'color:var(--orange)'}">${m.cleaned ? '✓ métadonnées retirées' : '⚠️ métadonnées non retirées'}</div>
+          <div class="small ${m.cleaned ? 'faint' : ''}" style="${m.cleaned ? '' : 'color:var(--orange)'}">${m.cleaned ? '✓ métadonnées retirées' : '⚠️ métadonnées non retirées : ne sera pas publié'}</div>
           <button class="btn small ghost" data-rm="${esc(m.id)}">Supprimer le fichier</button></div>`).join('')}</div>` : ''}
         <label class="check"><input type="checkbox" data-f="sensitive" ${t.sensitive !== false ? 'checked' : ''}> Flouter les médias (contenu sensible)</label>
         <div class="btn-row">

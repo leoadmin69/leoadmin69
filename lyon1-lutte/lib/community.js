@@ -677,7 +677,8 @@ export function registerCommunity(app, mod, ctx) {
     for (const id of t.media) {
       const m = db.media.find((x) => x.id === id);
       if (!m) continue;
-      if (publishMedia) m.public = t.status === 'published' && publishMedia.includes(id);
+      // un fichier dont les métadonnées n'ont pas pu être retirées n'est JAMAIS rendu public
+      if (publishMedia) m.public = t.status === 'published' && publishMedia.includes(id) && m.cleaned === true;
       else if (t.status !== 'published') m.public = false;
     }
     save(); audit(req.mod, `témoignage ${t.status}`, t.text.slice(0, 60), siteOf(t)); broadcast('testimonies', {});

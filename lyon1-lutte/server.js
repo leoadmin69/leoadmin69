@@ -272,7 +272,8 @@ const publicPhoto = (p) => (p ? { id: p.id, thumb: p.gone ? '' : p.thumb, gone: 
 const publicMsg = (m) => ({ id: m.id, channel: m.channel, nick: m.nick, text: m.text, at: m.at, mod: m.mod || null, reply: m.reply || null, reactions: reactCounts(m), photo: publicPhoto(m.photo) });
 
 // Liste noire (déjà normalisée) envoyée à l'app : le message est bloqué sur le téléphone avant même d'être envoyé.
-app.get('/api/chat-rules', (req, res) => res.json({ words: bannedList() }));
+// seuls les mots de base partent au téléphone (pré-contrôle) ; les mots ajoutés par les modos (surnoms visés…) restent sur le serveur
+app.get('/api/chat-rules', (req, res) => res.json({ words: [...new Set(BANNED_BASE.map(normalizeWord).filter(Boolean))] }));
 app.get('/api/chat/:channel', (req, res) => {
   const list = db.messages.filter((m) => m.channel === req.params.channel && !m.hidden).slice(-150).map(publicMsg);
   res.json(list);
