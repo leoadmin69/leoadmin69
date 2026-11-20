@@ -1259,7 +1259,7 @@ async function viewModo() {
   // Le code des onglets modo déplacés vit dans ui/mod.js, chargé seulement après connexion (jamais envoyé aux visiteurs anonymes).
   if (!isTerrain) { try { await ensureModUI(); } catch (e) { $('#mod').innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; } }
   // Fonctions encore dans le code public (à déplacer peu à peu vers ui/mod.js) :
-  const localFn = { ensemble: modEnsemble, story: modStory, instagram: modInstagram, votes: modPolls, blog: modBlog, temoignages: modTestimonies, entraide: modEntraide, droits: modDroits, situation: modSituation, agenda: modAgenda, cr: modReports, flash: modFlash, chat: modChat, comptes: modAccounts };
+  const localFn = { ensemble: modEnsemble, story: modStory, instagram: modInstagram, votes: modPolls, blog: modBlog, temoignages: modTestimonies, situation: modSituation, agenda: modAgenda, cr: modReports, comptes: modAccounts };
   const fn = (window.MODV && window.MODV[state.modTab]) || localFn[state.modTab] || modSituation;
   try { await fn($('#mod')); } catch (err) { if (/Connexion modo/.test(err.message)) { state.me = null; render(true); } else toast(err.message); }
 }
@@ -2414,78 +2414,10 @@ function openEditor(r) {
   };
 }
 
-function modFlash(el) {
-  el.innerHTML = `
-    <div class="card"><form class="form" id="ff">
-      <div class="kicker">Flash info (affiché en haut de l’accueil + fil live)</div>
-      <div class="segmented" id="fl"><button type="button" data-l="alerte">🚨 Alerte</button><button type="button" data-l="info" class="on">ℹ️ Info</button><button type="button" data-l="ok">✅ Bonne nouvelle</button></div>
-      <textarea id="ft" maxlength="280" required placeholder="Ex : Nasse en cours place Bellecour, évitez le secteur."></textarea>
-      <div class="field"><label>Visible sur l’accueil pendant</label>
-        <div class="segmented ttl-seg" id="fttl">${[[1, '1 h'], [6, '6 h'], [24, '24 h'], [72, '3 jours'], [0, 'Sans limite']].map(([v, l]) => `<button type="button" data-ttl="${v}" class="${v === 24 ? 'on' : ''}">${l}</button>`).join('')}</div>
-        <p class="faint small" style="margin:4px 2px 0">Ensuite, il disparaît tout seul de l’accueil (il reste ici, dans l’historique).</p></div>
-      ${state.me.role === 'admin' ? allSitesBox('fall') : ''}
-      ${state.me.role === 'admin' ? `<label class="check official-box"><input type="checkbox" id="foff"> <span>📢 <b>Annonce officielle</b> : notification sur <b>tous les téléphones abonnés</b> (tous sites, tous réglages) + Telegram, signée « Administration du site »</span></label>` : ''}
-      <button class="btn">Publier</button></form></div>
-    <h2 class="section">Flash publiés</h2>
-    <div class="list" id="flist"><div class="empty">Chargement…</div></div>`;
-  let level = 'info';
-  let ttl = 24;
-  $('#fttl').onclick = (e) => { const v = e.target.closest('[data-ttl]')?.dataset.ttl; if (v !== undefined) { ttl = Number(v); $$('#fttl button').forEach((b) => b.classList.toggle('on', b.dataset.ttl === v)); } };
-  drawFlashList();
-  $('#fl').onclick = (e) => { if (e.target.dataset.l) { level = e.target.dataset.l; $$('#fl button').forEach((b) => b.classList.toggle('on', b === e.target)); } };
-  if ($('#foff')) $('#foff').onchange = () => { const on = $('#foff').checked; if ($('#fall')) { $('#fall').checked = on || $('#fall').checked; $('#fall').disabled = on; } $('#ff .btn:not(.ghost)').textContent = on ? '📢 Envoyer à tout le monde' : 'Publier'; };
-  $('#ff').onsubmit = async (e) => { e.preventDefault(); const all = $('#fall')?.checked; const official = $('#foff')?.checked;
-    if (official && !confirm('Envoyer cette annonce en notification sur TOUS les téléphones abonnés et sur Telegram, au nom de l’administration du site ?')) return;
-    if (!official && all && !confirm(`Publier ce flash pour TOUS les sites${level === 'alerte' ? ' (alerte : notification à tout le monde)' : ''} ?`)) return;
-    const fr = await act(() => api('/api/mod/flashes', { method: 'POST', body: { level, ttl, text: $('#ft').value, ...(official ? { official: true } : all ? { site: ALL_SITES } : {}) } }));
-    toast(`✅ Publié${reachText(fr.reach)}`); await refresh(); render(true); };
-  el.querySelector('.list').onclick = async (e) => {
-    const id = e.target.closest('[data-del]')?.dataset.del;
-    if (id) { if (!confirm('Supprimer ce flash ?')) return; await act(() => api(`/api/mod/flashes/${id}`, { method: 'DELETE' }), 'Supprimé.'); await refresh(); return drawFlashList(); }
-    const ex = e.target.closest('[data-ext]');
-    if (ex) { await act(() => api(`/api/mod/flashes/${ex.dataset.id}`, { method: 'PUT', body: { ttl: Number(ex.dataset.ext) } }), Number(ex.dataset.ext) ? `Visible ${ex.dataset.ext} h de plus.` : 'Retiré de l’accueil.'); await refresh(); drawFlashList(); }
-  };
-}
 // Historique des flash : en ligne (avec le temps restant) puis expirés
-async function drawFlashList() {
-  const box = $('#flist');
-  if (!box) return;
-  let list;
-  try { list = (await api('/api/mod/flashes')).filter((f) => inScope(f)); } catch (e) { box.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
-  const live = (f) => !f.expiresAt || new Date(f.expiresAt).getTime() > Date.now();
-  const left = (f) => { const min = Math.max(1, Math.ceil((new Date(f.expiresAt).getTime() - Date.now()) / 60e3)); const h = Math.floor(min / 60), m = min % 60; return h >= 24 ? `${Math.round(min / 1440)} j` : h ? `${h} h${m ? ` ${String(m).padStart(2, '0')}` : ''}` : `${m} min`; };
-  const row = (f) => `<div class="row ${live(f) ? '' : 'expired'}"><span>${f.level === 'alerte' ? '🚨' : f.level === 'ok' ? '✅' : 'ℹ️'}</span><div class="grow"><div>${esc(f.text)}</div>
-      <div class="sub">${esc(ago(f.at))} · ${esc(f.org)} ${f.site === ALL_SITES ? '· 🌍 tous les sites' : ''} · ${live(f) ? (f.expiresAt ? `<b class="ttl-left">⏳ encore ${left(f)}</b>` : '<b class="ttl-left">∞ sans limite</b>') : '<b>⌛ expiré</b>'}</div>
-      <div class="btn-row ttl-acts">${live(f) ? `<button class="btn small ghost" data-ext="24" data-id="${esc(f.id)}">+24 h</button><button class="btn small ghost" data-ext="1" data-id="${esc(f.id)}" title="Retirer de l’accueil dans 1 h">Finir dans 1 h</button>` : `<button class="btn small ghost" data-ext="24" data-id="${esc(f.id)}">↺ Remettre 24 h</button>`}</div></div>
-    <button class="icon-btn" data-del="${esc(f.id)}" aria-label="Supprimer">${icon('trash', 18)}</button></div>`;
-  const on = list.filter(live), off = list.filter((f) => !live(f));
-  box.innerHTML = (on.length ? on.map(row).join('') : '<div class="empty">Aucun flash en ligne.</div>') + (off.length ? `<div class="kicker" style="padding:12px 16px 4px">Expirés (plus sur l’accueil)</div>${off.slice(0, 30).map(row).join('')}` : '');
-}
 
 
 
-async function modChat(el) {
-  const [list, bl] = await Promise.all([api('/api/mod/chat/reported'), api('/api/mod/chat-banned')]);
-  el.innerHTML = `
-    <form class="card form" id="blf" style="margin-bottom:14px">
-      <div class="kicker">🚫 Liste noire du chat</div>
-      <p class="muted small" style="margin:6px 0">${bl.base} mots et expressions interdits sont déjà intégrés (gros mots, insultes, propos racistes, sexistes, LGBTphobes, validistes, menaces). Les messages qui en contiennent sont supprimés sur le téléphone avant d’être envoyés, et refusés par le serveur. Les variantes (majuscules, accents, s4l0pe, connnnard, s.a.l.o.p.e) sont reconnues. Ajoute ici d’autres mots ou expressions, un par ligne (surnoms visant quelqu’un, nouvelles insultes…).</p>
-      <div class="field"><textarea name="words" rows="4" placeholder="un mot ou une expression par ligne">${esc(bl.extra.join('\n'))}</textarea></div>
-      <button class="btn small">Enregistrer la liste</button>
-    </form>`
-    + `
-    <p class="muted small">Messages signalés ou masqués. Un message est masqué automatiquement après 3 signalements. Sur le chat public, tes messages s’affichent avec le badge de ton organisation.</p>
-    <div class="list">${list.map((m) => `<div class="row"><div class="grow"><div class="title">${esc(m.nick)} <span class="faint small">#${esc(m.channel)} · ${esc(ago(m.at))}</span></div><div>${m.photo ? (m.photo.gone ? '📸 <i>photo expirée ou supprimée</i>' : `📸 Photo <button class="btn small ghost" data-modsnap="${esc(m.photo.id)}">Voir</button> <button class="btn small red" data-delsnap="${esc(m.id)}">Supprimer la photo</button>`) : ''}${esc(m.text)}</div><div class="sub">${m.reports} signalement(s) ${m.hidden ? '· <b style="color:var(--red)">masqué</b>' : ''}</div></div>
-      ${m.hidden ? `<button class="btn small ghost" data-restore="${esc(m.id)}">Rétablir</button>` : `<button class="btn small red" data-hide="${esc(m.id)}">Masquer</button>`}</div>`).join('') || '<div class="empty">Rien à modérer 👌</div>'}</div>`;
-  $('#blf').onsubmit = async (e) => { e.preventDefault(); const r = await act(() => api('/api/mod/chat-banned', { method: 'PUT', body: { words: e.target.words.value } }), 'Liste noire enregistrée.'); state.chatRules = null; e.target.words.value = r.extra.join('\n'); };
-  el.onclick = async (e) => {
-    if (e.target.dataset.modsnap) return openSnap(e.target.dataset.modsnap, true);
-    if (e.target.dataset.delsnap) { if (confirm('Supprimer définitivement cette photo ?')) { await act(() => api(`/api/mod/chat/${e.target.dataset.delsnap}?photo=delete`, { method: 'DELETE' }), 'Photo supprimée.'); render(true); } return; }
-    const h = e.target.dataset.hide; const r = e.target.dataset.restore;
-    if (h) { await act(() => api(`/api/mod/chat/${h}`, { method: 'DELETE' }), 'Masqué.'); render(true); }
-    if (r) { await act(() => api(`/api/mod/chat/${r}/restore`, { method: 'POST' }), 'Rétabli.'); render(true); }
-  };
-}
 
 async function modInstagram(el) {
   const cfg = await api('/api/mod/instagram');
@@ -3566,60 +3498,6 @@ function newEntraide(kind, cats) {
     };
   });
 }
-async function modEntraide(el) {
-  const all = (await api('/api/mod/entraide')).filter((a) => inScope(a));
-  const flagged = (a) => a.hidden || a.reports || a.repliesAll.some((r) => r.reports || r.hidden);
-  all.sort((a, b) => flagged(b) - flagged(a) || b.at.localeCompare(a.at));
-  el.innerHTML = `
-    <p class="muted small">Les annonces sont publiées tout de suite (sans numéro ni email, c’est bloqué automatiquement). Elles sont masquées dès 3 signalements : vérifie ici, puis rétablis ou supprime. Supprime toute annonce qui donne une adresse, vend quelque chose ou cible quelqu’un.</p>
-    ${all.map((a) => `
-      <div class="card" data-id="${esc(a.id)}" style="${flagged(a) ? 'border-color:rgba(255,159,10,0.5)' : ''}">
-        <div class="chips"><span class="pill ${ENT_KIND[a.kind][1]}">${ENT_KIND[a.kind][0]}</span><span class="pill grey">${esc(a.catLabel)}</span>${a.hidden ? '<span class="pill red">masquée</span>' : ''}${a.reports ? `<span class="pill orange">${a.reports} signalement(s)</span>` : ''}</div>
-        <div class="title" style="margin-top:6px">${esc(a.title)}</div>
-        ${a.text ? `<div class="desc">${linkify(a.text)}</div>` : ''}
-        <div class="faint small">${esc(a.nick)} · ${esc(ago(a.at))}</div>
-        ${a.repliesAll.map((r) => `<div class="ent-reply ${r.hidden ? 'off' : ''}" data-r="${esc(r.id)}"><b>${esc(r.nick)}</b> ${r.reports ? `<span class="pill orange">${r.reports}</span>` : ''} ${r.hidden ? '<span class="pill red">masquée</span>' : ''}<div>${esc(r.text)}</div>
-          <button class="linklike small" data-act="${r.hidden ? 'restore' : 'hide'}">${r.hidden ? 'Rétablir' : 'Masquer'}</button></div>`).join('')}
-        <div class="btn-row" style="margin-top:8px">
-          ${a.hidden ? '<button class="btn small green" data-act="restore">Rétablir</button>' : '<button class="btn small ghost" data-act="hide">Masquer</button>'}
-          <button class="btn small red" data-act="delete">Supprimer</button>
-        </div>
-      </div>`).join('') || '<div class="card empty">Aucune annonce.</div>'}`;
-  el.onclick = async (e) => {
-    const action = e.target.closest('[data-act]')?.dataset.act;
-    if (!action) return;
-    const id = e.target.closest('[data-id]').dataset.id;
-    const reply = e.target.closest('[data-r]')?.dataset.r;
-    if (action === 'delete' && !confirm('Supprimer définitivement cette annonce ?')) return;
-    await act(() => api(`/api/mod/entraide/${id}/moderate`, { method: 'POST', body: { action, reply } }), 'Fait.');
-    modEntraide(el);
-  };
-}
-async function modDroits(el) {
-  const p = await api('/api/mod/pages/droits');
-  el.innerHTML = `
-    <div class="card"><div class="kicker">⚖️ Page « ${esc(p.title)} » · ${p.published ? '<span style="color:var(--green)">publiée</span>' : '<span style="color:var(--orange)">brouillon, invisible du public</span>'}</div>
-      <p class="muted small">Un brouillon est déjà écrit. <b>Fais-le relire par tes syndicats ou ta legal team</b> avant de publier : une erreur sur les droits peut coûter cher à un·e étudiant·e. ${p.canEdit ? '' : 'Seul·e l’admin peut modifier et publier cette page : envoie-lui tes corrections.'}</p>
-      ${p.updatedAt ? `<p class="faint small">MAJ ${esc(ago(p.updatedAt))}${p.by ? ' par ' + esc(p.by) : ''}</p>` : ''}
-    </div>
-    ${p.canEdit ? `<form class="form card" id="dform" style="margin-top:12px">
-      <div class="field"><label>Titre</label><input type="text" name="title" maxlength="120" value="${esc(p.title)}"></div>
-      <div class="field"><label>Texte · « ## » titre, « - » puce, « > » encadré, **gras**</label><textarea name="body" style="min-height:420px;font-family:ui-monospace,Menlo,monospace">${esc(p.body)}</textarea></div>
-      <div class="btn-row"><button class="btn" data-pub="0">Enregistrer en brouillon</button><button class="btn green" data-pub="1">${p.published ? 'Mettre à jour (publié)' : 'Publier'}</button>${p.published ? '<button class="btn ghost" data-pub="-1">Dépublier</button>' : ''}</div>
-    </form>` : ''}
-    <h2 class="section">Aperçu</h2><article class="card prose droits">${p.html}</article>`;
-  if (!p.canEdit) return;
-  $('#dform').onsubmit = (e) => e.preventDefault();
-  $('#dform').onclick = async (e) => {
-    const v = e.target.closest('[data-pub]')?.dataset.pub;
-    if (v === undefined) return;
-    e.preventDefault();
-    const f = $('#dform');
-    if (v === '1' && !p.published && !confirm('La page a bien été relue par les syndicats / la legal team ?')) return;
-    await act(() => api('/api/mod/pages/droits', { method: 'PUT', body: { title: f.title.value, body: f.body.value, ...(v === '0' ? {} : { published: v === '1' }) } }), v === '1' ? 'Page publiée.' : v === '-1' ? 'Page dépubliée.' : 'Brouillon enregistré.');
-    modDroits(el);
-  };
-}
 
 // =====================================================================
 // Charte du chat + liste noire (vérifiée avant l'envoi)
@@ -4083,6 +3961,7 @@ Object.assign(window, {
   state, render, applyScope, scopeSite, allSitesBox, siteList, siteShort,
   defaultSite, unified, showUndo, applyChanges, buildingIndex, parseQuick,
   openStory, editBuilding, pollHtml, pollTimeline, remaining, mediaHtml,
-  cleanImage, prepareAndUpload, uploadFile, drawFlashList, analyze, openEditor,
+  cleanImage, prepareAndUpload, uploadFile, analyze, openEditor,
   pollOrder, votePow, refresh, DEMAND_STATUS, telegramCard,
+  openSnap, reachText, inScope, linkify,
 });
