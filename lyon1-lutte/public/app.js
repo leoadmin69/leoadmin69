@@ -1259,7 +1259,7 @@ async function viewModo() {
   // Le code des onglets modo déplacés vit dans ui/mod.js, chargé seulement après connexion (jamais envoyé aux visiteurs anonymes).
   if (!isTerrain) { try { await ensureModUI(); } catch (e) { $('#mod').innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; } }
   // Fonctions encore dans le code public (à déplacer peu à peu vers ui/mod.js) :
-  const localFn = { story: modStory, situation: modSituation };
+  const localFn = { story: modStory, instagram: modInstagram, situation: modSituation };
   const fn = (window.MODV && window.MODV[state.modTab]) || localFn[state.modTab] || modSituation;
   try { await fn($('#mod')); } catch (err) { if (/Connexion modo/.test(err.message)) { state.me = null; render(true); } else toast(err.message); }
 }
@@ -1550,6 +1550,88 @@ async function applyChanges(list, label) {
   window.drawTiles?.();
   showUndo(r.previous, `${label} · ${r.changed} bâtiment${r.changed > 1 ? 's' : ''}`);
   publishedCard(r.reach, list);
+}
+
+async function modInstagram(el) {
+  const cfg = await api('/api/mod/instagram');
+  el.innerHTML = `
+    <div class="card">
+      <div class="kicker">📷 Canal Instagram officiel</div>
+      <p class="muted small">Le canal et les stories sont lus régulièrement par l’IA (clé Gemini ou Groq obligatoire). Elle <b>déduit</b> ce qu’elle voit et lit (chaînes ou barricades sur une photo, affiche, légende, « demain midi »…) et donne un niveau de confiance : <b>sûr</b> = publié sur le site (sans notification) ; <b>probable</b> = proposé ci-dessous pour que tu valides ; <b>supposition</b> = ignoré. ⚠ Instagram bloque souvent la lecture sans connexion : si une erreur s’affiche, ça ne marchera pas sans cookie de session.</p>
+      <form class="form" id="instagram-config">
+        <div class="field"><label>URL du canal</label><input type="url" id="instagram-url" value="${esc(cfg.url)}" required></div>
+        <div class="field"><label>Compte Instagram des stories</label><input type="url" id="instagram-account-url" value="${esc(cfg.accountUrl)}" required></div>
+        <div class="field"><label>ID numérique du compte (facultatif, si Instagram ne trouve pas le compte)</label><input type="text" inputmode="numeric" id="instagram-account-id" value="${esc(cfg.accountId || '')}" placeholder="ex. 51234567890"></div>
+        <p class="small" style="margin:0">📖 Stories : <b>lecture automatique en priorité</b>${cfg.storiesReady ? '' : ' · ⚠ aucun cookie Instagram sur Render'}${cfg.status.lastStoryError ? ` · <span style="color:var(--red)">⚠ ${esc(cfg.status.lastStoryError)}</span>` : cfg.status.lastStoryCheck ? ` · dernière lecture ${esc(ago(cfg.status.lastStoryCheck))}, ${cfg.status.lastStoryCount || 0} story(s)${!cfg.status.lastStoryCount && cfg.status.lastStoryNote ? ` <span class="muted">(${esc(cfg.status.lastStoryNote)})</span>` : ''}` : ''}</p>
+        <div class="grid cols-2">
+          <div class="field"><label>Site ciblé</label><select id="instagram-site">${siteList().map((x) => `<option value="${esc(x.id)}" ${x.id === cfg.site ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
+          <div class="field"><label>Lecture toutes les (minutes)</label><input type="number" id="instagram-interval" min="5" max="1440" value="${esc(cfg.interval)}"></div>
+        </div>
+        <label class="check"><input type="checkbox" id="instagram-enabled" ${cfg.enabled ? 'checked' : ''}> Activation automatique</label>
+        <div class="btn-row"><button class="btn" type="submit">Enregistrer</button><button type="button" class="btn ghost" id="instagram-sync">Synchroniser maintenant</button></div>
+      </form>
+      <div id="instagram-status" class="terminal" style="margin-top:12px"><div class="body">${cfg.status.lastError ? `<span style="color:var(--red)">⚠ ${esc(cfg.status.lastError)}</span>` : cfg.status.lastCheck ? `Dernière lecture ${esc(ago(cfg.status.lastCheck))}<br>Messages vus : ${cfg.status.sourceCount || 0}<br>Analyse : ${esc(cfg.status.sourceModel || 'inconnue')}<br><pre>${esc(JSON.stringify(cfg.status.applied || {}, null, 2))}</pre>` : 'Pas encore lu.'}</div></div>
+    </div>`;
+  $('#instagram-config', el).onsubmit = async (e) => {
+    e.preventDefault();
+    await act(() => api('/api/mod/instagram', { method: 'PUT', body: { url: $('#instagram-url', el).value, accountUrl: $('#instagram-account-url', el).value, accountId: $('#instagram-account-id', el).value, site: $('#instagram-site', el).value, interval: Number($('#instagram-interval', el).value), enabled: $('#instagram-enabled', el).checked } }), 'Instagram enregistré.');
+  };
+  // Coller un message du canal / envoyer une capture de story (marche toujours, sans cookie)
+  el.insertAdjacentHTML('afterbegin', `<div class="card" style="margin-bottom:14px"><div class="kicker">✍️ Le plus fiable : donner le contenu à l’IA</div>
+    <p class="muted small">Instagram ne laisse pas lire les canaux depuis un serveur. Copie le texte d’un message du canal, ou fais une capture d’écran d’une story : l’IA déduit les bâtiments, AG et infos, avec le même tri (sûr = publié, probable = à valider).</p>
+    <div class="field"><textarea id="ig-paste" placeholder="Colle ici un ou plusieurs messages du canal…" style="min-height:90px"></textarea></div>
+    <div class="btn-row"><button type="button" class="btn" id="ig-paste-go">🤖 Analyser le texte</button><button type="button" class="btn ghost" id="ig-cap-go">🖼️ Envoyer une capture</button><input type="file" id="ig-cap" accept="image/*" hidden></div>
+    <div id="ig-manual" class="small" style="margin-top:8px"></div></div>`);
+  const showManual = (r) => {
+    const f = r.found || {};
+    const line = (x, t) => `<div>• ${t} <span class="faint">(${Math.round((x.confidence || 0) * 100)} % · ${esc(x.evidence || '')})</span></div>`;
+    $('#ig-manual', el).innerHTML = `<b>L’IA a déduit :</b>${(f.buildings || []).map((x) => line(x, `🏢 ${esc(x.name)} → ${esc(x.status)}`)).join('')}${(f.events || []).map((x) => line(x, `📅 ${esc(x.title)} · ${esc(x.date)}`)).join('')}${(f.flashes || []).map((x) => line(x, `⚡ ${esc(x.title)}`)).join('') || ''}
+      <div style="margin-top:6px">✅ Publié : ${r.applied.buildings.length} bâtiment(s), ${r.applied.events.length} rendez-vous, ${r.applied.flashes.length} info(s) · 🤔 à valider : ${r.applied.queued || 0}</div>`;
+  };
+  $('#ig-paste-go', el).onclick = async () => {
+    const text = $('#ig-paste', el).value.trim();
+    if (!text) return toast('Colle d’abord le texte d’un message.');
+    $('#ig-manual', el).textContent = 'L’IA lit…';
+    try { const r = await api('/api/mod/instagram/paste', { method: 'POST', body: { text } }); showManual(r); setTimeout(() => modInstagram(el), 2500); } catch (e) { $('#ig-manual', el).textContent = `⚠ ${e.message}`; }
+  };
+  $('#ig-cap-go', el).onclick = () => $('#ig-cap', el).click();
+  $('#ig-cap', el).onchange = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    $('#ig-manual', el).textContent = 'L’IA regarde la capture…';
+    try {
+      const blob = await shrinkPhoto(f).catch(() => f);
+      const r = await fetch('/api/mod/instagram/capture', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': blob.type || 'image/jpeg' }, body: blob });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || 'Analyse impossible.');
+      showManual(j); setTimeout(() => modInstagram(el), 2500);
+    } catch (err) { $('#ig-manual', el).textContent = `⚠ ${err.message}`; }
+  };
+  // Déductions « probables » de l'IA à valider
+  const KIND = { building: '🏢 Bâtiment', event: '📅 Rendez-vous', flash: '⚡ Info' };
+  const qtext = (q) => q.kind === 'building' ? `${esc(q.item.name)} → ${esc({ bloque: 'BLOQUÉ', partiel: 'PARTIEL', ouvert: 'OUVERT' }[q.item.status] || q.item.status)}${q.item.note ? ' · ' + esc(q.item.note) : ''}` : q.kind === 'event' ? `${esc(q.item.title)} · ${esc(q.item.date)}${q.item.place ? ' · ' + esc(q.item.place) : ''}` : `${esc(q.item.title)} · ${esc(q.item.text)}`;
+  el.insertAdjacentHTML('beforeend', `<div class="card" style="margin-top:14px"><div class="kicker">🤔 À valider · déductions probables de l’IA</div>
+    ${(cfg.queue || []).map((q) => `<div class="row" data-q="${esc(q.id)}"><div class="grow"><div class="title">${KIND[q.kind] || ''} · ${qtext(q)}</div>
+      <div class="sub">${esc(q.label)} · confiance ${Math.round((q.confidence || 0) * 100)} % · ${esc(ago(q.at))}${q.evidence ? `<br>🔎 ${esc(q.evidence)}` : ''}</div></div>
+      <div class="btn-row"><button class="btn small" data-qok="1">Publier</button><button class="btn small ghost" data-qok="0">Écarter</button></div></div>`).join('') || '<p class="faint small">Rien à valider pour le moment.</p>'}</div>`);
+  el.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-qok]');
+    if (!b) return;
+    const id = b.closest('[data-q]').dataset.q;
+    await act(() => api(`/api/mod/instagram/queue/${encodeURIComponent(id)}`, { method: 'POST', body: { ok: b.dataset.qok === '1' } }), b.dataset.qok === '1' ? 'Publié.' : 'Écarté.');
+    b.closest('[data-q]').remove();
+  });
+  $('#instagram-sync', el).onclick = async () => {
+    $('#instagram-status', el).innerHTML = '<div class="body">Lecture du canal…</div>';
+    try {
+      const r = await act(() => api('/api/mod/instagram/sync', { method: 'POST' }));
+      if (r.channel?.error) toast(`Canal : ${r.channel.error}`);
+      const ca = r.channel?.applied || {};
+      const sa = r.stories?.applied || {};
+      const storyCount = r.stories?.storyCount || 0;
+      $('#instagram-status', el).innerHTML = `<div class="body">Canal : ${(ca.buildings || []).length} bâtiment(s), ${(ca.events || []).length} événement(s), ${(ca.flashes || []).length} flash(s).<br>Stories : ${storyCount} lue(s), ${(sa.buildings || []).length} bâtiment(s), ${(sa.events || []).length} événement(s), ${(sa.flashes || []).length} flash(s).<pre>${esc(JSON.stringify({ channel: ca, stories: sa }, null, 2))}</pre></div>`;
+    } catch (e) { $('#instagram-status', el).innerHTML = `<div class="body" style="color:var(--red)">⚠ ${esc(e.message)}</div>`; }
+  };
 }
 
 function modSituation(el) {
