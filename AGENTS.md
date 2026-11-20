@@ -22,6 +22,19 @@ dans le même commit que le code.
 ## Passation (2026-11-20, mise à jour par Claude)
 **Dernier commit de Claude : voir `git log -15`.** Tout est poussé, rien en cours de modification.
 
+### Fait le 20/11 (Claude)
+- **Skill instagram-agent-skill installé** (écrit des reels/légendes, ne lit pas Instagram). Ne règle pas la lecture
+  auto des stories : Instagram bloque la lecture depuis l'hébergeur (réponses vides / « une erreur s'est produite »).
+  Solution fiable en place : onglet 📷 Instagram → « Envoyer une capture » / « Coller un message » (l'IA lit).
+- **Audit « Gemini 4 Neon » (PDF 16 p. diffusé dans le chat)** vérifié ligne par ligne. Sa « faille d'admin » (compte
+  piquet → modo, image injectée, liens dangereux) est **fausse** : le serveur bloque déjà tout ça. Vrais points corrigés :
+  (1) une vidéo de témoignage dont les métadonnées n'ont pas pu être retirées n'est **jamais publiée** (`m.cleaned`) ;
+  (2) la liste noire ajoutée par les modos n'est plus envoyée aux téléphones (route `/api/chat-rules` = mots de base seuls) ;
+  (3) texte d'anonymat plus exact ; (4) `/pow-worker.js` remis dans le cache hors-ligne.
+- **IA Instagram ne publie plus rien toute seule** : tout passe par « À valider » (`IG_AUTO_PUBLISH=1` pour réactiver).
+- **Séparation code modo / code public** (voir chantier ci-dessous) : 18 onglets sur 20 sortis du code public, dont
+  toute la détection anti-bot des votes. Reste 2 onglets entremêlés avec le public (story, situation), qui peuvent rester.
+
 ### CHANTIER EN COURS À FINIR (relais Claude → Copilot) : séparer le code modo du code public
 **But (demande admin) :** ne plus envoyer aux visiteurs anonymes tout le code de l'espace modo/admin.
 Seul l'essentiel public reste dans `public/app.js` ; les onglets modo migrent vers `ui/mod.js`, servi **uniquement
@@ -38,27 +51,41 @@ navigateur) ; la vraie sécurité reste côté serveur. C'est juste : ne pas don
 - app.js est un **module** : ses fonctions sont privées. Un `Object.assign(window, {...})` à la fin d'app.js expose
   les outils partagés (`$`, `api`, `esc`, `act`, `state`, `render`, `sheet`, `allSitesBox`, `pollHtml`…) pour qu'une
   fonction déplacée marche **sans être réécrite**.
-- **Déjà migrés :** `modJournal` (onglet journal), `modMe` (onglet moi).
+- **Déjà migrés par Claude (18 onglets sur 20)** : journal, moi, contacts, revendications, sites, audience, flash
+  (+ `drawFlashList`), chat, entraide, droits, agenda, cr, ensemble, blog, temoignages, instagram, comptes
+  (+ `modPushSummary`, `qrImg`), **votes (`modPolls` + `pollOrder` + `pollTimeline` = toute la détection anti-bot)**.
+  Le gros gain sécurité (la « carte des radars » anti-bourrage) est donc déjà hors du code public.
+- **Il reste 2 onglets dans `localFn` (app.js), volontairement non déplacés car ENTREMÊLÉS avec des fonctions publiques :**
+  - `modStory` : le moteur canvas (`openStory`, `storyCampus`, `storyFrame`, `story*`, `promo*`, `tuto*`, `SF`, `MONO`,
+    `drawQR`…) est **aussi utilisé par des boutons publics** (partage/aperçu de story dans Live/Bâtiments : app.js
+    appelle `openStory('campus')`, `storyCampus(...)`, `voteUrl(...)`). Ne PAS déplacer ce moteur. Au besoin, déplace
+    **seulement** la fonction `modStory` (l'onglet « kit promo ») en laissant tout le moteur canvas dans app.js et
+    exposé sur window (`openStory`, `voteUrl` et les générateurs qu'elle appelle). Faible intérêt, à faire en dernier.
+  - `modSituation` : partage `editBuilding`, `applyChanges`, `parseQuick`, `buildingIndex`, `showUndo` avec l'écran
+    piquet (`terrainQuick`/`terrainChoose`, publics). Ces helpers RESTENT dans app.js + exposés. Seul `modSituation`
+    pourrait bouger. À vérifier au cas par cas.
+  👉 Ces deux-là peuvent très bien **rester dans app.js** : ce sont des fonctions dont une partie sert aussi au public.
+  L'objectif « ne pas livrer les radars anti-bot » est atteint. Ne te force pas à les déplacer.
 
-**Pour Copilot — déplacer les onglets restants, un par un, sans rien casser :**
-1. Choisir UNE fonction `mod*` encore dans app.js (voir `localFn` dans viewModo). Commence par les simples et
-   autonomes : `modContacts`, `modDemands`, `modSites`, `modChat`, `modFlash`, `modAudience`, `modEnsemble`.
-   Garde pour la fin les grosses avec beaucoup de sous-fonctions : `modSituation` (+ editBuilding, applyChanges,
-   parseQuick, buildingIndex, showUndo), `modStory`/`openStory` (+ tous les générateurs canvas story*/promo*/tuto*),
-   `modPolls` (+ pollOrder, pollTimeline…), `modReports`/`analyze`/`openEditor`, `modInstagram`.
+**LEÇON (erreur de Claude à ne pas refaire) :** avant de déplacer une fonction/un helper, vérifie qu'AUCUNE fonction
+publique (viewLive, viewBuildings, viewPolls, pollHtml, terrainQuick/Choose…) ne l'appelle. Un helper appelé par du
+public (ex. `voteUrl`, `openStory`, `storyCampus`, `shrinkPhoto`, `pollHtml`, `remaining`) **reste dans app.js** et est
+exposé sur window. Si tu le déplaces par erreur, app.js casse (ReferenceError dans `Object.assign(window,…)`) et TOUT
+l'espace modo devient vide. En cas de doute : `grep -n "\bnomFonction\b" public/app.js` et regarde qui l'appelle.
+
+**Pour Copilot — recette pour déplacer un onglet restant (si tu y tiens), sans rien casser :**
+1. Prends la fonction `mod*` dans `localFn` (viewModo, app.js).
 2. **Couper** la définition entière depuis `public/app.js`, la **coller** dans l'IIFE de `ui/mod.js`.
 3. Ajouter la fonction dans `Object.assign(MODV, { <onglet>: <fn> })` (en bas de mod.js).
 4. **Retirer** son entrée de l'objet `localFn` dans `viewModo` (app.js).
 5. Si la fonction déplacée appelle un outil d'app.js pas encore exposé → ajouter son nom dans le `Object.assign(window, {…})`
-   à la fin d'app.js. NE PAS exposer une fonction mod qui ne vit plus dans app.js (sinon ReferenceError au chargement :
-   retire-la aussi du `Object.assign(window,…)`). Attention : certaines fonctions sont partagées public+modo
-   (`pollHtml`, `pollTimeline`, `remaining`, `mediaHtml`, `cleanImage`, `prepareAndUpload`, `uploadFile`, `votePow`) :
-   **elles RESTENT dans app.js** et restent exposées sur window ; ne les déplace pas.
+   à la fin d'app.js. NE PAS y laisser le nom d'une fonction qui ne vit PLUS dans app.js (sinon ReferenceError au
+   chargement). Attention aux helpers **partagés public+modo** (voir la LEÇON) : ils RESTENT dans app.js + exposés.
 6. Monter `VERSION` dans `public/sw.js`. Vérifier (règle 2) + test navigateur : connexion modo, l'onglet déplacé rend
-   quelque chose, et une page publique marche (le test Playwright de Claude est le modèle ; headless chromium dispo via
-   `/opt/node-tools/node_modules/playwright`). Zéro `pageerror`.
-7. Vérifier qu'un visiteur **anonyme** reçoit 401 sur `/api/mod/ui.js` et ne le charge jamais (déjà le cas).
-Fais-le par petits lots (2–3 onglets par commit), pas tout d'un coup. Ne touche pas au serveur sauf la route déjà posée.
+   quelque chose, ET une page publique marche. Zéro `pageerror` (headless chromium via `/opt/node-tools/node_modules/playwright`).
+7. Vérifier qu'un visiteur **anonyme** reçoit 401 sur `/api/mod/ui.js` (déjà le cas) et que les fonctions déplacées
+   ne sont plus dans le code public : `curl .../app.js | grep -c "function modXXX"` doit donner 0.
+Par petits lots, un commit par lot. Ne touche pas au serveur sauf la route déjà posée.
 
 ### En ligne
 - Production : **https://leoadmin69.onrender.com** (Render « Lyon1-ladoua-en-lutte », `srv-dbu3je68bjmc73a7vt1g`,
