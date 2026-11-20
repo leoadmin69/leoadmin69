@@ -1259,7 +1259,7 @@ async function viewModo() {
   // Le code des onglets modo déplacés vit dans ui/mod.js, chargé seulement après connexion (jamais envoyé aux visiteurs anonymes).
   if (!isTerrain) { try { await ensureModUI(); } catch (e) { $('#mod').innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; } }
   // Fonctions encore dans le code public (à déplacer peu à peu vers ui/mod.js) :
-  const localFn = { ensemble: modEnsemble, story: modStory, instagram: modInstagram, votes: modPolls, blog: modBlog, temoignages: modTestimonies, situation: modSituation, agenda: modAgenda, cr: modReports, comptes: modAccounts };
+  const localFn = { story: modStory, instagram: modInstagram, votes: modPolls, situation: modSituation, comptes: modAccounts };
   const fn = (window.MODV && window.MODV[state.modTab]) || localFn[state.modTab] || modSituation;
   try { await fn($('#mod')); } catch (err) { if (/Connexion modo/.test(err.message)) { state.me = null; render(true); } else toast(err.message); }
 }
@@ -2242,76 +2242,8 @@ async function modStory(el) {
   $('#tovotes').onclick = (e) => { e.preventDefault(); state.modTab = 'votes'; render(true); };
 }
 
-async function modAgenda(el) {
-  const all = (await api('/api/mod/events/all')).filter((x) => inScope(x));
-  let editing = null;
-  const local = (iso) => { const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
-  el.innerHTML = `
-    <div class="card"><form class="form" id="ev">
-      <div class="kicker" id="evk">Nouveau rendez-vous</div>
-      <div class="grid cols-2">
-        <div class="field"><label>Type</label><select id="et">${Object.entries(EVENT_TYPE).map(([k, [l]]) => `<option value="${k}">${l}</option>`).join('')}</select></div>
-        <div class="field"><label>Date et heure</label><input type="datetime-local" id="ed" required></div>
-      </div>
-      <div class="field"><label>Titre</label><input type="text" id="eti" maxlength="120" required placeholder="AG de mobilisation"></div>
-      <div class="grid cols-2">
-        <div class="field"><label>Lieu</label><input type="text" id="ep" maxlength="140" placeholder="Amphi Thémis, Doua"></div>
-        <div class="field"><label>Adresse (pour l’itinéraire)</label><input type="text" id="ea" maxlength="200" placeholder="Bd du 11 Novembre 1918, Villeurbanne"></div>
-      </div>
-      <div class="field"><label>Infos (ordre du jour, parcours, consignes)</label><textarea id="eds" maxlength="1500"></textarea></div>
-      <label class="check"><input type="checkbox" id="en"> Alerter les abonné·es (notification + email)</label>
-      ${state.me.role === 'admin' ? allSitesBox('eall') : ''}
-      <div class="btn-row"><button class="btn">Publier</button><button type="button" class="btn ghost" id="ecancel" hidden>Annuler</button></div>
-    </form></div>
-    <h2 class="section">Tous les rendez-vous</h2>
-    <div class="list">${all.map((e) => `<div class="row"><span class="pill ${EVENT_TYPE[e.type][1]}">${EVENT_TYPE[e.type][0]}</span><div class="grow"><div class="title">${esc(e.title)}</div><div class="sub">${esc(dayLabel(e.start))} ${esc(hhmm(e.start))} · ${esc(e.place)} ${e.site === ALL_SITES ? '· 🌍 tous les sites' : ''}</div></div>
-      <button class="icon-btn" data-edit="${esc(e.id)}">${icon('edit', 18)}</button><button class="icon-btn" data-del="${esc(e.id)}">${icon('trash', 18)}</button></div>`).join('') || '<div class="empty">Aucun.</div>'}</div>`;
-  $('#ev').onsubmit = async (e) => {
-    e.preventDefault();
-    const body = { version: editing ? all.find((y) => y.id === editing)?.updatedAt : undefined, type: $('#et').value, start: new Date($('#ed').value).toISOString(), title: $('#eti').value, place: $('#ep').value, address: $('#ea').value, description: $('#eds').value, notify: $('#en').checked };
-    if ($('#eall')) { if (editing) body.allSites = $('#eall').checked; else if ($('#eall').checked) body.site = ALL_SITES; }
-    const er = await act(() => (editing ? api(`/api/mod/events/${editing}`, { method: 'PUT', body }) : api('/api/mod/events', { method: 'POST', body })));
-    toast(editing ? 'Modifié.' : `✅ Publié${reachText(er.reach)}`);
-    render(true);
-  };
-  $('#ecancel').onclick = () => render(true);
-  el.onclick = async (e) => {
-    const del = e.target.closest('[data-del]')?.dataset.del;
-    const ed = e.target.closest('[data-edit]')?.dataset.edit;
-    if (del && confirm('Supprimer ce rendez-vous ?')) { await act(() => api(`/api/mod/events/${del}`, { method: 'DELETE' }), 'Supprimé.'); render(true); }
-    if (ed) {
-      const x = all.find((y) => y.id === ed);
-      editing = ed;
-      $('#evk').textContent = 'Modifier le rendez-vous';
-      $('#et').value = x.type; $('#ed').value = local(x.start); $('#eti').value = x.title; $('#ep').value = x.place; $('#ea').value = x.address; $('#eds').value = x.description;
-      if ($('#eall')) $('#eall').checked = x.site === ALL_SITES;
-      $('#ecancel').hidden = false;
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  };
-}
 
 // ----- Comptes rendus : PDF → IA en direct → relecture → publication -----
-async function modReports(el) {
-  const reports = (await api('/api/mod/reports')).filter((x) => inScope(x));
-  el.innerHTML = `
-    <div class="card">
-      <div class="kicker">Importer un compte rendu d’AG</div>
-      <p class="muted small">Dépose le PDF (même scanné). L’IA le lit, retire les noms des personnes et le transforme en flash infos. Tu relis avant de publier.${state.data.aiEnabled ? '' : ' <b style="color:var(--orange)">Aucune IA configurée : extraction simple du texte. Ajoute une clé Gemini gratuite (GEMINI_API_KEY).</b>'}</p>
-      <label class="drop" id="drop"><input type="file" id="pdf" accept="application/pdf" hidden><div style="font-size:34px">📄</div><b>Choisir un PDF</b><div class="faint small">ou glisse-le ici · 25 Mo max</div></label>
-    </div>
-    <div id="ai" hidden style="margin-top:14px"></div>
-    <div id="editor"></div>
-    <h2 class="section">Comptes rendus</h2>
-    <div class="list">${reports.map((r) => `<div class="row"><span class="pill ${r.status === 'published' ? 'green' : 'orange'}">${r.status === 'published' ? 'Publié' : 'Brouillon'}</span><div class="grow"><div class="title">${esc(r.titre)}</div><div class="sub">${esc(r.fileName || '')} · ${esc(ago(r.createdAt))} · ${esc(r.org)}</div></div><button class="icon-btn" data-open="${esc(r.id)}">${icon('edit', 18)}</button></div>`).join('') || '<div class="empty">Aucun.</div>'}</div>`;
-  const drop = $('#drop');
-  const go = (file) => { if (file) analyze(file, el); };
-  $('#pdf').onchange = (e) => go(e.target.files[0]);
-  drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
-  drop.ondragleave = () => drop.classList.remove('over');
-  drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); go(e.dataTransfer.files[0]); };
-  el.querySelector('.list').onclick = (e) => { const id = e.target.closest('[data-open]')?.dataset.open; if (id) openEditor(reports.find((r) => r.id === id)); };
-}
 
 async function analyze(file, el) {
   if (file.type !== 'application/pdf' && !/\.pdf$/i.test(file.name)) return toast('Il faut un fichier PDF.');
@@ -2502,22 +2434,6 @@ async function modInstagram(el) {
 }
 
 // « On en parle » : la modération ne juge pas les idées, elle masque seulement ce qui ne respecte pas la charte
-async function modEnsemble(el) {
-  const list = await api('/api/mod/ensemble');
-  const row = (x, kind) => `<div class="row" data-eid="${esc(x.id)}"><div class="grow"><div class="title">${kind === 'p' ? `n°${x.num} · ${esc(x.title)}` : `↳ modification : ${esc(x.text.slice(0, 140))}`}</div>
-    <div class="sub">${esc(ago(x.at))} · ${x.reports} signalement(s) · pont ${x.bridge}${x.hidden ? ' · <b style="color:var(--red)">masqué</b>' : ''}</div></div>
-    <button class="btn small ${x.hidden ? '' : 'red ghost'}" data-eh="${x.hidden ? 0 : 1}">${x.hidden ? 'Rétablir' : 'Masquer'}</button></div>`;
-  el.innerHTML = `<div class="card"><div class="kicker">🕊️ On en parle · <a href="#/ensemble">ouvrir la page</a></div>
-    <p class="muted small">Espace neutre : on ne masque <b>que</b> ce qui enfreint la charte (insulte, attaque contre des personnes, info personnelle). Une idée qui ne te plaît pas reste en ligne. 3 signalements de téléphones connus = masqué automatiquement en attendant un·e modo.</p></div>
-    <div class="list">${list.map((p) => row(p, 'p') + p.amends.map((a) => row(a, 'a')).join('')).join('') || '<div class="empty">Aucune idée pour le moment.</div>'}</div>`;
-  el.onclick = async (e) => {
-    const b = e.target.closest('[data-eh]');
-    if (!b) return;
-    const id = b.closest('[data-eid]').dataset.eid;
-    await act(() => api(`/api/mod/ensemble/${encodeURIComponent(id)}`, { method: 'PUT', body: { hidden: b.dataset.eh === '1' } }), 'OK.');
-    modEnsemble(el);
-  };
-}
 
 async function modAccounts(el) {
   const mods = await api('/api/mod/mods');
@@ -2943,91 +2859,8 @@ async function modPolls(el) {
 }
 
 // ----- Modos : blog -----
-async function modBlog(el) {
-  const posts = (await api('/api/mod/posts')).filter((x) => inScope(x));
-  const pending = posts.filter((p) => p.status === 'pending');
-  const ST = { draft: ['Brouillon', 'grey'], pending: ['À relire', 'orange'], published: ['Publié', 'green'], rejected: ['Refusé', 'red'] };
-  el.innerHTML = `
-    ${pending.length ? `<h2 class="section" style="margin-top:0">📥 Tribunes à relire (${pending.length})</h2>${pending.map((p) => `
-      <div class="card" data-id="${esc(p.id)}"><b>${esc(p.title)}</b><div class="faint small">${esc(p.author)} · ${esc(ago(p.createdAt))}</div>
-      <div class="small" style="max-height:220px;overflow:auto;margin:8px 0;white-space:pre-wrap">${esc(p.body)}</div>
-      <div class="btn-row"><button class="btn small green" data-s="published">Publier</button><button class="btn small red" data-s="rejected">Refuser</button></div></div>`).join('')}` : ''}
-    <div class="card" style="margin-top:12px"><form class="form" id="bf">
-      <div class="kicker">Nouvel article</div>
-      <div class="field"><label>Titre</label><input type="text" id="bt" maxlength="140" required></div>
-      <div class="field"><label>Signature</label><input type="text" id="ba" maxlength="60" value="${esc(state.me.org)}"></div>
-      <div class="field"><label>Image de couverture (facultatif)</label><input type="file" id="bc" accept="image/*"></div>
-      <div class="field"><label>Texte (paragraphes séparés par une ligne vide, « ## » pour un intertitre, **gras**, liens auto)</label><textarea id="bb" required style="min-height:220px"></textarea></div>
-      <div class="btn-row"><button class="btn green" data-pub="1">Publier</button><button class="btn ghost" data-pub="0">Brouillon</button></div></form></div>
-    <h2 class="section">Articles</h2>
-    <div class="list">${posts.filter((p) => p.status !== 'pending').map((p) => `<div class="row" data-id="${esc(p.id)}"><span class="pill ${ST[p.status][1]}">${ST[p.status][0]}</span><div class="grow"><div class="title">${esc(p.title)}</div><div class="sub">${p.kind === 'tribune' ? 'Tribune · ' : ''}${esc(p.author)} · ${esc(ago(p.createdAt))}</div></div>
-      ${p.status === 'published' ? '<button class="btn small ghost" data-s="draft">Dépublier</button>' : '<button class="btn small green" data-s="published">Publier</button>'}<button class="icon-btn" data-del>${icon('trash', 18)}</button></div>`).join('') || '<div class="empty">Aucun.</div>'}</div>`;
-  let publish = true;
-  $$('#bf [data-pub]').forEach((b) => (b.onclick = () => (publish = b.dataset.pub === '1')));
-  $('#bf').onsubmit = async (e) => {
-    e.preventDefault();
-    let cover;
-    const f = $('#bc').files[0];
-    if (f) { try { cover = (await prepareAndUpload(f, () => {})).id; } catch (err) { return toast(err.message); } }
-    await act(() => api('/api/mod/posts', { method: 'POST', body: { title: $('#bt').value, author: $('#ba').value, body: $('#bb').value, cover, publish } }), publish ? 'Publié.' : 'Brouillon enregistré.');
-    render(true);
-  };
-  el.onclick = async (e) => {
-    const row = e.target.closest('[data-id]');
-    if (!row) return;
-    const s = e.target.dataset.s;
-    if (s) { await act(() => api(`/api/mod/posts/${row.dataset.id}`, { method: 'PUT', body: { status: s } }), 'Mis à jour.'); render(true); }
-    if (e.target.closest('[data-del]') && confirm('Supprimer cet article ?')) { await act(() => api(`/api/mod/posts/${row.dataset.id}`, { method: 'DELETE' }), 'Supprimé.'); render(true); }
-  };
-}
 
 // ----- Modos : témoignages -----
-async function modTestimonies(el) {
-  const [itemsAll, q] = await Promise.all([api('/api/mod/testimonies'), api('/api/mod/queue')]);
-  const items = itemsAll.filter((x) => inScope(x));
-  const ST = { pending: ['À relire', 'orange'], published: ['Publié', 'green'], rejected: ['Refusé', 'grey'] };
-  el.innerHTML = `
-    <p class="muted small">Rien n’est public sans ta validation. Retire tout nom, visage reconnaissable d’un tiers ou détail identifiant. Tu peux publier le texte sans les médias (décoche-les).${q.ffmpeg ? '' : ' <b style="color:var(--orange)">ffmpeg absent : les métadonnées des vidéos ne sont pas retirées.</b>'}</p>
-    ${items.map((t) => `
-      <div class="card" data-id="${esc(t.id)}" style="${t.status === 'pending' ? 'border-color:rgba(255,159,10,0.5)' : ''}">
-        <div class="chips"><span class="pill ${ST[t.status][1]}">${ST[t.status][0]}</span><span class="pill red">${esc(t.categoryLabel)}</span><span class="pill grey">reçu ${esc(ago(t.createdAt))}</span></div>
-        <div class="grid cols-2" style="margin-top:10px">
-          <div class="field"><label>Date</label><input type="text" value="${esc(t.date)}" disabled></div>
-          <div class="field"><label>Lieu</label><input type="text" data-f="place" value="${esc(t.place)}"></div>
-        </div>
-        <div class="field" style="margin-top:8px"><label>Texte (modifiable pour anonymiser)</label><textarea data-f="text" style="min-height:140px">${esc(t.text)}</textarea></div>
-        ${t.contact ? `<div class="notice" style="margin-top:8px">📇 Contact privé : <b>${esc(t.contact)}</b> <button class="btn small ghost" data-a="rmcontact">Effacer</button></div>` : ''}
-        ${t.media.length ? `<div class="media-grid" style="margin-top:8px">${t.media.map((m) => `<div><div class="media">${m.kind === 'video' ? `<video src="${esc(m.url)}" controls preload="metadata" playsinline></video>` : `<img src="${esc(m.url)}" alt="">`}</div>
-          <label class="check small"><input type="checkbox" data-m="${esc(m.id)}" ${m.public || t.status !== 'published' ? 'checked' : ''}> publier</label>
-          <div class="small ${m.cleaned ? 'faint' : ''}" style="${m.cleaned ? '' : 'color:var(--orange)'}">${m.cleaned ? '✓ métadonnées retirées' : '⚠️ métadonnées non retirées : ne sera pas publié'}</div>
-          <button class="btn small ghost" data-rm="${esc(m.id)}">Supprimer le fichier</button></div>`).join('')}</div>` : ''}
-        <label class="check"><input type="checkbox" data-f="sensitive" ${t.sensitive !== false ? 'checked' : ''}> Flouter les médias (contenu sensible)</label>
-        <div class="btn-row">
-          <button class="btn small green" data-a="published">${t.status === 'published' ? 'Mettre à jour' : 'Publier'}</button>
-          ${t.status !== 'rejected' ? '<button class="btn small ghost" data-a="rejected">Refuser</button>' : ''}
-          ${t.status === 'published' ? '<button class="btn small ghost" data-a="pending">Dépublier</button>' : ''}
-          <button class="btn small red" data-a="delete">Supprimer définitivement</button>
-        </div>
-      </div>`).join('') || '<div class="card empty">Aucun témoignage reçu.</div>'}`;
-  el.onclick = async (e) => {
-    const card = e.target.closest('[data-id]');
-    if (!card) return;
-    const id = card.dataset.id;
-    const a = e.target.dataset.a;
-    const rm = e.target.dataset.rm;
-    if (rm && confirm('Supprimer ce fichier définitivement ?')) { await act(() => api(`/api/mod/testimonies/${id}`, { method: 'PUT', body: { removeMedia: rm } }), 'Fichier supprimé.'); return render(true); }
-    if (!a) return;
-    if (a === 'rmcontact') { await act(() => api(`/api/mod/testimonies/${id}`, { method: 'PUT', body: { removeContact: true } }), 'Contact effacé.'); return render(true); }
-    if (a === 'delete') { if (confirm('Supprimer ce témoignage et ses fichiers ?')) { await act(() => api(`/api/mod/testimonies/${id}`, { method: 'DELETE' }), 'Supprimé.'); render(true); } return; }
-    if (a === 'published' && !confirm('Publier ce témoignage ? Vérifie qu’aucune personne n’est identifiable.')) return;
-    await act(() => api(`/api/mod/testimonies/${id}`, { method: 'PUT', body: {
-      version: items.find((x) => x.id === id)?.updatedAt,
-      status: a, text: $('[data-f=text]', card).value, place: $('[data-f=place]', card).value, sensitive: $('[data-f=sensitive]', card).checked,
-      publishMedia: $$('[data-m]', card).filter((c) => c.checked).map((c) => c.dataset.m),
-    } }), 'Enregistré.');
-    render(true);
-  };
-}
 
 // ---------- Données + temps réel ----------
 async function refresh() {
@@ -3963,5 +3796,6 @@ Object.assign(window, {
   openStory, editBuilding, pollHtml, pollTimeline, remaining, mediaHtml,
   cleanImage, prepareAndUpload, uploadFile, analyze, openEditor,
   pollOrder, votePow, refresh, DEMAND_STATUS, telegramCard,
-  openSnap, reachText, inScope, linkify,
+  openSnap, reachText, inScope, linkify, dayLabel,
+  EVENT_TYPE, ALL_SITES, ENT_KIND,
 });
