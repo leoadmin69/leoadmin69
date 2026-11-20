@@ -467,5 +467,155 @@ async function modTestimonies(el) {
   };
 }
 
-  Object.assign(MODV, { journal: modJournal, moi: modMe, revendications: modDemands, contacts: modContacts, sites: modSites, audience: modAudience, flash: modFlash, chat: modChat, entraide: modEntraide, droits: modDroits , agenda: modAgenda, cr: modReports, ensemble: modEnsemble, blog: modBlog, temoignages: modTestimonies });
+
+async function modInstagram(el) {
+  const cfg = await api('/api/mod/instagram');
+  el.innerHTML = `
+    <div class="card">
+      <div class="kicker">📷 Canal Instagram officiel</div>
+      <p class="muted small">Le canal et les stories sont lus régulièrement par l’IA (clé Gemini ou Groq obligatoire). Elle <b>déduit</b> ce qu’elle voit et lit (chaînes ou barricades sur une photo, affiche, légende, « demain midi »…) et donne un niveau de confiance : <b>sûr</b> = publié sur le site (sans notification) ; <b>probable</b> = proposé ci-dessous pour que tu valides ; <b>supposition</b> = ignoré. ⚠ Instagram bloque souvent la lecture sans connexion : si une erreur s’affiche, ça ne marchera pas sans cookie de session.</p>
+      <form class="form" id="instagram-config">
+        <div class="field"><label>URL du canal</label><input type="url" id="instagram-url" value="${esc(cfg.url)}" required></div>
+        <div class="field"><label>Compte Instagram des stories</label><input type="url" id="instagram-account-url" value="${esc(cfg.accountUrl)}" required></div>
+        <div class="field"><label>ID numérique du compte (facultatif, si Instagram ne trouve pas le compte)</label><input type="text" inputmode="numeric" id="instagram-account-id" value="${esc(cfg.accountId || '')}" placeholder="ex. 51234567890"></div>
+        <p class="small" style="margin:0">📖 Stories : <b>lecture automatique en priorité</b>${cfg.storiesReady ? '' : ' · ⚠ aucun cookie Instagram sur Render'}${cfg.status.lastStoryError ? ` · <span style="color:var(--red)">⚠ ${esc(cfg.status.lastStoryError)}</span>` : cfg.status.lastStoryCheck ? ` · dernière lecture ${esc(ago(cfg.status.lastStoryCheck))}, ${cfg.status.lastStoryCount || 0} story(s)${!cfg.status.lastStoryCount && cfg.status.lastStoryNote ? ` <span class="muted">(${esc(cfg.status.lastStoryNote)})</span>` : ''}` : ''}</p>
+        <div class="grid cols-2">
+          <div class="field"><label>Site ciblé</label><select id="instagram-site">${siteList().map((x) => `<option value="${esc(x.id)}" ${x.id === cfg.site ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
+          <div class="field"><label>Lecture toutes les (minutes)</label><input type="number" id="instagram-interval" min="5" max="1440" value="${esc(cfg.interval)}"></div>
+        </div>
+        <label class="check"><input type="checkbox" id="instagram-enabled" ${cfg.enabled ? 'checked' : ''}> Activation automatique</label>
+        <div class="btn-row"><button class="btn" type="submit">Enregistrer</button><button type="button" class="btn ghost" id="instagram-sync">Synchroniser maintenant</button></div>
+      </form>
+      <div id="instagram-status" class="terminal" style="margin-top:12px"><div class="body">${cfg.status.lastError ? `<span style="color:var(--red)">⚠ ${esc(cfg.status.lastError)}</span>` : cfg.status.lastCheck ? `Dernière lecture ${esc(ago(cfg.status.lastCheck))}<br>Messages vus : ${cfg.status.sourceCount || 0}<br>Analyse : ${esc(cfg.status.sourceModel || 'inconnue')}<br><pre>${esc(JSON.stringify(cfg.status.applied || {}, null, 2))}</pre>` : 'Pas encore lu.'}</div></div>
+    </div>`;
+  $('#instagram-config', el).onsubmit = async (e) => {
+    e.preventDefault();
+    await act(() => api('/api/mod/instagram', { method: 'PUT', body: { url: $('#instagram-url', el).value, accountUrl: $('#instagram-account-url', el).value, accountId: $('#instagram-account-id', el).value, site: $('#instagram-site', el).value, interval: Number($('#instagram-interval', el).value), enabled: $('#instagram-enabled', el).checked } }), 'Instagram enregistré.');
+  };
+  // Coller un message du canal / envoyer une capture de story (marche toujours, sans cookie)
+  el.insertAdjacentHTML('afterbegin', `<div class="card" style="margin-bottom:14px"><div class="kicker">✍️ Le plus fiable : donner le contenu à l’IA</div>
+    <p class="muted small">Instagram ne laisse pas lire les canaux depuis un serveur. Copie le texte d’un message du canal, ou fais une capture d’écran d’une story : l’IA déduit les bâtiments, AG et infos, avec le même tri (sûr = publié, probable = à valider).</p>
+    <div class="field"><textarea id="ig-paste" placeholder="Colle ici un ou plusieurs messages du canal…" style="min-height:90px"></textarea></div>
+    <div class="btn-row"><button type="button" class="btn" id="ig-paste-go">🤖 Analyser le texte</button><button type="button" class="btn ghost" id="ig-cap-go">🖼️ Envoyer une capture</button><input type="file" id="ig-cap" accept="image/*" hidden></div>
+    <div id="ig-manual" class="small" style="margin-top:8px"></div></div>`);
+  const showManual = (r) => {
+    const f = r.found || {};
+    const line = (x, t) => `<div>• ${t} <span class="faint">(${Math.round((x.confidence || 0) * 100)} % · ${esc(x.evidence || '')})</span></div>`;
+    $('#ig-manual', el).innerHTML = `<b>L’IA a déduit :</b>${(f.buildings || []).map((x) => line(x, `🏢 ${esc(x.name)} → ${esc(x.status)}`)).join('')}${(f.events || []).map((x) => line(x, `📅 ${esc(x.title)} · ${esc(x.date)}`)).join('')}${(f.flashes || []).map((x) => line(x, `⚡ ${esc(x.title)}`)).join('') || ''}
+      <div style="margin-top:6px">✅ Publié : ${r.applied.buildings.length} bâtiment(s), ${r.applied.events.length} rendez-vous, ${r.applied.flashes.length} info(s) · 🤔 à valider : ${r.applied.queued || 0}</div>`;
+  };
+  $('#ig-paste-go', el).onclick = async () => {
+    const text = $('#ig-paste', el).value.trim();
+    if (!text) return toast('Colle d’abord le texte d’un message.');
+    $('#ig-manual', el).textContent = 'L’IA lit…';
+    try { const r = await api('/api/mod/instagram/paste', { method: 'POST', body: { text } }); showManual(r); setTimeout(() => modInstagram(el), 2500); } catch (e) { $('#ig-manual', el).textContent = `⚠ ${e.message}`; }
+  };
+  $('#ig-cap-go', el).onclick = () => $('#ig-cap', el).click();
+  $('#ig-cap', el).onchange = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    $('#ig-manual', el).textContent = 'L’IA regarde la capture…';
+    try {
+      const blob = await shrinkPhoto(f).catch(() => f);
+      const r = await fetch('/api/mod/instagram/capture', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': blob.type || 'image/jpeg' }, body: blob });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || 'Analyse impossible.');
+      showManual(j); setTimeout(() => modInstagram(el), 2500);
+    } catch (err) { $('#ig-manual', el).textContent = `⚠ ${err.message}`; }
+  };
+  // Déductions « probables » de l'IA à valider
+  const KIND = { building: '🏢 Bâtiment', event: '📅 Rendez-vous', flash: '⚡ Info' };
+  const qtext = (q) => q.kind === 'building' ? `${esc(q.item.name)} → ${esc({ bloque: 'BLOQUÉ', partiel: 'PARTIEL', ouvert: 'OUVERT' }[q.item.status] || q.item.status)}${q.item.note ? ' · ' + esc(q.item.note) : ''}` : q.kind === 'event' ? `${esc(q.item.title)} · ${esc(q.item.date)}${q.item.place ? ' · ' + esc(q.item.place) : ''}` : `${esc(q.item.title)} · ${esc(q.item.text)}`;
+  el.insertAdjacentHTML('beforeend', `<div class="card" style="margin-top:14px"><div class="kicker">🤔 À valider · déductions probables de l’IA</div>
+    ${(cfg.queue || []).map((q) => `<div class="row" data-q="${esc(q.id)}"><div class="grow"><div class="title">${KIND[q.kind] || ''} · ${qtext(q)}</div>
+      <div class="sub">${esc(q.label)} · confiance ${Math.round((q.confidence || 0) * 100)} % · ${esc(ago(q.at))}${q.evidence ? `<br>🔎 ${esc(q.evidence)}` : ''}</div></div>
+      <div class="btn-row"><button class="btn small" data-qok="1">Publier</button><button class="btn small ghost" data-qok="0">Écarter</button></div></div>`).join('') || '<p class="faint small">Rien à valider pour le moment.</p>'}</div>`);
+  el.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-qok]');
+    if (!b) return;
+    const id = b.closest('[data-q]').dataset.q;
+    await act(() => api(`/api/mod/instagram/queue/${encodeURIComponent(id)}`, { method: 'POST', body: { ok: b.dataset.qok === '1' } }), b.dataset.qok === '1' ? 'Publié.' : 'Écarté.');
+    b.closest('[data-q]').remove();
+  });
+  $('#instagram-sync', el).onclick = async () => {
+    $('#instagram-status', el).innerHTML = '<div class="body">Lecture du canal…</div>';
+    try {
+      const r = await act(() => api('/api/mod/instagram/sync', { method: 'POST' }));
+      if (r.channel?.error) toast(`Canal : ${r.channel.error}`);
+      const ca = r.channel?.applied || {};
+      const sa = r.stories?.applied || {};
+      const storyCount = r.stories?.storyCount || 0;
+      $('#instagram-status', el).innerHTML = `<div class="body">Canal : ${(ca.buildings || []).length} bâtiment(s), ${(ca.events || []).length} événement(s), ${(ca.flashes || []).length} flash(s).<br>Stories : ${storyCount} lue(s), ${(sa.buildings || []).length} bâtiment(s), ${(sa.events || []).length} événement(s), ${(sa.flashes || []).length} flash(s).<pre>${esc(JSON.stringify({ channel: ca, stories: sa }, null, 2))}</pre></div>`;
+    } catch (e) { $('#instagram-status', el).innerHTML = `<div class="body" style="color:var(--red)">⚠ ${esc(e.message)}</div>`; }
+  };
+}
+
+async function modAccounts(el) {
+  const mods = await api('/api/mod/mods');
+  el.innerHTML = `
+    <div class="card"><form class="form" id="mf">
+      <div class="kicker">Créer un accès modo (un par personne)</div>
+      <div class="grid cols-2"><div class="field"><label>Identifiant</label><input type="text" id="mu" required pattern="[a-z0-9._\\-]{3,40}" placeholder="ag.doua.marie"></div>
+      <div class="field"><label>Nom affiché publiquement (AG, syndicat…)</label><input type="text" id="mo" required maxlength="80" placeholder="AG Doua · Solidaires"></div></div>
+      <div class="field"><label>Sites où ce modo peut agir</label></div>
+      <div class="chips" id="msitesNew">${siteList().map((x) => `<label class="check" style="padding:2px 8px 2px 0"><input type="checkbox" name="ns" value="${esc(x.id)}" ${x.id === state.modSite ? 'checked' : ''}> ${esc(x.short)}</label>`).join('')}</div>
+      <label class="check"><input type="checkbox" id="ma"> Admin : tous les sites, comptes et réglages</label>
+      <label class="check"><input type="checkbox" id="mt"> <span>📍 Compte <b>piquet</b> : seulement les bâtiments, photo obligatoire, connexion par lien ou QR code, sans mot de passe</span></label>
+      <button class="btn">Créer et générer le mot de passe</button></form></div>
+    ${modPushSummary(mods)}
+    <div class="list" style="margin-top:14px">${mods.map((m) => `<div class="row"><div class="grow"><div class="title">${esc(m.username)} ${m.role === 'admin' ? '<span class="pill purple">admin</span>' : m.role === 'terrain' ? '<span class="pill orange">📍 piquet</span>' : ''} ${m.disabled ? '<span class="pill grey">désactivé</span>' : m.modPush ? `<span class="pill green" title="Dernière activation ${esc(ago(m.modPushAt))}">🔔 alertes · ${m.modPush} tél.</span>` : '<span class="pill orange">🔕 alertes non activées</span>'}</div><div class="sub">${esc(m.org)} · ${m.role === 'admin' ? 'tous les sites' : esc((m.sites || []).map(siteShort).join(', ') || 'aucun site')}</div></div>
+      ${m.id === state.me.id ? '' : `<button class="btn small ghost" data-edit="${esc(m.id)}">Modifier</button>`}${m.role === 'terrain' ? `<button class="btn small ghost" data-link="${esc(m.id)}">Nouveau lien</button>` : `<button class="btn small ghost" data-reset="${esc(m.id)}">Nouveau mdp</button>`}${m.disabled || m.id === state.me.id ? '' : `<button class="btn small red" data-off="${esc(m.id)}">Désactiver</button>`}</div>`).join('')}</div>`;
+  const showLink = (m) => sheet(`<h3>📍 Lien piquet · ${esc(m.org)}</h3>
+    <p class="muted">À ouvrir sur le téléphone de la personne du piquet (ou à scanner) : elle est connectée directement, avec seulement les bâtiments de ${esc((m.sites || []).map(siteShort).join(', '))}.</p>
+    <div class="qr-box">${qrImg(m.link)}</div>
+    <div class="secret" style="font-size:12px;word-break:break-all">${esc(m.link)}</div>
+    <div class="btn-row"><button class="btn" id="lcopy">Copier le lien</button>${navigator.share ? '<button class="btn ghost" id="lshare">Partager…</button>' : ''}</div>
+    <p class="faint small">Envoie-le par Signal. Il ne sera plus affiché : en cas de perte, « Nouveau lien » (l’ancien cessera de marcher).</p>`, (root) => {
+      $('#lcopy', root).onclick = async () => { try { await navigator.clipboard.writeText(m.link); toast('Lien copié ✅'); } catch { prompt('Lien :', m.link); } };
+      if ($('#lshare', root)) $('#lshare', root).onclick = () => navigator.share({ title: 'Accès piquet · La Doua au courant', text: 'Ton accès piquet pour mettre à jour les bâtiments :', url: m.link }).catch(() => {});
+    });
+  const showPw = (m) => sheet(`<h3>Accès pour ${esc(m.username)}</h3><p class="muted">Transmets-le en main propre ou par messagerie chiffrée (Signal). Il ne sera plus affiché.</p><div class="secret">${esc(m.password)}</div><p class="faint small">La personne pourra le changer dans « Mon compte ».</p>`);
+  // comptes piquet partagés : l'admin peut débloquer tous les téléphones bloqués par les modos
+  el.insertAdjacentHTML('beforeend', `<div class="card" style="margin-top:14px"><div class="kicker">📍 Comptes piquet partagés</div><p class="muted small">Un même lien peut servir à plusieurs personnes. Chaque mise à jour est tracée par téléphone (« tél. ab12cd » dans le journal) ; un·e modo peut bloquer un téléphone qui envoie de fausses infos depuis la photo du piquet.</p><button type="button" class="btn ghost small" id="unblock">Débloquer tous les téléphones bloqués</button></div>`);
+  $('#unblock', el).onclick = async () => { if (!confirm('Débloquer tous les téléphones piquet bloqués ?')) return; const r = await act(() => api('/api/mod/blocked-devices', { method: 'DELETE' })); toast(`${r.n} téléphone(s) débloqué(s).`); };
+  $('#mf').onsubmit = async (e) => { e.preventDefault(); const m = await act(() => api('/api/mod/mods', { method: 'POST', body: { username: $('#mu').value, org: $('#mo').value, role: $('#ma').checked ? 'admin' : $('#mt').checked ? 'terrain' : 'mod', sites: $$('input[name=ns]:checked').map((x) => x.value) } })); m.link ? showLink(m) : showPw(m); await modAccounts(el); };
+  el.querySelector('.list').onclick = async (e) => {
+    const r = e.target.dataset.reset; const o = e.target.dataset.off; const ed = e.target.dataset.edit; const lk = e.target.dataset.link;
+    if (lk && confirm('Générer un nouveau lien terrain ? L’ancien lien et les téléphones déjà connectés ne marcheront plus.')) { showLink(await act(() => api(`/api/mod/mods/${lk}/link`, { method: 'POST' }))); await modAccounts(el); return; }
+    if (ed) {
+      const m = mods.find((x) => x.id === ed);
+      sheet(`<h3>${esc(m.username)}</h3><form class="form" id="emf">
+        <div class="field"><label>Nom affiché</label><input type="text" id="emo" maxlength="80" value="${esc(m.org)}"></div>
+        <div class="field"><label>Sites</label></div>
+        ${siteList().map((x) => `<label class="check"><input type="checkbox" name="es" value="${esc(x.id)}" ${(m.sites || []).includes(x.id) ? 'checked' : ''}> ${esc(x.name)}</label>`).join('')}
+        <label class="check"><input type="checkbox" id="ema" ${m.role === 'admin' ? 'checked' : ''}> Admin (tous les sites)</label>
+        <button class="btn">Enregistrer</button></form>`, (root, close) => {
+        $('#emf', root).onsubmit = async (ev) => { ev.preventDefault(); await act(() => api(`/api/mod/mods/${ed}`, { method: 'PUT', body: { org: $('#emo', root).value, role: $('#ema', root).checked ? 'admin' : 'mod', sites: $$('input[name=es]:checked', root).map((x) => x.value) } }), 'Compte mis à jour.'); close(); await modAccounts(el); };
+      });
+    }
+    if (r && confirm('Générer un nouveau mot de passe ? L’ancien ne marchera plus.')) { showPw(await act(() => api(`/api/mod/mods/${r}/reset`, { method: 'POST' }))); await modAccounts(el); }
+    if (o && confirm('Désactiver ce compte ?')) { await act(() => api(`/api/mod/mods/${o}`, { method: 'DELETE' }), 'Désactivé.'); await modAccounts(el); }
+  };
+}
+
+function modPushSummary(mods) {
+  const active = mods.filter((m) => !m.disabled);
+  const on = active.filter((m) => m.modPush);
+  const covers = (m, id) => m.role === 'admin' || (m.sites || []).includes(id);
+  const rows = siteList().map((x) => {
+    const team = active.filter((m) => m.role !== 'admin' && covers(m, x.id));
+    const ok = team.filter((m) => m.modPush);
+    return `<div class="mp-site ${team.length && !ok.length ? 'warn' : ''}"><b>${esc(x.short)}</b><span>${team.length ? `${ok.length}/${team.length} modo${team.length > 1 ? 's' : ''} ${ok.length ? '🔔' : '🔕'}` : '<i>aucun modo</i>'}</span>${team.length ? `<small>${team.map((m) => `${m.modPush ? '🔔' : '🔕'} ${esc(m.org)}`).join(' · ')}</small>` : ''}</div>`;
+  }).join('');
+  const missing = siteList().filter((x) => { const t = active.filter((m) => m.role !== 'admin' && covers(m, x.id)); return t.length && !t.some((m) => m.modPush); });
+  return `<div class="card" style="margin-top:14px"><div class="kicker">🔔 Alertes modo sur téléphone · ${on.length}/${active.length} compte${active.length > 1 ? 's' : ''} actif${active.length > 1 ? 's' : ''}</div>
+    <p class="muted small" style="margin:6px 0 10px">Un modo reçoit une notification dès qu’une personne signale un bâtiment de ses sites (photo à l’appui), seulement s’il a touché « Activer » dans l’espace modo sur son téléphone.${missing.length ? ` <b style="color:var(--orange)">Personne n’est prévenu pour : ${missing.map((x) => esc(x.short)).join(', ')}.</b> Relance ces modos.` : ''}</p>
+    <div class="mp-grid">${rows}</div></div>`;
+}
+
+function qrImg(text) {
+  try { const q = qrcode(0, 'M'); q.addData(text); q.make(); return q.createImgTag(6, 12, 'QR code du lien'); } catch { return ''; }
+}
+
+  Object.assign(MODV, { journal: modJournal, moi: modMe, revendications: modDemands, contacts: modContacts, sites: modSites, audience: modAudience, flash: modFlash, chat: modChat, entraide: modEntraide, droits: modDroits , agenda: modAgenda, cr: modReports, ensemble: modEnsemble, blog: modBlog, temoignages: modTestimonies , instagram: modInstagram, comptes: modAccounts });
 })();
