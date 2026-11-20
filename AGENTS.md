@@ -196,6 +196,11 @@ PWA gratuite « Lyon 1 · La Doua au courant » (anciennement « La Doua en lutt
 - Données personnelles : rien d'identifiant en public, cookies anonymes, pas de secrets dans le dépôt (variables Render).
 
 ## Journal des décisions
+- 2026-11-20 : chat, photos éphémères « 1 vue » : faille corrigée. Sans cookie d'appareil établi, chaque requête
+  recevait une identité neuve → la photo pouvait être revue à l'infini. Désormais `GET /api/chat/photo/:id` refuse (428)
+  un appareil fabriqué à l'instant (`req.deviceMinted`, posé dans le middleware quand aucun cookie n'est reçu) ; l'app
+  réessaie une fois avec le cookie fraîchement posé (openSnapInner). Destinataire normal : 1 vue (200 puis 410).
+  Les modos gardent l'accès (modération). L'aperçu dans la bulle reste un petit flou (teaser), pas la photo.
 - 2026-11 : remise à zéro déplacée de 5 h à 22 h (elle effaçait les statuts de la journée).
 - 2026-11 : comptes piquet avec photo obligatoire, recherche et ajout de bâtiments (Copilot), écran corrigé (Claude).
 - 2026-11 : compte piquet = écran calqué sur la page publique Bâtiments (pas d'onglets ni d'en-tête modo) ; toucher un bâtiment ouvre la caméra, puis on choisit l'état sur la photo. Aucun import possible.

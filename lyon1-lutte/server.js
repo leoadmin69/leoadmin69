@@ -83,6 +83,9 @@ app.use((req, res, next) => {
     return wantsDevice ? res.status(429).json({ error: 'Beaucoup de nouveaux appareils depuis ce réseau : réessaie dans quelques minutes.' }) : next();
   }
   const id = d?.id || newDeviceId();
+  // appareil fabriqué à l'instant (aucun cookie reçu) : identité toute neuve, à ne pas croire sur parole
+  // pour ce qui se compte « une seule fois par appareil » (voir une photo éphémère…).
+  req.deviceMinted = !d;
   // transition : les téléphones qui avaient déjà un cookie avant la signature gardent leur ancienneté jusqu'au 21/11
   const born = d && Date.now() < Date.parse(process.env.DEVICE_LEGACY_UNTIL || '2026-11-21T00:00:00Z') ? Date.now() - 3 * 3600e3 : Date.now();
   res.append('Set-Cookie', deviceCookie(id, born));
@@ -349,6 +352,9 @@ app.get('/api/chat/photo/:id', async (req, res) => {
   const modNow = chatMod(req);
   if (!modNow) {
     if (m.hidden) return bad(res, 'Photo retirée par les modos.', 410);
+    // sans appareil établi (cookie reçu), chaque vue aurait une identité neuve → on pourrait revoir à l'infini.
+    // On refuse et on demande de recharger : le cookie vient d'être posé, l'app réessaie avec le même appareil.
+    if (req.deviceMinted) return bad(res, 'Recharge la page et réessaie.', 428);
     const v = deviceKey(req, res, true);
     if (m.photo.views.includes(v)) return bad(res, 'Déjà vue : une seule vue par personne.', 410);
     m.photo.views.push(v);

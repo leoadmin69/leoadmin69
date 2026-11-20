@@ -3246,7 +3246,10 @@ async function openSnap(pid, asMod = false) {
 async function openSnapInner(pid) {
   let blob;
   try {
-    const r = await fetch(`/api/chat/photo/${encodeURIComponent(pid)}`, { credentials: 'same-origin', cache: 'no-store' });
+    const url = `/api/chat/photo/${encodeURIComponent(pid)}`;
+    let r = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+    // 428 = appareil pas encore établi ; le cookie vient d'être posé, on réessaie une fois avec le même appareil
+    if (r.status === 428) r = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
     if (!r.ok) { const j = await r.json().catch(() => ({})); if (r.status === 410 && !state.me) markSnapSeen(pid); return toast(j.error || 'Photo indisponible.'); }
     blob = await r.blob();
   } catch { return toast('Connexion impossible.'); }
