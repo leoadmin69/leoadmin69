@@ -1897,6 +1897,17 @@ function storyEvent(ctx, W, H, ev) {
   if (ev.address) y = drawBlock(ctx, ev.address, 80, y + 6, W - 160, 38, 500, '#a1a1aa', 1.25, 2);
   if (ev.description) drawBlock(ctx, ev.description, 80, y + 50, W - 160, 40, 500, '#d1d1d6', 1.35, Math.max(1, Math.floor((H - 330 - y - 50) / 54)));
 }
+function storyFlash(ctx, W, H, f) {
+  const color = f.level === 'alerte' ? '#ff453a' : f.level === 'ok' ? '#30d158' : '#0a84ff';
+  storyFrame(ctx, W, H, color);
+  const label = f.official ? '📢 ADMINISTRATION DU SITE' : f.level === 'alerte' ? '🚨 ALERTE' : f.level === 'ok' ? '✅ INFO' : '⚡ FLASH INFO';
+  pill(ctx, 80, 400, label, color + '30', color);
+  const size = fitFont(ctx, f.text, (W - 160) * 3, 92, 50, 800);
+  let y = drawBlock(ctx, f.text, 80, 560, W - 160, size, 800, '#fff', 1.22, 10);
+  y += 40;
+  ctx.fillStyle = '#a1a1aa'; ctx.font = `600 36px ${SF}`;
+  ctx.fillText(`${f.org || ''} · ${new Date(f.at).toLocaleString('fr-FR', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}`.slice(0, 52), 80, Math.min(y + 30, H - 320));
+}
 function storyReport(ctx, W, H, r) {
   storyFrame(ctx, W, H, '#0a84ff');
   pill(ctx, 80, 380, '📝 COMPTE RENDU D’AG', 'rgba(10,132,255,0.2)', '#0a84ff');
@@ -2189,6 +2200,7 @@ async function openStory(kind = 'campus') {
     ['post', '🖼️ Promo (publication)', null, ...P, promoPost],
     ['tuto', '🔔 Tuto notifs (4 images)', null, ...P, [tuto1, tuto2, tuto3, tuto4]],
     ['campus', '🏛️ Statut du site', null, ...S, storyCampus],
+    ...d.flashes.slice(0, 6).map((f) => [`flash:${f.id}`, `${f.level === 'alerte' ? '🚨' : f.official ? '📢' : '⚡'} Flash · ${f.text.slice(0, 20)}`, f, ...S, (c, w, h) => storyFlash(c, w, h, f)]),
     ...d.events.slice(0, 3).map((e) => [`ev:${e.id}`, `📣 ${EVENT_TYPE[e.type][0]} · ${e.title.slice(0, 22)}`, e, ...S, (c, w, h) => storyEvent(c, w, h, e)]),
     ...(d.reports[0] ? [[`cr:${d.reports[0].id}`, `📝 CR · ${d.reports[0].titre.slice(0, 20)}`, d.reports[0], ...S, (c, w, h) => storyReport(c, w, h, d.reports[0])]] : []),
     ...polls.filter((p) => p.open).slice(0, 3).map((p) => [`vote:${p.id}`, `🗳️ Vote · ${p.question.slice(0, 22)}`, p, ...S, (c, w, h) => storyVote(c, w, h, p)]),
@@ -2227,7 +2239,13 @@ async function openStory(kind = 'campus') {
       else { download(); toast('Images téléchargées : publie-les sur Instagram.'); }
     };
     $('#slink', root).onclick = async () => { try { await navigator.clipboard.writeText(voteUrl(current[2])); toast('Lien du vote copié ✅'); } catch { prompt('Lien du vote :', voteUrl(current[2])); } };
-    draw(tpl.some((o) => o[0] === kind) ? kind : 'promo');
+    // « flash » (bouton de l'onglet) = première story de flash info en ligne, sinon on prévient
+    let start = kind;
+    if (!tpl.some((o) => o[0] === kind)) {
+      if (kind === 'flash') { const first = tpl.find((o) => o[0].startsWith('flash:')); if (first) start = first[0]; else { toast('Aucun flash info en ligne à partager.'); start = 'promo'; } }
+      else start = 'promo';
+    }
+    draw(start);
   });
 }
 async function modStory(el) {
@@ -2237,7 +2255,7 @@ async function modStory(el) {
       <div class="btn-row"><button class="btn red" data-open="promo">Story promo</button><button class="btn ghost" data-open="post">Publication</button><button class="btn ghost" data-open="tuto">Tuto notifs</button></div></div>
     <div class="card" style="margin-top:12px"><div class="kicker">📸 Infos du jour · ${esc(siteShort(state.modSite))}</div>
       <p class="muted">Statut du site, prochain rendez-vous, compte rendu, votes en cours et résultats.</p>
-      <div class="btn-row"><button class="btn ghost" data-open="campus">Statut du site</button><a class="btn ghost" href="#/modo" id="tovotes">Votes et résultats →</a></div></div>
+      <div class="btn-row"><button class="btn ghost" data-open="campus">Statut du site</button><button class="btn ghost" data-open="flash">⚡ Flash info</button><a class="btn ghost" href="#/modo" id="tovotes">Votes et résultats →</a></div></div>
     <p class="faint small">Toutes les images sont dessinées sur ton téléphone à partir des infos du site : aucune IA, aucun service extérieur, gratuit.</p>`;
   el.onclick = (e) => { const k = e.target.closest('[data-open]')?.dataset.open; if (k) openStory(k); };
   $('#tovotes').onclick = (e) => { e.preventDefault(); state.modTab = 'votes'; render(true); };
