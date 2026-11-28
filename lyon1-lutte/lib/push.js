@@ -1,9 +1,16 @@
 // Notifications sur le téléphone (Web Push) : gratuites, illimitées, sans compte ni email.
 // Marchent sur Android (Chrome, Firefox, Samsung) et sur iPhone quand le site est ajouté à l'écran d'accueil (iOS 16.4+).
 // Les clés VAPID sont créées au premier démarrage et gardées dans la base.
+import crypto from 'node:crypto';
 import * as webpush from 'web-push';
 import { db, save, newId, now } from './store.js';
 import { SITE_URL } from './mail.js';
+
+// Le « topic » d'une notification (RFC 8030) doit être une courte chaîne base64url valide. Apple (iPhone) la décode
+// pour la vérifier et REFUSE une longueur invalide (ex. 25 caractères) avec « BadWebPushTopic » : certaines notifs
+// ne partaient pas sur iPhone. On fabrique un topic sûr à partir du tag (toujours le même pour un même tag, donc le
+// regroupement des notifications est conservé).
+const safeTopic = (s) => crypto.createHash('sha1').update(String(s || 'x')).digest('base64url').slice(0, 24);
 
 export const PUSH_KINDS = ['buildings', 'urgent', 'events', 'reports'];
 
@@ -89,14 +96,15 @@ async function deliver(subs, kind, { title, body, url = '/', tag }, listName) {
   for (let i = 0; i < subs.length; i += 20) {
     await Promise.allSettled(subs.slice(i, i + 20).map(async (s) => {
       try {
-        await webpush.sendNotification({ endpoint: s.endpoint, keys: s.keys }, payload, { TTL: 6 * 3600, timeout: 10000, urgency: kind === 'reports' ? 'normal' : 'high', topic: (tag || kind).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32) });
+        await webpush.sendNotification({ endpoint: s.endpoint, keys: s.keys }, payload, { TTL: 6 * 3600, timeout: 10000, urgency: kind === 'reports' ? 'normal' : 'high', topic: safeTopic(tag || kind) });
         sent++;
         s.fails = 0;
       } catch (e) {
-        // 404/410 : le téléphone s'est désabonné ou l'app a été supprimée ; 5 échecs d'affilée : abonnement abandonné
-        s.fails = (s.fails || 0) + 1;
-        if (e.statusCode === 404 || e.statusCode === 410 || s.fails >= 5) dead.add(s.endpoint);
-        else console.error('[push]', e.statusCode || '', e.body || e.message);
+        // On NE supprime un abonnement QUE si le service de notification dit qu'il n'existe plus (404/410).
+        // Les autres erreurs (400 topic, 429, 5xx, timeout…) sont des problèmes de requête ou passagers : on NE
+        // supprime JAMAIS sur ces cas (sinon un bug d'envoi effacerait tous les abonnés valides, comme c'est arrivé).
+        if (e.statusCode === 404 || e.statusCode === 410) dead.add(s.endpoint);
+        else { s.fails = (s.fails || 0) + 1; console.error('[push]', e.statusCode || '', (e.body || e.message || '').slice(0, 80)); }
       }
     }));
   }
