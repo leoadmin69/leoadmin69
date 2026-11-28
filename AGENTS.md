@@ -196,6 +196,16 @@ PWA gratuite « Lyon 1 · La Doua au courant » (anciennement « La Doua en lutt
 - Données personnelles : rien d'identifiant en public, cookies anonymes, pas de secrets dans le dépôt (variables Render).
 
 ## Journal des décisions
+- 2026-11-28 : BUG notifications corrigé (chute 290 → 90 abonnés). Les annonces officielles/alertes utilisaient un
+  « topic » de longueur invalide (ex. `officiel-<id16>` = 25 car., reste 1 mod 4) → Apple refusait avec 400
+  « BadWebPushTopic » (iPhone seulement ; Android/desktop passaient). PIRE : dans lib/push.js, une erreur 400 comptait
+  comme un échec et `s.fails >= 5` supprimait l'abonnement → ~200 iPhone VALIDES effacés au fil des annonces.
+  Correctif : `safeTopic()` = sha1(tag) en base64url tronqué à 24 car. (toujours valide, même topic pour un même tag
+  → regroupement conservé) ; et on ne supprime un abonnement QUE sur 404/410 (jamais sur 400/429/5xx/timeout).
+  Non récupérable d'ici (pas de clé Supabase côté Claude, pas d'historique) : les iPhone perdus doivent rouvrir l'app
+  et réactiver les notifs (un tap). Désormais les notifs repartent sur iPhone.
+- 2026-11-28 : Story Insta : on peut partager une story d'un flash info (onglet 📸 Story Insta → « ⚡ Flash info » ;
+  couleur selon alerte/info/ok, mention « 📢 Administration » si officiel).
 - 2026-11-20 : Render suspendu (« Monthly Quota Exceeded » : heures gratuites du mois épuisées, sûrement à cause du
   service en double du Blueprint). L'admin a ajouté une carte (facturation ~0,15 €/Go). Économie de données faite :
   `/api/state` renvoie un ETag STABLE (le compteur `online`, qui bouge sans cesse et est déjà poussé par le SSE, est
